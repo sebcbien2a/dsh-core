@@ -1,0 +1,1 @@
+print('Qdrant en ligne')

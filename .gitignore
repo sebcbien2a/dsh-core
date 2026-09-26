@@ -1,0 +1,16 @@
+# Environnements virtuels et cache Python
+.venv-v3/
+__pycache__/
+*.pyc
+
+# Bases de données locales (Ne jamais versionner les datas)
+qdrant_storage/
+neo4j_data/
+
+# Poids des modèles IA (Fichiers massifs)
+models/
+*.gguf
+*.bin
+
+# Fichiers sensibles (Clés API OpenRouter, Mem0, etc.)
+.env

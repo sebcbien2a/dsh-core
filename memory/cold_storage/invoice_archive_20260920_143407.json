@@ -1,0 +1,6 @@
+{
+    "timestamp": "20260920_143407",
+    "records": [
+        "{\"type\": \"web_research\", \"timestamp\": \"2026-09-20T14:34:07.438869\", \"data\": {\"query\": \"Bonjour comment vas-tu ?\", \"type\": \"conversation\", \"response\": \"Échange conversationnel sans recherche Web.\"}}"
+    ]
+}

@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Master Blueprint V2.3 - Architecture Agentique Autonome</title>
+    <style>
+        :root {
+            --blue: #2B5797;
+            --green: #00A300;
+            --orange: #E3A21A;
+            --yellow: #D8A000;
+            --gray-bg: #f8f9fa;
+            --dark: #1e1e1e;
+        }
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            line-height: 1.5;
+            color: #222;
+            max-width: 21cm;
+            margin: 0 auto;
+            padding: 25px;
+            background: #fff;
+        }
+        .header { text-align: center; border-bottom: 3px solid var(--blue); padding-bottom: 12px; margin-bottom: 20px; }
+        .header h1 { font-size: 22px; margin: 0; color: #111; letter-spacing: 0.5px; }
+        .header h2 { font-size: 13px; margin: 5px 0 0 0; color: #555; text-transform: uppercase; }
+        .header .version { font-size: 12px; font-weight: bold; color: var(--blue); margin-top: 5px; }
+
+        .exec-summary { background: var(--gray-bg); border-left: 4px solid var(--blue); padding: 12px 15px; font-size: 12px; margin-bottom: 25px; }
+
+        h2.sec-title { font-size: 14px; background: #2c3e50; color: #fff; padding: 6px 10px; margin-top: 25px; margin-bottom: 15px; border-radius: 3px; text-transform: uppercase; page-break-after: avoid; }
+
+        /* Cartographie 4 colonnes (Style Photo 1) */
+        .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 20px; page-break-inside: avoid; }
+        .card { border: 2px solid; border-radius: 5px; padding: 10px; font-size: 11px; background: #fff; }
+        .card h3 { margin: 0 0 8px 0; font-size: 12px; border-bottom: 1px solid; padding-bottom: 4px; }
+        .card ul { padding-left: 14px; margin: 0; }
+        .card li { margin-bottom: 4px; }
+
+        .card-blue { border-color: var(--blue); } .card-blue h3 { color: var(--blue); border-color: var(--blue); }
+        .card-green { border-color: var(--green); } .card-green h3 { color: var(--green); border-color: var(--green); }
+        .card-orange { border-color: var(--orange); } .card-orange h3 { color: var(--orange); border-color: var(--orange); }
+        .card-yellow { border-color: var(--yellow); } .card-yellow h3 { color: var(--yellow); border-color: var(--yellow); }
+
+        /* Inclusion Schéma Photo 2 */
+        .schema-box { text-align: center; border: 1px solid #ccc; padding: 10px; background: #fafafa; border-radius: 5px; margin: 15px 0; page-break-inside: avoid; }
+        .schema-box img { max-width: 100%; height: auto; border-radius: 4px; }
+        .schema-legend { font-size: 11px; color: #666; font-style: italic; margin-top: 6px; }
+
+        /* Tables */
+        table { width: 100%; border-collapse: collapse; font-size: 11px; margin: 15px 0; page-break-inside: avoid; }
+        th, td { border: 1px solid #ccc; padding: 7px 9px; text-align: left; }
+        th { background-color: #f1f1f1; font-weight: bold; }
+
+        p, li { font-size: 12px; }
+        ul { padding-left: 18px; }
+
+        .page-break { page-break-before: always; }
+
+        @media print {
+            body { padding: 0; max-width: 100%; }
+            .page-break { page-break-before: always; }
+            h2.sec-title { page-break-after: avoid; }
+            .card, table, .schema-box { page-break-inside: avoid; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>ARCHITECTURE AGENTIQUE AUTONOME</h1>
+        <h2>Spécification Technique & Blueprint Systémique Multi-Boucles Local</h2>
+        <div class="version">MASTER BLUEPRINT V2.3 (EXHAUSTIF & INTÉGRAL)</div>
+    </div>
+
+    <div class="exec-summary">
+        <strong>Résumé Exécutif :</strong> Ce document régit l'installation globale du système IA autonome local (<code>dsh-core</code>). Il orchestre les modèles spécialisés (Qwen Coder 14B/32B, DeepSeek 32B/R1, Mistral, Llama Vision, Flux/ComfyUI, Llama 3.2 3B) via le harnais <code>dsh</code>, gère la mémoire multi-niveaux et persistante (Mem0 + AnythingLLM + cold_storage), intègre les sous-agents d'exécution (dont le sous-agent de recherche web autonome <code>ResearchAgent</code>), connecte les sources de données (Google Drive Multi-Comptes, OneDrive, VS Code, n8n) et assure l'observabilité et le contrôle qualité en temps réel (Langfuse + React Flow + LLM-as-a-Judge).
+    </div>
+
+    <h2 class="sec-title">1. Cartographie des 3 Boucles Agentiques & Cockpits UI</h2>
+    
+    <div class="grid-4">
+        <div class="card card-blue">
+            <h3>1. Cockpit & UI</h3>
+            <ul>
+                <li><strong>VS Code / CLI :</strong> Dev direct & contrôle <code>dsh-core</code>.</li>
+                <li><strong>AnythingLLM :</strong> Chat, RAG local & mémoire froide.</li>
+                <li><strong>n8n Workflows :</strong> Automatismes, webhooks & triggers.</li>
+            </ul>
+        </div>
+        <div class="card card-green">
+            <h3>2. Boucle Verte</h3>
+            <ul>
+                <li><strong>LLM-as-a-Judge :</strong> Contrôle qualité & re-try loop.</li>
+                <li><strong>Langfuse :</strong> Traces & suivi des tokens/latence.</li>
+                <li><strong>React Flow :</strong> Dashboard visuel second écran.</li>
+            </ul>
+        </div>
+        <div class="card card-orange">
+            <h3>3. Boucle Orange</h3>
+            <ul>
+                <li><strong>dsh-core :</strong> Orchestrateur & Router.</li>
+                <li><strong>ResearchAgent :</strong> Recherche web & scraping.</li>
+                <li><strong>MCP Server :</strong> Drive, OneDrive, Git.</li>
+                <li><strong>ComfyUI :</strong> Génération Flux/SD.</li>
+            </ul>
+        </div>
+        <div class="card card-yellow">
+            <h3>4. Boucle Jaune</h3>
+            <ul>
+                <li><strong>Mem0 :</strong> Faits clés & préférences.</li>
+                <li><strong>Llama 3.2 (3B) :</strong> Résumé & compression contextuelle.</li>
+                <li><strong>AnythingLLM :</strong> Vector DB sur <code>cold_storage/</code>.</li>
+            </ul>
+        </div>
+    </div>
+
+    <h2 class="sec-title">2. Schéma Système Global & Flux d'Exécution (Détail de la Photo 2)</h2>
+    
+    <div class="schema-box">
+        <!-- Nom du fichier image enregistré localement -->
+        <img src="image_c05982.jpg" alt="Schéma complet du Harness, RAM Loop, Compression et LLM Ops">
+        <div class="schema-legend">Figure 2.1 — Modèle de flux d'exécution éphémère (RAM), boucle d'outils, persistance sémantique et contrôle LLM Ops.</div>
+    </div>
+
+    <p><strong>Décomposition technique intégrale du schéma :</strong></p>
+    <ul>
+        <li><strong>Enveloppe Harnais (Harness Scope) :</strong> Le moteur <code>dsh-core</code> englobe la totalité de la session. Il maintient une étanchéité stricte entre l'espace d'exécution temporaire et le stockage froid d'archivage.</li>
+        <li><strong>Boucle Agentique Éphémère (RAM) :</strong> Tout est temporaire pendant la session. Le contexte est assemblé à partir de la demande utilisateur, de l'historique récent de chat et du prompt système, puis enrichi dynamiquement par :
+            <ul>
+                <li><code>SKILL.md</code> (Mémoire procédurale / instructions de compétences et règles d'action).</li>
+                <li>DB Vectorielle (Mémoire sémantique / faits persistants récupérés via RAG top-k).</li>
+                <li>DB / SQL (Mémoire épisodique / événements récents et historique de conversations).</li>
+            </ul>
+        </li>
+        <li><strong>Boucle d'Outils (Tool Loop) :</strong> L'Agent IA sollicite des outils dédiés (ex: <code>ResearchAgent</code>, workflows n8n, CRM, agenda, scripts de code). Les retours repassent par une couche de sécurité (Guardrails) avant la génération de la réponse finale à l'utilisateur.</li>
+        <li><strong>Système de Compression de la Mémoire :</strong> Dès le franchissement d'un seuil de $N$ messages, l'agent ultra-léger <code>Llama 3.2 (3B)</code> supprime le superflu, extrait les faits essentiels et les enregistre dans la mémoire sémantique durable (DB Vectorielle / Mem0 / <code>cold_storage</code>).</li>
+        <li><strong>Module LLM Ops & Porte de Qualité (LLM Ops Gate) :</strong> Chaque exécution génère une trace complète ($1\text{ Run} = 1\text{ Trace}$) envoyée vers Langfuse. Le composant <em>LLM-as-a-Judge</em> évalue la conformité du résultat :
+            <ul>
+                <li><em>Si non valide :</em> Diagnostic d'erreur (pourquoi/quand ?) et relance automatique avec escalade vers un modèle supérieur.</li>
+                <li><em>Si valide :</em> Passage de la Gate, mise en production sécurisée et ajustement du prompt système / RAG $top\text{-}k$.</li>
+            </ul>
+        </li>
+    </ul>
+
+    <div class="page-break"></div>
+
+    <h2 class="sec-title">3. Matrice Exhaustive des Modèles IA du Système</h2>
+    <p>Le système repose sur un pool dynamique de modèles spécialisés basculant selon la complexité :</p>
+    <table>
+        <thead>
+            <tr>
+                <th>Modèle & Taille</th>
+                <th>Hébergement</th>
+                <th>Spécialité & Usage Principal</th>
+                <th>Niveau de Cascade</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><strong>Qwen 2.5 Coder 14B</strong></td>
+                <td>Local (Ollama / vLLM)</td>
+                <td>Code rapide, scripts, formatage JSON, requêtes courantes.</td>
+                <td>NIVEAU 1 (Par défaut)</td>
+            </tr>
+            <tr>
+                <td><strong>Mistral 7B/12B</strong></td>
+                <td>Local (Ollama)</td>
+                <td>Rédaction de contenus, synthèses de texte, emails, tri.</td>
+                <td>NIVEAU 1 (Généraliste)</td>
+            </tr>
+            <tr>
+                <td><strong>Qwen 2.5 Coder 32B</strong></td>
+                <td>Local (Ollama / vLLM)</td>
+                <td>Architecture logicielle, refactoring lourd, workflows n8n complexes.</td>
+                <td>NIVEAU 2 (Escalade Code)</td>
+            </tr>
+            <tr>
+                <td><strong>DeepSeek 32B / R1</strong></td>
+                <td>Local / OpenRouter</td>
+                <td>Raisonnement complexe, planification de tâches multi-étapes.</td>
+                <td>NIVEAU 2 (Planner / Agent)</td>
+            </tr>
+            <tr>
+                <td><strong>Llama 3.2 Vision</strong></td>
+                <td>Local (Ollama)</td>
+                <td>Lecture de documents scannés, OCR, tickets de caisse, schémas.</td>
+                <td>NIVEAU 2 (Analyse Vision)</td>
+            </tr>
+            <tr>
+                <td><strong>Flux / SD (ComfyUI)</strong></td>
+                <td>Local (ComfyUI MCP)</td>
+                <td>Génération d'images pour catalogues, visuels web, rendus.</td>
+                <td>NIVEAU 2 (Génération Image)</td>
+            </tr>
+            <tr>
+                <td><strong>Llama 3.2 (3B)</strong></td>
+                <td>Local (Ollama)</td>
+                <td>Sous-agent ultra-rapide d'arrière-plan pour la compression de mémoire Mem0 et résumés.</td>
+                <td>INFRA (Boucle Jaune)</td>
+            </tr>
+            <tr>
+                <td><strong>ResearchAgent</strong></td>
+                <td>Local (dsh-core)</td>
+                <td>Sous-agent de collecte web autonome, scraping et structuration d'infos.</td>
+                <td>INFRA (Boucle Orange)</td>
+            </tr>
+            <tr>
+                <td><strong>OpenRouter (Claude / GPT)</strong></td>
+                <td>API Distante</td>
+                <td>Secours ultime en cas d'échec répété des modèles locaux.</td>
+                <td>NIVEAU 4 (Fallback Ultime)</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h2 class="sec-title">4. Logique de Routage en Cascade & Contrôle Utilisateur</h2>
+    <p><strong>A. Routage Automatique par Escalade (Fallbacks) :</strong> Le harnais <code>dsh</code> applique un principe strict d'économie de ressources VRAM :</p>
+    <ul>
+        <li><strong>Démarrage ultra-rapide :</strong> La tâche est d'abord confiée au modèle le plus léger (ex: Qwen 14B).</li>
+        <li><strong>Détection d'échec (Boucle Verte) :</strong> Le composant <em>LLM-as-a-Judge</em> vérifie le résultat (syntaxe, critères respectés, format JSON).</li>
+        <li><strong>Escalade automatique :</strong> En cas d'erreur ou de rejet, le harnais réinjecte le journal d'erreur et passe la tâche au modèle supérieur (32B ou DeepSeek R1).</li>
+        <li><strong>Dernier recours :</strong> Si le 32B local échoue, bascule transparente vers l'API OpenRouter (Claude / GPT-4o).</li>
+    </ul>
+
+    <p><strong>B. Sélection Manuelle (User Override) :</strong> L'utilisateur conserve la priorité absolue à tout moment :</p>
+    <ul>
+        <li><strong>Sélecteur UI :</strong> Dans VS Code (Continue) ou AnythingLLM, un champ permet d'imposer un modèle spécifique pour une session.</li>
+        <li><strong>Profils par Projet :</strong> Possibilité de définir des règles strictes (ex: "Projet X = 100% Qwen 14B pour préserver la VRAM GPU").</li>
+        <li><strong>Déclenchement direct d'outils :</strong> Dire "Recherche sur le web..." active directement <code>ResearchAgent</code> sans passer par l'escalade textuelle.</li>
+    </ul>
+
+    <h2 class="sec-title">5. Connecteurs Cloud & Intégration Documentaire</h2>
+    <p>Afin de permettre à l'agent de retrouver et d'analyser tous tes documents sans import manuel :</p>
+    <ul>
+        <li><strong>Google Drive MCP (Multi-comptes) :</strong> Branchement simultané des comptes professionnels et personnels via l'API Google Workspace. L'agent peut rechercher des fichiers par nom, contenu, date ou dossier.</li>
+        <li><strong>OneDrive MCP :</strong> Connecteur Microsoft Graph permettant l'exploration des dossiers Cloud OneDrive, la lecture de tableurs Excel, et la synchronisation locale.</li>
+        <li><strong>RAG Hybride (AnythingLLM) :</strong> Les documents et archives générés dans <code>A:\dsh-core\memory\cold_storage\</code> sont indexés automatiquement dans la base vectorielle locale pour des recherches sémantiques instantanées.</li>
+    </ul>
+
+    <div class="page-break"></div>
+
+    <h2 class="sec-title">6. Observabilité Visuelle en Temps Réel (Écran Secondary Dashboard)</h2>
+    <p>Pour sortir de l'effet "boîte noire", l'architecture intègre un double système de suivi en direct :</p>
+    <ul>
+        <li><strong>A. Langfuse (Docker) — Traçabilité & Logs Fine :</strong>
+            <ul>
+                <li><em>Arbre d'exécution (Traces) :</em> Visualisation exacte de chaque appel de fonction et de chaque sous-agent.</li>
+                <li><em>Statistiques en direct :</em> Nombre de tokens consommés, modèle sollicité (14B vs 32B), latence en millisecondes.</li>
+                <li><em>Inspecteur MCP :</em> Visualisation des données brutes envoyées/reçues depuis Google Drive, n8n ou le système de fichiers.</li>
+            </ul>
+        </li>
+        <li><strong>B. Schéma Animé (React Flow / Langflow) :</strong>
+            <ul>
+                <li><em>Surbrillance Dynamique :</em> Chaque fois qu'une boucle s'active, la case correspondante sur le schéma s'allume (ex: Jaune quand Mem0 écrit, Orange quand <code>ResearchAgent</code> ou n8n s'exécutent).</li>
+                <li><em>Impulsions Lumineuses :</em> Des flux animés le long des flèches montrent le déplacement des données en temps réel.</li>
+                <li><em>Alerte d'Échec :</em> Clignotement rouge immédiat lors d'un rejet par la Boucle Verte suivi de l'animation d'escalade vers le modèle 32B.</li>
+            </ul>
+        </li>
+    </ul>
+
+    <h2 class="sec-title">7. Spécifications Techniques des Composants Clés</h2>
+    <ul>
+        <li><strong>DeepSeek Harnais (<code>dsh-core</code>) :</strong> Moteur d'orchestration central situé dans <code>A:\dsh-core\</code>, pilotable via CLI, n8n ou AnythingLLM. Il découpe le prompt en plan d'action, choisit le modèle et émet des événements WebSocket en direct vers Langfuse.</li>
+        <li><strong>Sous-Agent `ResearchAgent` (<code>agents/research_agent.py</code>) :</strong> Script Python de collecte web autonome. Il effectue les requêtes réseau, extrait le texte brut, le fait structurer en JSON par <code>llama3.2:3b</code> et l'archive en mémoire froide.</li>
+        <li><strong>Mem0 + Llama 3.2 3B (Moteur de Mémoire Persistante) :</strong> Évite la saturation du contexte. Régulièrement, le sous-agent <code>Llama 3.2 3B</code> extrait les faits durables et les stocke dans la base sémantique.</li>
+        <li><strong>Moteur de Workflows n8n & Serveurs MCP :</strong> Le bras armé du système pour les actions dans le monde réel (scraping, envoi de mails, gestion de factures, automatismes).</li>
+    </ul>
+
+    <h2 class="sec-title">8. Feuille de Route d'Installation Intégrale</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Étape</th>
+                <th>Composant & Action</th>
+                <th>Détails d'Exécution & Configuration</th>
+                <th>Statut</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr><td>1.1</td><td>Configuration VS Code + MCP Host</td><td>Finalisation du serveur MCP local, accès fichiers et terminal.</td><td>TERMINÉ</td></tr>
+            <tr><td>1.2</td><td>Structure dsh-core & Mémoire Multi-Niveaux</td><td>Création de l'arborescence A:\dsh-core et gestionnaire de mémoire.</td><td>TERMINÉ</td></tr>
+            <tr><td>1.3</td><td>Intégration Llama 3.2 (3B)</td><td>Configuration d'Ollama local pour résumés et compression.</td><td>TERMINÉ</td></tr>
+            <tr><td>1.4</td><td>Brique ResearchAgent (agents/research_agent.py)</td><td>Sous-agent de recherche web et structuration automatique JSON.</td><td>EN COURS</td></tr>
+            <tr><td>2.1</td><td>Google Drive & OneDrive MCP</td><td>Authentification OAuth multi-comptes Google et Graph API.</td><td>EN COURS</td></tr>
+            <tr><td>2.2</td><td>Base RAG AnythingLLM & Cold Storage</td><td>Connexion d'AnythingLLM au sous-dossier memory/cold_storage/.</td><td>EN COURS</td></tr>
+            <tr><td>3.1</td><td>DeepSeek Harnais & Cascade</td><td>Déploiement de dsh, règles de routage (14B -> 32B -> OpenRouter).</td><td>À FAIRE</td></tr>
+            <tr><td>3.2</td><td>Bridge n8n & ComfyUI MCP</td><td>Exposition des Webhooks n8n et du serveur de génération Flux/SD.</td><td>À FAIRE</td></tr>
+            <tr><td>3.3</td><td>Dashboard Animé & Langfuse</td><td>Lancement de Langfuse en Docker et schéma React Flow sur Écran 2.</td><td>À FAIRE</td></tr>
+            <tr><td>4.1</td><td>Boucle Verte & Registre Skills</td><td>Mise en place du validateur LLM-as-a-Judge et auto-sauvegarde SKILL.md.</td><td>À FAIRE</td></tr>
+        </tbody>
+    </table>
+
+    <div class="page-break"></div>
+
+    <h2 class="sec-title">9. Exemples Concrets d'Exécution du Système</h2>
+    <p><strong>Scénario 1 : Recherche Web Autonome & Veille Technique</strong></p>
+    <ul>
+        <li>1. <em>Réception :</em> L'utilisateur lance <code>python dsh_harness.py --research "Nouveautés Ollama 2026"</code> ou déclenche un webhook n8n.</li>
+        <li>2. <em>Appel Outil (Boucle Orange) :</em> <code>ResearchAgent</code> effectue les requêtes web, récupère les pages et les transmet à <code>Llama 3.2 (3B)</code>.</li>
+        <li>3. <em>Traitement & Mémoire (Boucle Jaune) :</em> Llama 3.2 génère une synthèse JSON propre enregistrée dans <code>memory/cold_storage/research_20260919.json</code>.</li>
+        <li>4. <em>Consultation (Cockpit UI) :</em> AnythingLLM indexe le fichier. L'utilisateur peut discuter directement avec sa nouvelle base de connaissances.</li>
+    </ul>
+
+    <p><strong>Scénario 2 : Recherche Immobilière Multi-Critères</strong></p>
+    <p><em>Injonction : "Trouve-moi la liste des appartements T3/T4 à vendre sur [Ville] < 250k€ avec terrasse, mets-les dans un tableau propre et fais une synthèse."</em></p>
+    <ul>
+        <li>1. <em>Réception Prompt :</em> Le harnais <code>dsh</code> attribue la tâche initiale à Qwen 14B (rapide).</li>
+        <li>2. <em>Appel Outil (Boucle Orange) :</em> Qwen 14B déclenche le workflow n8n de scraping des annonces et interroge Google Drive / OneDrive pour vérifier les fiches déjà sauvegardées.</li>
+        <li>3. <em>Traitement & Contrôle (Boucle Verte) :</em>
+            <ul>
+                <li>Si Qwen 14B génère le tableau parfait -> Validé par le Judge.</li>
+                <li>Si Qwen 14B rate un critère (ex: oubli de la terrasse) -> Le Judge rejette le résultat, le harnais bascule automatiquement vers Qwen 32B / DeepSeek R1 qui corrige et finalise la réponse.</li>
+            </ul>
+        </li>
+        <li>4. <em>Mémoire (Boucle Jaune) :</em> Mem0 extrait tes critères (T3/T4, Ville, < 250k€) pour s'en souvenir lors de tes prochaines sessions.</li>
+        <li>5. <em>Observabilité (Écran 2) :</em> Le schéma React Flow s'allume en direct à chaque étape et Langfuse enregistre le coût exact de la requête.</li>
+    </ul>
+
+    <h2 class="sec-title">10. Principes de Maintenance & Évolutivité</h2>
+    <ul>
+        <li><strong>Remplacement d'un Modèle :</strong> Pour intégrer un nouveau modèle (ex: Qwen 3 ou Llama 4), il suffit de modifier son nom dans le fichier de config du harnais <code>dsh</code>. Aucun workflow n8n ou serveur MCP n'a besoin d'être réécrit.</li>
+        <li><strong>Ajout de Comptes Cloud :</strong> Il suffit de rajouter un jeton d'accès OAuth dans le serveur MCP Google Drive / OneDrive pour étendre instantanément le périmètre de recherche de l'agent.</li>
+        <li><strong>Persistance de la Mémoire :</strong> Les répertoires de mémoire (<code>cold_storage</code>), AnythingLLM, les bases Mem0 et les fichiers <code>SKILL.md</code> sont stockés en local sur le disque et survivent à toutes les mises à jour logicielles.</li>
+    </ul>
+
+</body>
+</html>

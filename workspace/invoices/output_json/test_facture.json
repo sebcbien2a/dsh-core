@@ -1,0 +1,30 @@
+{
+  "numero_facture": "FA-2026-0042",
+  "date_emission": "2026-09-25",
+  "date_echeance": null,
+  "fournisseur": {
+    "nom": "Paintcar Distribution France",
+    "siret": "12345678900012",
+    "numero_tva": null,
+    "adresse": null
+  },
+  "client": {
+    "nom": "Atelier Carrosserie Val de Loire",
+    "siret": null,
+    "adresse": null
+  },
+  "lignes": [
+    {
+      "description": "VernisCarrosserie UHS5L",
+      "quantite": 2.0,
+      "prix_unitaire_ht": 50.0,
+      "total_ht": 100.0,
+      "taux_tva": 20.0
+    }
+  ],
+  "total_ht": 100.0,
+  "montant_tva": 20.0,
+  "total_ttc": 120.0,
+  "devise": "EUR",
+  "statut_validation_math": true
+}

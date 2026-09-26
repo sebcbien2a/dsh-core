@@ -1,0 +1,11 @@
+{
+  "ping_qdrant": {
+    "name": "ping_qdrant",
+    "description": "Verifie la disponibilite de la base vectorielle",
+    "triggers": [
+      "ping",
+      "qdrant_check"
+    ],
+    "script_path": "A:\\dsh-core\\skills\\ping_qdrant.py"
+  }
+}
