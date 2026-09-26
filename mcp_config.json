@@ -1,19 +1,13 @@
 {
   "mcpServers": {
-    "filesystem": {
-      "command": "npx",
+    "dsh_skills": {
+      "command": "A:\\dsh-core\\.venv-v3\\Scripts\\python.exe",
       "args": [
-        "-y",
-        "@modelcontextprotocol/server-filesystem",
-        "A:\\dsh-core"
-      ]
-    },
-    "web-search": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-puppeteer"
-      ]
+        "A:\\dsh-core\\mcp_skills.py"
+      ],
+      "env": {
+        "PYTHONPATH": "A:\\dsh-core"
+      }
     }
   }
 }

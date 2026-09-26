@@ -1,8 +1,8 @@
 import sys
 import httpx
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
-mcp = FastMCP("DSH-Skills-Registry")
+mcp = MCPServer("DSH-Skills-Registry")
 
 @mcp.tool()
 def enregistrer_competence(nom: str, description: str, declencheurs: list[str], code_python: str) -> str:
