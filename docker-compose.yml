@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  # PHASE 9 : NEO4J (Base de données orientée Graphe pour le lettrage)
+  neo4j:
+    image: neo4j:latest
+    container_name: dsh-neo4j
+    ports:
+      - "7474:7474" # Interface Web (Navigateur)
+      - "7687:7687" # Port de communication API
+    environment:
+      - NEO4J_AUTH=neo4j/dshcore2026 # Identifiant et mot de passe
+    volumes:
+      - A:\dsh-core\neo4j_data:/data
+
+  # PHASE 6 : LANGFUSE (Observabilité et comptage des tokens)
+  langfuse-db:
+    image: postgres:15
+    container_name: dsh-langfuse-db
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=langfuse
+    volumes:
+      - A:\dsh-core\langfuse_db:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  langfuse:
+    image: langfuse/langfuse:2
+    container_name: dsh-langfuse-web
+    depends_on:
+      - langfuse-db
+    ports:
+      - "3001:3000" # Interface Web Langfuse
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@langfuse-db:5432/langfuse
+      - NEXTAUTH_SECRET=dsh_super_secret_key_2026
+      - NEXTAUTH_URL=http://localhost:3001
+      - SALT=dsh_super_salt_2026
