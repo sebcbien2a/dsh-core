@@ -31,15 +31,9 @@ Modèles locaux vitaux : qwen2.5-vl:7b, qwen3.5:9b, nomic-embed-text:latest.
 [Point d'appui 3] Requêtes Qdrant : Port 6333 | invoice_indexer.py.
 5. FEUILLE DE ROUTE (PHASES)
 Phase 1-3 : Qdrant, Mem0, LlamaIndex (Validées).
-
-Phase 4 : Intégration LangGraph dans FastAPI piloté par agents_registry.json.
-
-Phase 5 : Centralisation serveurs MCP (Filesystem, Drive, n8n).
-
-Phase 6 : Déploiement de Langfuse local (Docker) pour le traçage fin des jetons et coûts.
-
+Phase 4 : Intégration LangGraph dans FastAPI (Validée - orchestrator.py).
+Phase 5 : Centralisation serveurs MCP (Validée).
+Phase 6 : Déploiement de Langfuse local via Docker (Validée - Port 3000).
 Phase 7 : Connexion du tableau de bord animé (LangGraph Studio / React Flow) sur écran secondaire.
-
 Phase 8 : Pipeline Factures & API locale (Validée).
-
-Phase 9 : Intégration Neo4j & Modélisation du graphe comptable
+Phase 9 : Intégration Neo4j via Docker (Validée - Port 7474).

@@ -179,3 +179,26 @@ def api_list_skills():
         return memory_manager.list_all_skills()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    from pydantic import BaseModel
+from orchestrator import dsh_graph
+
+class GraphRequest(BaseModel):
+    task: str
+
+@app.post("/api/orchestrator")
+def run_langgraph(request: GraphRequest):
+    """Déclenche la machine à états LangGraph."""
+    try:
+        # Initialisation de l'état de départ
+        initial_state = {"task": request.task, "complexity": "", "result": "", "status": "démarré"}
+        
+        # Exécution du graphe
+        final_state = dsh_graph.invoke(initial_state)
+        
+        return {
+            "status": "success", 
+            "complexity_detected": final_state["complexity"],
+            "final_result": final_state["result"]
+        }
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}

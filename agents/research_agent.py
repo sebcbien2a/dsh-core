@@ -1,5 +1,5 @@
 ﻿import json
-from ddgs import DDGS
+from duckduckgo_search import DDGS
 
 class ResearchAgent:
     def __init__(self, model_name="llama3.2"):
