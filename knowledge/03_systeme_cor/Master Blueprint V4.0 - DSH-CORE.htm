@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="fr"><head>
+<meta http-equiv="content-type" content="text/html; charset=UTF-8">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Master Blueprint V4.0 - DSH-CORE</title>
+    <style>
+        :root {
+            --primary-bg: #f8fafc;
+            --text-main: #1e293b;
+            --text-muted: #475569;
+            --navy-blue: #0f172a;
+            --accent-blue: #2563eb;
+            --border-color: #e2e8f0;
+            --card-bg: #ffffff;
+        }
+
+        body {
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            color: var(--text-main);
+            background-color: var(--primary-bg);
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            background: var(--card-bg);
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+
+        h1 {
+            color: var(--navy-blue);
+            border-bottom: 3px solid var(--accent-blue);
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+            font-size: 2.2em;
+        }
+
+        h2 {
+            color: var(--navy-blue);
+            margin-top: 40px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        h3 {
+            color: var(--accent-blue);
+            margin-top: 25px;
+        }
+
+        .executive-summary {
+            background-color: #f0f9ff;
+            border-left: 5px solid var(--accent-blue);
+            padding: 20px;
+            margin-bottom: 40px;
+            border-radius: 0 8px 8px 0;
+        }
+
+        .executive-summary strong {
+            color: var(--navy-blue);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 25px 0;
+            background-color: var(--card-bg);
+        }
+
+        th, td {
+            padding: 15px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        th {
+            background-color: var(--navy-blue);
+            color: white;
+            font-weight: 600;
+        }
+
+        tr:hover {
+            background-color: #f8fafc;
+        }
+
+        .ascii-container {
+            background-color: var(--navy-blue);
+            color: #e2e8f0;
+            padding: 25px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 14px;
+            line-height: 1.4;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);
+            margin: 25px 0;
+            white-space: pre;
+        }
+
+        ul {
+            padding-left: 20px;
+        }
+
+        li {
+            margin-bottom: 10px;
+        }
+
+        .page-break {
+            margin: 60px 0;
+            border-top: 2px dashed var(--border-color);
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.9em;
+            letter-spacing: 2px;
+        }
+        
+        .page-break span {
+            background: var(--card-bg);
+            padding: 0 15px;
+            position: relative;
+            top: -12px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>MASTER BLUEPRINT V4.0 - ARCHITECTURE SYSTÉMIQUE DSH-CORE</h1>
+
+    <div class="executive-summary">
+        <strong>Résumé Exécutif :</strong><br>
+        Ce document de spécification régit l'installation globale du système IA autonome local (dsh-core) déployé sur l'environnement <code>A:\dsh-core\</code> via Python 3.11, optimisé pour une RTX 4070 et 32 Go de RAM. Conçu pour automatiser l'activité de distribution (Corse et Val de Loire), le système abandonne la logique des agents isolés au profit d'un orchestrateur déterministe unique (LangGraph). Il unifie le contexte documentaire via un RAG universel (Qdrant), résout la logique comptable complexe (Neo4j), et s'interface avec le monde réel via une boîte à outils standardisée (MCP Hub). La puissance de cette version réside dans sa boucle d'auto-apprentissage (Teacher-Student) et l'interconnexion de ses clients aveugles partageant la même mémoire.
+    </div>
+
+    <h2>PAGE 1 : CARTOGRAPHIE GLOBALE ET TOPOLOGIE UNIFIÉE</h2>
+    <p>Le système est structuré en 6 strates étanches garantissant que les interfaces de discussion n'exécutent aucune logique métier autonome. Elles agissent comme des terminaux qui interrogent un cerveau central unique.</p>
+
+    <div class="ascii-container">┌────────────────────────────────────────────────────────────────────────────────────────┐
+│ STRATE 1 : LES COCKPITS CLIENTS (TERMINAUX AVEUGLES PARTAGEANT LE MÊME CONTEXTE RAG)   │
+│                                                                                        │
+│  [ VS Code (Continue) ]   [ AnythingLLM ]    [ Open WebUI ]     [ n8n Workflows ]      │
+│  Dev, Code &amp; Workflows    Chat &amp; RAG local   Routage &amp; Tests    Déclencheurs Webhooks  │
+└───────────┬──────────────────────┬─────────────────┬────────────────────┬──────────────┘
+            │                      │                 │                    │
+            └──────────────────────┼─────────────────┼────────────────────┘
+                                   │ API Standard (Port 8000)
+                                   ▼
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│ STRATE 2 : LE CERVEAU CENTRAL (FastAPI + LangGraph)                                    │
+│                                                                                        │
+│ ┌────────────────────────────────────────────────────────────────────────────────────┐ │
+│ │ ORCHESTRATEUR (orchestrator.py) : Machine à états, Routage, Décision, Contexte     │ │
+│ └─┬───────────────────────────┬───────────────────────────┬────────────────────────┬─┘ │
+└───│───────────────────────────│───────────────────────────│────────────────────────│───┘
+    │ (Délègue les tâches)      │ (Utilise les outils)      │ (Lit/Écrit contexte)   │ (Envoie les logs)
+    ▼                           ▼                           ▼                        ▼
+┌─────────────────────┐ ┌───────────────────────┐ ┌────────────────────────┐ ┌───────────────┐
+│ STRATE 3 :          │ │ STRATE 4 : BOÎTE À    │ │ STRATE 5 : MÉMOIRE     │ │ STRATE 6 :    │
+│ CASCADE D'AGENTS IA │ │ OUTILS (MCP HUB)      │ │ HYBRIDE (RAG &amp; GRAPHE) │ │ OBSERVABILITÉ │
+│ - Qwen2.5-VL 7B     │ │ - Suite MS Office     │ │ - Qdrant (Vectoriel)   │ │ - Langfuse V2 │
+│ - Qwen 9B (Base)    │ │ - Fichiers / OS local │ │ - Neo4j (Lettrage)     │ │ - LangGraph   │
+│ - Qwen 27B (Expert) │ │ - Google Drive API    │ │ - Mem0 (Faits)         │ │   Studio      │
+│ - Claude 3.5 (Prof) │ │ - Webhooks n8n        │ │ - LlamaIndex (Bus)     │ │               │
+└─────────────────────┘ └───────────────────────┘ └────────────────────────┘ └───────────────┘</div>
+
+    <h3>Inventaire Fonctionnel des Strates</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>Strate de l'Architecture</th>
+                <th>Composants Actifs</th>
+                <th>Fonction Principale &amp; Rôle</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><strong>1. Cockpits (Terminaux)</strong></td>
+                <td>VS Code, AnythingLLM, Open WebUI, n8n</td>
+                <td>Interfaces utilisateurs sans base de données propre. Elles partagent un contexte RAG unique et formulent des requêtes au cerveau central.</td>
+            </tr>
+            <tr>
+                <td><strong>2. Cerveau Central</strong></td>
+                <td>FastAPI (<code>api.py</code>), LangGraph (<code>orchestrator.py</code>)</td>
+                <td>Machine à états gérant le routage conditionnel, l'aiguillage des documents entrants et la délégation des tâches selon la complexité.</td>
+            </tr>
+            <tr>
+                <td><strong>3. Cascade d'Agents IA</strong></td>
+                <td>Qwen2.5-VL, Qwen 9B, Qwen 27B, Claude 3.5</td>
+                <td>Pool de modèles spécialisés. L'orchestrateur bascule du modèle le plus léger vers le plus lourd uniquement en cas d'échec (optimisation VRAM).</td>
+            </tr>
+            <tr>
+                <td><strong>4. Hub d'Outils (MCP)</strong></td>
+                <td>MS Office, Fichiers Locaux, n8n, Cloud</td>
+                <td>Boîte à outils universelle (Model Context Protocol) permettant aux IA d'exécuter des actions dans le monde réel (ex: créer un fichier Excel).</td>
+            </tr>
+            <tr>
+                <td><strong>5. Mémoire Hybride</strong></td>
+                <td>Qdrant, Neo4j, Mem0</td>
+                <td>Stockage persistant combinant la recherche sémantique (vecteurs) et la logique de lettrage comptable (graphe).</td>
+            </tr>
+            <tr>
+                <td><strong>6. Observabilité</strong></td>
+                <td>Langfuse V2, LangGraph Studio</td>
+                <td>Tour de contrôle temps réel affichée sur le second écran pour le suivi des jetons, de la latence et le débogage visuel des boucles infinies.</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div class="page-break"><span>FIN DE PAGE 1</span></div>
+
+    <h2>PAGE 2 : STRATE 1 &amp; 5 - LE CONTEXTE RAG UNIVERSEL ET LA MÉMOIRE</h2>
+    <p>La fragmentation de la mémoire est définitivement éliminée. Historiquement, chaque application possédait ses propres données. Désormais, le RAG (Retrieval-Augmented Generation) est centralisé.</p>
+
+    <h3>1. Le Rôle Central d'AnythingLLM</h3>
+    <p>AnythingLLM est configuré comme un client strict. Il est débarrassé de sa base vectorielle interne. Il interroge exclusivement le <code>document_bus</code> (LlamaIndex) hébergé sur Qdrant. Lorsqu'une requête est formulée dans l'interface (ex: <em>"Quelles sont les conditions de franco de port pour Paintcar ?"</em>), l'outil puise dans la même base de connaissances que l'agent comptable exécutant des tâches en arrière-plan.</p>
+
+    <h3>2. La Triforce de la Mémoire (Sémantique et Relationnelle)</h3>
+    <p>Le système s'appuie sur deux moteurs de base de données fonctionnant en symbiose totale :</p>
+    <ul>
+        <li><strong>Qdrant (Port 6333 - La Compréhension Sémantique) :</strong> Base vectorielle structurée en 3 collections :
+            <ul>
+                <li><code>mem0_memories</code> : Stocke les faits épisodiques, les préférences de l'utilisateur et les règles métiers persistantes extraites par Qwen 9B.</li>
+                <li><code>document_bus</code> : Indexation intégrale du texte brut de tous les PDF (factures, devis, correspondances) via LlamaIndex.</li>
+                <li><code>skills_catalog</code> : Le répertoire centralisé contenant les directives d'extraction sur-mesure pour chaque fournisseur.</li>
+            </ul>
+        </li>
+        <li><strong>Neo4j (Port 7474 - Le Raisonnement Mathématique et Comptable) :</strong> Base de données orientée graphe. Elle ne stocke pas le texte des factures, mais cartographie visuellement les relations comptables strictes (Nœud Facture ↔ Nœud Avoir ↔ Nœud Paiement LCR). C'est le moteur décisionnel du lettrage.</li>
+    </ul>
+
+    <div class="page-break"><span>FIN DE PAGE 2</span></div>
+
+    <h2>PAGE 3 : STRATE 3 &amp; 4 - LE PIPELINE DE TRAITEMENT ET LA CASCADE AGENTIQUE</h2>
+    <p>Le traitement des documents et l'exécution des tâches répondent à un flux rigide, géré par le Cerveau Central (LangGraph) qui attribue le travail selon une hiérarchie stricte d'agents.</p>
+
+    <h3>1. Pipeline Documentaire (Usine de Triage)</h3>
+    <ol>
+        <li><strong>Triage Visuel :</strong> Si le flux entrant est une image (ticket de caisse thermique, note de frais scannée), l'orchestrateur route vers <code>Qwen2.5-VL (7B)</code> pour une extraction spatiale directe.</li>
+        <li><strong>Triage PDF :</strong> Si le flux est un document comptable standard, <code>Surya OCR</code> procède à l'extraction massive du texte brut.</li>
+        <li><strong>Structuration (Tier Rapide) :</strong> <code>Qwen 9B</code> prend le relais. Il applique un schéma Pydantic strict, valide l'arithmétique du document (Total HT + TVA = TTC) et convertit les données en JSON propre.</li>
+    </ol>
+
+    <h3>2. Le Hub MCP (La Boîte à Outils)</h3>
+    <p>L'intelligence artificielle n'est plus enfermée dans une boîte de texte. Via le Model Context Protocol, elle interagit avec l'écosystème du distributeur :</p>
+    <ul>
+        <li><strong>Action OS &amp; Fichiers :</strong> Lecture/écriture sur <code>A:\dsh-core\</code>, archivage des PDF traités et manipulation du dépôt Git.</li>
+        <li><strong>Actions Bureautiques (Office) :</strong> Capacité autonome à générer, éditer et pré-remplir des tableurs Excel (<code>.xlsx</code>) pour le réassort.</li>
+        <li><strong>Connecteurs Distants :</strong> Accès API à Google Drive/OneDrive et déclenchement de webhooks sur n8n (ex: envoi d'emails récapitulatifs post-lettrage).</li>
+    </ul>
+
+    <div class="page-break"><span>FIN DE PAGE 3</span></div>
+
+    <h2>PAGE 4 : LA BOUCLE D'AUTO-AMÉLIORATION (TEACHER-STUDENT)</h2>
+    <p>Il s'agit du cœur névralgique de l'architecture anti-fragile. Lorsqu'un document provenant d'un fournisseur inconnu provoque un échec mathématique ou de formatage, le système ne plante pas ; il apprend à écrire ses propres règles.</p>
+
+    <div class="ascii-container">[ NOUVELLE FACTURE INCONNUE ] ──► ÉCHEC D'EXTRACTION (QWEN 9B)
+                                          │
+                                          ▼
+                             ┌───────────────────────────┐
+                             │ TIER EXPERT (Qwen 27B)    │
+                             │ Tente de résoudre local.  │
+                             └────────────┬──────────────┘
+                                          │ (Si échec persistant)
+                                          ▼
+                             ┌───────────────────────────────────┐
+                             │ TIER SUPERVISEUR (Claude 3.5)     │◄── (Appel API OpenRouter)
+                             │ - Audite la structure du PDF      │
+                             │ - Rédige la règle d'extraction    │
+                             └────────────┬──────────────────────┘
+                                          │
+                                          ▼
+                             ┌───────────────────────────────────┐
+                             │ GÉNÉRATION DE COMPÉTENCE          │
+                             │ Fichier SKILL_FOURNISSEUR.md      │
+                             └────────────┬──────────────────────┘
+                                          │
+                                          ▼
+                             ┌───────────────────────────────────┐
+                             │ INJECTION DANS LE RAG (Qdrant)    │
+                             │ Indexation dans `skills_catalog`  │
+                             └───────────────────────────────────┘</div>
+
+    <p><strong>Conséquence Opérationnelle :</strong> À la prochaine réception d'une facture de ce même format, l'agent de base (Qwen 9B) interroge d'abord la collection <code>skills_catalog</code> dans Qdrant. Il y lit la consigne rédigée par le Superviseur, applique la logique, et traite le document localement avec 100% de fiabilité, sans nécessiter d'intervention humaine ni d'appel API payant.</p>
+
+    <div class="page-break"><span>FIN DE PAGE 4</span></div>
+
+    <h2>PAGE 5 : WORKFLOWS MÉTIER CIBLES ET OBSERVABILITÉ</h2>
+    <p>L'intégralité de la puissance de calcul est orientée vers trois objectifs précis visant à soulager la charge mentale du distributeur face à la comptabilité et à la logistique.</p>
+
+    <h3>1. Les 3 Piliers Opérationnels</h3>
+    <ol>
+        <li><strong>Le Bouclier Anti-Comptable (Rapprochement des Achats) :</strong> Absorption automatisée des factures entrantes (ex: Paintcar, Corsica Ferries). Qwen extrait les montants, indexe le PDF dans Qdrant, et crée un Nœud Fournisseur + Facture dans Neo4j. À l'ingestion du relevé bancaire par n8n, le système tire automatiquement une flèche de paiement, justifiant immédiatement chaque ligne de débit.</li>
+        <li><strong>Désengorgement des Encaissements (LCR et Ventes) :</strong> Modélisation graphique des paiements de type Lettres de Change Relevé. Une seule bulle de mouvement bancaire de fin de mois projette des flèches de règlement vers de multiples factures clients simultanément.</li>
+        <li><strong>Réassort Intelligent (Le Pont Ventes/Achats) :</strong> Qwen analyse les lignes d'articles sur les factures de ventes sortantes, les regroupe par fournisseur d'origine, et utilise le MCP Hub pour générer un fichier Excel pré-rempli. Ce tableau constitue une proposition de reconstitution de stock, soumise à l'appréciation et à la validation finale du distributeur.</li>
+    </ol>
+
+    <h3>2. Le Second Écran (Tour de Contrôle Visuelle)</h3>
+    <p>Pour superviser ces workflows complexes, le système impose une observabilité temps réel :</p>
+    <ul>
+        <li><strong>LangGraph Studio (React Flow) :</strong> Affiche la topologie de l'architecture. Lorsqu'une facture est traitée, le cheminement de la donnée s'illumine visuellement, permettant d'identifier immédiatement si une tâche est escaladée vers un modèle supérieur.</li>
+        <li><strong>Langfuse V2 (Docker Port 3001) :</strong> Archive chirurgicalement les métadonnées : coût en jetons des agents, latence d'exécution des outils MCP, et capture intégrale des traces d'erreurs lors des rejets Pydantic pour faciliter l'audit.</li>
+    </ul>
+
+</div>
+
+
+</body></html>

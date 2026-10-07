@@ -12,6 +12,7 @@ services:
       - NEO4J_AUTH=neo4j/dshcore2026 # Identifiant et mot de passe
     volumes:
       - A:\dsh-core\neo4j_data:/data
+    restart: unless-stopped
 
   # PHASE 6 : LANGFUSE (Observabilité et comptage des tokens)
   langfuse-db:
@@ -25,6 +26,7 @@ services:
       - A:\dsh-core\langfuse_db:/var/lib/postgresql/data
     ports:
       - "5432:5432"
+    restart: unless-stopped
 
   langfuse:
     image: langfuse/langfuse:2
@@ -38,3 +40,38 @@ services:
       - NEXTAUTH_SECRET=dsh_super_secret_key_2026
       - NEXTAUTH_URL=http://localhost:3001
       - SALT=dsh_super_salt_2026
+    restart: unless-stopped
+
+  # --- NOUVEAUX SERVICES (Boîte à outils et RAG) ---
+
+  # N8N (Automatisation et Webhooks)
+  n8n:
+    image: n8nio/n8n
+    container_name: dsh-n8n
+    ports:
+      - "5678:5678"
+    volumes:
+      - A:\dsh-core\n8n_data:/home/node/.n8n
+    restart: unless-stopped
+
+  # QDRANT (Base Vectorielle RAG et Mémoire)
+  qdrant:
+    image: qdrant/qdrant
+    container_name: dsh-qdrant
+    ports:
+      - "6333:6333"
+    volumes:
+      - A:\dsh-core\qdrant_storage:/qdrant/storage
+    restart: unless-stopped
+
+  # OPEN WEBUI (Interface alternative)
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: dsh-open-webui
+    ports:
+      - "3000:8080"
+    environment:
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+    volumes:
+      - A:\dsh-core\open-webui_data:/app/backend/data
+    restart: unless-stopped

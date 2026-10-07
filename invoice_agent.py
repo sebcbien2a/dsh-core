@@ -1,20 +1,27 @@
 # invoice_agent.py - Agent local de structuration comptable et validation Pydantic
+import os
 import json
-from pathlib import Path
 import shutil
+from pathlib import Path
 import ollama
+from dotenv import load_dotenv
 
-from ocr_engine import OCREngine
 from schemas.invoice_schema import InvoiceSchema
+
+# 1. FORCER LE CHARGEMENT DE LA STACK DÈS LE DÉPART
+load_dotenv()
+VISION_MODEL = os.getenv("VISION_MODEL")
 
 INPUT_DIR = Path(r"A:\dsh-core\workspace\invoices\input")
 PROCESSED_DIR = Path(r"A:\dsh-core\workspace\invoices\processed")
 OUTPUT_JSON_DIR = Path(r"A:\dsh-core\workspace\invoices\output_json")
 
-LLM_STRUCTURER = "qwen3.5:9b"
+# On s'assure que les dossiers existent
+for d in [INPUT_DIR, PROCESSED_DIR, OUTPUT_JSON_DIR]:
+    d.mkdir(parents=True, exist_ok=True)
 
 SYSTEM_PROMPT = """Tu es un expert-comptable numérique spécialisé dans la structuration de données de facturation.
-À partir des lignes brutes issues d'un OCR, ton rôle est d'extraire et de structurer l'information au format JSON strict conforme à ce schéma :
+À partir du document visuel fourni, ton rôle est d'extraire et de structurer l'information au format JSON strict conforme à ce schéma :
 
 {
   "numero_facture": "string",
@@ -53,74 +60,93 @@ RÈGLES CRITIQUES :
 """
 
 
-class InvoiceProcessingAgent:
+class InvoiceAgent:
     def __init__(self):
-        self.ocr_engine = OCREngine()
+        # Sécurité : Si le .env n'est pas lu, le programme plantera ici avec un message clair.
+        if not VISION_MODEL:
+            raise ValueError("ERREUR CRITIQUE : VISION_MODEL n'est pas défini dans le .env !")
+        self.vision_model = VISION_MODEL
+        print(f"[InvoiceAgent] Initialisé avec le modèle visuel : {self.vision_model}")
 
-    def structurer_lignes_en_json(self, lignes_ocr: list[str]) -> dict:
-        """Envoie les lignes extraites à Qwen 9B pour conversion JSON."""
-        prompt_utilisateur = "Voici le texte extrait de la pièce comptable :\n" + "\n".join(lignes_ocr)
+    def structurer_document_en_json(self, file_path: Path) -> dict:
+        """Envoie le document binaire directement à Qwen Vision pour extraction JSON."""
+        
+        # Lecture du fichier en bytes pour Ollama
+        with open(file_path, "rb") as f:
+            document_bytes = f.read()
+
+        prompt_utilisateur = "Voici la pièce comptable. Extrais toutes les données avec précision et structure-les en JSON."
 
         reponse = ollama.chat(
-            model=LLM_STRUCTURER,
+            model=self.vision_model,
             messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": prompt_utilisateur}
+                {
+                    "role": "system",
+                    "content": SYSTEM_PROMPT
+                },
+                {
+                    "role": "user",
+                    "content": prompt_utilisateur,
+                    "images": [document_bytes]
+                }
             ],
-            options={"temperature": 0.0}  # Température à zéro pour un déterminisme maximal
+            options={"temperature": 0.0}  # Déterminisme maximal
         )
 
         texte_reponse = reponse["message"]["content"].strip()
         
-        # Nettoyage si le modèle englobe dans des balises markdown ```json
+        # Affichage de la réponse brute
+        print("\n=== REPONSE BRUTE QWEN VL ===")
+        print(texte_reponse)
+        print("=============================\n")
+        
+        # Nettoyage si le modèle englobe le résultat dans des balises markdown ```json
         if texte_reponse.startswith("```"):
             lignes = texte_reponse.split("\n")
             texte_reponse = "\n".join([l for l in lignes if not l.startswith("```")]).strip()
 
         return json.loads(texte_reponse)
 
-    def traiter_facture(self, image_path: Path) -> InvoiceSchema:
-        """Traite une facture de bout en bout : OCR -> Structuration LLM -> Validation Pydantic -> Archivage."""
-        print(f"\n--- Traitement de : {image_path.name} ---")
+    def traiter_facture(self, file_path: Path) -> InvoiceSchema:
+        """Traite une facture : Extraction Vision -> Validation Pydantic -> Archivage."""
+        print(f"\n--- Traitement de : {file_path.name} ---")
 
-        # 1. Extraction déterministe via Surya
-        lignes_ocr = self.ocr_engine.extraire_texte(image_path)
-        print(f"-> {len(lignes_ocr)} lignes textuelles détectées par Surya.")
+        # 1. Extraction directe via le modèle de vision (remplace Surya OCR)
+        print(f"-> Extraction et structuration visuelle en cours via {self.vision_model}...")
+        donnees_brutes = self.structurer_document_en_json(file_path)
 
-        # 2. Structuration via Qwen 9B
-        print(f"-> Structuration JSON en cours via {LLM_STRUCTURER}...")
-        donnees_brutes = self.structurer_lignes_en_json(lignes_ocr)
-
-        # 3. Barrière Pydantic (validation arithmétique HT + TVA == TTC)
+        # 2. Barrière Pydantic (validation arithmétique HT + TVA == TTC)
+        print("-> Application de la barrière Pydantic...")
         facture_validee = InvoiceSchema(**donnees_brutes)
         print("-> Validation arithmétique Pydantic : SUCCÈS")
 
-        # 4. Sauvegarde du résultat JSON
-        nom_base = image_path.stem
+        # 3. Sauvegarde du résultat JSON
+        nom_base = file_path.stem
         fichier_sortie_json = OUTPUT_JSON_DIR / f"{nom_base}.json"
         with open(fichier_sortie_json, "w", encoding="utf-8") as f:
             json.dump(facture_validee.model_dump(), f, indent=2, ensure_ascii=False)
         print(f"-> Fichier JSON généré : {fichier_sortie_json}")
 
-        # 5. Déplacement de la facture traitée
-        destination_image = PROCESSED_DIR / image_path.name
-        shutil.move(str(image_path), str(destination_image))
-        print(f"-> Document déplacé vers : {destination_image}")
+        # 4. Déplacement de la facture traitée
+        destination_document = PROCESSED_DIR / file_path.name
+        shutil.move(str(file_path), str(destination_document))
+        print(f"-> Document déplacé vers : {destination_document}")
 
         return facture_validee
 
 
 if __name__ == "__main__":
-    agent = InvoiceProcessingAgent()
+    agent = InvoiceAgent()
     
-    # Traitement de toutes les images présentes dans workspace/invoices/input/
-    fichiers_entree = list(INPUT_DIR.glob("*.png")) + list(INPUT_DIR.glob("*.jpg"))
+    # Prise en charge des PDF en plus des images pour le test local
+    fichiers_entree = list(INPUT_DIR.glob("*.pdf")) + list(INPUT_DIR.glob("*.png")) + list(INPUT_DIR.glob("*.jpg"))
+    
     if not fichiers_entree:
-        print("Aucun fichier à traiter dans workspace/invoices/input/.")
+        print(f"Aucun fichier à traiter dans {INPUT_DIR}.")
     else:
         for fichier in fichiers_entree:
             try:
                 facture = agent.traiter_facture(fichier)
-                print(f" Facture {facture.numero_facture} traitée et validée avec succès !")
+                print(f"✅ Facture {facture.numero_facture} traitée et validée avec succès !")
             except Exception as e:
-                print(f" Échec du traitement pour {fichier.name} : {e}")
+                print(f"❌ Échec du traitement pour {fichier.name} : {e}")

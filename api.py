@@ -8,6 +8,7 @@ from bs4 import BeautifulSoup
 from agents.research_agent import ResearchAgent
 from agents.coder_agent import CoderAgent
 import memory_manager
+from orchestrator import dsh_graph
 
 app = FastAPI(title="DSH Core API", version="1.0")
 
@@ -56,6 +57,9 @@ class RegisterSkillRequest(BaseModel):
     triggers: list[str]
     code: str
 
+class GraphRequest(BaseModel):
+    task: str
+
 # -------------------------------------------------------------
 # Endpoints de base & Agents
 # -------------------------------------------------------------
@@ -66,20 +70,40 @@ def read_root():
 
 @app.post("/api/research")
 def run_research(request: QueryRequest):
-    return research_agent.search_and_structure(request.query)
+    resultat_brut = research_agent.search_and_structure(request.query)
+    return {
+        "status": "success",
+        "agent": "research_scraper",
+        "result": resultat_brut
+    }
 
 @app.post("/api/code")
 def run_coder(request: CodeRequest):
-    return coder_agent.write_code(request.task, request.filename)
+    resultat_brut = coder_agent.write_code(request.task, request.filename)
+    return {
+        "status": "success",
+        "agent": "coder_agent",
+        "result": resultat_brut
+    }
 
 @app.post("/api/execute")
 def run_execute(request: ExecuteRequest):
-    return coder_agent.execute_code(request.filename)
+    resultat_brut = coder_agent.execute_code(request.filename)
+    return {
+        "status": "success",
+        "agent": "executor_agent",
+        "result": resultat_brut
+    }
 
 @app.post("/api/autocode")
 def run_autocode(request: AutoCodeRequest):
     try:
-        return coder_agent.auto_code_and_fix(request.task, request.filename, request.max_retries)
+        resultat_brut = coder_agent.auto_code_and_fix(request.task, request.filename, request.max_retries)
+        return {
+            "status": "success",
+            "agent": "autocoder_agent",
+            "result": resultat_brut
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -89,7 +113,6 @@ def run_autocode(request: AutoCodeRequest):
 
 @app.post("/api/router")
 def run_router(request: RouterRequest):
-    """Aiguillage automatique vers le bon modèle local ou cloud."""
     try:
         from router import router_intelligent
         result = router_intelligent(
@@ -97,17 +120,16 @@ def run_router(request: RouterRequest):
             image_path=request.image_path,
             complexite_haute=request.complexite_haute
         )
-        return {"status": "success", "result": result}
+        return {
+            "status": "success", 
+            "agent": "router",
+            "result": result
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/scrape")
 def run_scrape(request: ScrapeRequest):
-    """
-    Scrape le contenu textuel d'une page :
-    - Web standard : connexion directe
-    - Lien .onion : teste automatiquement le port 9150 (Tor Browser) puis 9050 (Service Tor)
-    """
     try:
         proxies = None
         if ".onion" in request.url:
@@ -134,9 +156,12 @@ def run_scrape(request: ScrapeRequest):
 
             return {
                 "status": "success",
-                "url": request.url,
-                "content_length": len(text),
-                "text_snippet": text[:3000]
+                "agent": "scraper_tool",
+                "result": {
+                    "url": request.url,
+                    "content_length": len(text),
+                    "text_snippet": text[:3000]
+                }
             }
     except Exception as e:
         raise HTTPException(
@@ -150,55 +175,47 @@ def run_scrape(request: ScrapeRequest):
 
 @app.post("/api/skills/register")
 def api_register_skill(request: RegisterSkillRequest):
-    """Enregistre un code autonome généré par un modèle pour le rendre accessible à tous."""
     try:
-        return memory_manager.register_skill(
+        result = memory_manager.register_skill(
             name=request.name,
             description=request.description,
             triggers=request.triggers,
             code=request.code
         )
+        return {"status": "success", "agent": "memory_manager", "result": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/skills/find")
 def api_find_skill(query: str):
-    """Vérifie si une compétence existe déjà pour répondre à une commande."""
     try:
         match = memory_manager.find_skill(query)
-        if match:
-            return {"found": True, "skill": match}
-        return {"found": False, "skill": None}
+        result = {"found": True, "skill": match} if match else {"found": False, "skill": None}
+        return {"status": "success", "agent": "memory_manager", "result": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/skills")
 def api_list_skills():
-    """Liste toutes les compétences enregistrées dans le catalogue."""
     try:
-        return memory_manager.list_all_skills()
+        result = memory_manager.list_all_skills()
+        return {"status": "success", "agent": "memory_manager", "result": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    from pydantic import BaseModel
-from orchestrator import dsh_graph
-
-class GraphRequest(BaseModel):
-    task: str
 
 @app.post("/api/orchestrator")
 def run_langgraph(request: GraphRequest):
-    """Déclenche la machine à états LangGraph."""
     try:
-        # Initialisation de l'état de départ
         initial_state = {"task": request.task, "complexity": "", "result": "", "status": "démarré"}
-        
-        # Exécution du graphe
         final_state = dsh_graph.invoke(initial_state)
         
         return {
-            "status": "success", 
-            "complexity_detected": final_state["complexity"],
-            "final_result": final_state["result"]
+            "status": "success",
+            "agent": "orchestrator",
+            "result": {
+                "complexity_detected": final_state["complexity"],
+                "final_result": final_state["result"]
+            }
         }
     except Exception as e:
-        return {"status": "error", "detail": str(e)}
+        return {"status": "error", "agent": "orchestrator", "result": str(e)}

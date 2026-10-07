@@ -1,0 +1,743 @@
+<!doctype html>
+<html ⚡4email lang=EN data-css-strict>
+<head>
+<title>Get your business on Google</title>
+<meta charset=utf-8>
+<script async src=https://cdn.ampproject.org/v0.js></script>
+<script async custom-element=amp-bind src=https://cdn.ampproject.org/v0/amp-bind-0.1.js></script>
+<script async custom-element=amp-carousel src=https://cdn.ampproject.org/v0/amp-carousel-0.1.js></script>
+<style amp4email-boilerplate>body{visibility:hidden}</style>
+<style amp-custom>
+table td { border-collapse: collapse; } *:focus { outline: 0; border: none; } img + div { display:none; display:none ; } .email-layout-width { max-width: 770px; } .mobile_only { height: 0px ; overflow: hidden ; display: none ; max-height: 0px ; font-size:0px ; line-height:0px ; } .mob_line { width:100%; } .mobile-spacing.mob_side_pad.icon_mod_cta {padding-top:36px; padding-bottom:56px;} .pd_email6 {padding-top:62px;} .q_writer_class { padding: 0px 10px 10px 41px; } .icon_mod_ncta { margin:0 auto; } .head_class{ padding-top: 107px; padding-bottom: 10px; } .subhead1_class {padding-bottom:22px;} .qtd {padding-top: 38px; padding-bottom: 54px;} .pdchange{padding-bottom:42px;} .mob_hero_img_td_class{text-align:center;} .mobile_only .mob-center{width:340px;} .logo_td_class { padding-top:25px; padding-bottom:24px; } @media screen and (max-width:900px) { .logo_td_class { padding-top:25px; padding-bottom:42px; } .mob_line { width:90%; } .quotes_text_class_mob { padding-left: 27px; } .quote_img_e1{ width: 100px; height: 100px; } .q_writer_class { padding: 0px 10px 10px 41px; } .desktop_only { display:none ; font-size:0px ; line-height:0 ; height:0px ; max-height:0px ; overflow:hidden ; } .mobile_only { height: auto ; overflow: visible ; display: block ; max-height: inherit ; width: 100% ; font-size:inherit ; line-height:inherit ; } .email-layout-width { max-width: 768px; } .inline{ display:inline;} .cta_table_class1 {margin: 0 auto;} .mobile_only .mob-center { margin: 0 auto; text-align: center; width: 100%; } .pdingfix{padding-left:20px; padding-right:20px;} .subhead1_class {padding-left:15px; padding-right:15px; text-align:center;} .pd_email6 {padding-top:62px;} } .inline_block{display:inline-block ;} @media screen and (max-width:768px) { .fquestionclass, .ficontextclass {padding-left: 24px;} .mob_line { width:90%; margin:0 auto; } .mob_hero_img_td_class{text-align:center;} .q_writer_class { padding: 0px 10px 10px 41px; } .pd_email6 {padding-top:62px;} .logo_td_class { padding-top:25px; padding-bottom:42px; } .show{display:block;} }
+.amp-mode-mouse .amp-carousel-button{
+border: none;
+outline:none;
+}
+.amp-carousel-button-next{ right:18px;background-image:url("https://www.gstatic.com/gumdrop/files/merchant-center-arrow-rt-transparent-w24px-h45px-2x.png");background-size: 99%;}
+.amp-carousel-button-prev{left:18px;background-image:url("https://www.gstatic.com/gumdrop/files/merchant-center-arrow-lt-transparent-w24px-h45px-2x.png");background-size: 99%;}
+.amp-carousel-button{height:21px;width:12px;background-color:transparent;cursor: pointer;}
+.amp-carousel-button:focus {
+outline:none;
+border:none;
+}
+.circle_div {
+text-align: center;
+background: #ffffff;
+cursor: pointer;
+height:58px;
+}
+.circle_div span {
+display: inline-block;
+border: none;
+background: #E5E5E5;
+border-radius: 6px;
+width: 6px;
+height: 6px;
+margin: 0 1px 0px 1px;
+}
+.circle_div span.active {
+background:#1A73E8;
+}
+amp-carousel .amp-carousel-button-next {
+right:19%;
+top:31%;
+}
+amp-carousel .amp-carousel-button-prev {
+left:19%;
+top:31%;
+}
+.carousel_class {
+height:130px;
+}
+.amp_text_class{
+padding:0px 8px;
+}
+.table_spacer_class {
+max-width:688px;
+}
+.quts_img_cls {
+margin-right:10px;
+}
+.mod_1_para_1_class, .mod_1_para_2_class {
+font-size:14px;
+line-height:22px;
+}
+.mod_1_para_1_class{
+padding-bottom:28px;
+}
+.mod_1_para_2_class{
+padding-bottom:38px;
+}
+.footnote_class_1,.footnote_class_2 {font-size:9px;line-height:19px;}
+.border_line_class{
+padding-top:59px;
+}
+.mod_2_img_class{
+padding-top:0px;
+}
+.border_line_class{
+padding-top:2px;
+}
+.mod_2_head{
+padding-top:8px;
+padding-bottom:9px;
+}
+.cta-a-pad {padding:12px 31px;}
+.cta-a-pad2 {padding:12px 27px;}
+.cta_main_td_class{padding-top:43px; padding-bottom: 44px;}
+.headfix{padding-top: 82px;}
+.subheadfix{padding-bottom: 13px;}
+.pdchange{padding-bottom:42px;}
+.ctapading{padding-top:43px; padding-bottom: 44px;}
+.hero_subhead{font-size:14px;line-height:21px;}
+.mod_1_head_dsk {
+font-size: 36px;
+line-height: 44px;
+padding-bottom: 30px;
+padding-top: 12px;padding-right: 20px;
+}
+.hero_para, .mod_2_subhead,.mod_2_subhead_2 {font-size:14px;
+line-height:22px;}
+.hero_para{padding-bottom:23px;}
+.mod_1_head,.hero_subhead,.hero_para{ padding-right: 55px;}
+.mod_2_head,.mod_2_subhead,.mod_2_subhead_2{ padding-right: 41px;}
+.footer_table_class{max-width:688px;}
+.module_with_cta_head {padding: 25px 20px 5px 0px;}
+.module_with_cta_subhead {padding:0px 20px 22px 0px;}
+.mod1-main-headline{padding:36px 0px 72px;}
+.font_16_line_24{font-size:16px; line-height:24px;}
+.hero_img_class {
+padding-right:0px;
+padding-top: 72px;
+}
+.qtd {
+padding-left: 114px;
+padding-right: 41px;
+}
+.quote_img_e1 {
+padding-right:42px;
+}
+.q_writer_class {
+padding: 0px 10px 10px 0px;
+}
+@media screen and (max-width: 900px){
+.mod_1_para_1_class, .mod_1_para_2_class {
+font-size:16px;
+line-height:24px;
+}
+.mod_1_para_1_class{
+padding-bottom:35px;
+}
+.mod_1_para_2_class{
+padding-bottom:20px;
+}
+.footnote_class_1,.footnote_class_2 {font-size:12px;line-height:22px;}
+.mod_1_text_table_class, .table_spacer_class {
+width:84.44%;
+}
+.mod_2_outer_table_class,.mod_2_outer_td_class {max-width:360px; width:100%;}
+.mod_2_table_class{max-width:332px; width:92.22%;}
+.mod_2_img_class{
+padding-top:0px;
+}
+.border_line_class{
+padding-top:0px;
+}
+.mod_2_head{
+padding-top:9px;
+padding-bottom:38px;
+}
+.mod_2_subhead{padding-top: 41px;}
+.icon_module_headline {padding-left:15px; padding-right:15px;}
+.icon_module_subheadline {padding-left:15px; padding-right:15px;}
+amp-carousel .amp-carousel-button-next {
+right: 17px;
+top: 30%;
+}
+amp-carousel .amp-carousel-button-prev {
+left: 17px;
+top: 30%;
+}
+.carousel_class {
+height:155px;
+}
+.amp_text_class{
+padding:0px;
+}
+.mob_hero_img_td_class {
+padding-bottom:25px;
+}
+.cta-a-pad {padding:12px 30px;}
+.cta-a-pad2 {padding:12px 26px;}
+.inner_cta_td_mob_class{padding-bottom:34px;}
+.img_td_class {padding-top:30px;}
+.cta_main_td_class{padding:32px 0px 42px 0px;}
+.headfix{padding-top: 40px;}
+.subheadfix{padding-bottom: 35px;}
+.ctapading{padding:10px 0px 70px 0px;}
+.hero_subhead{font-size:14px;line-height:21px;}
+.hero_para, .mod_2_subhead,.mod_2_subhead_2,.mod1-main-headline{font-size:16px;line-height:24px;} .hero_para{padding-bottom:22px;}
+.mod_1_head,.hero_subhead,.hero_para{text-align:center; padding-right:0;}
+.mod_1_head{padding-top:32px;}
+.mod_2_head,.mod_2_subhead {padding-right: 10px;}
+.module_with_cta_head {padding: 26px 20px 13px 0px;}
+.module_with_cta_subhead{padding-bottom:16px;}
+.mod1-main-headline{padding:42px 0px 53px;}
+.font_16_line_24{font-size:16px; line-height:24px;}
+.head_class {padding-left:15px; padding-right:15px; text-align:center;}
+.subhead_class {padding-left:15px; padding-right:15px; text-align:center;}
+.cta_table_class { margin:0 auto; text-align:center;}
+.pdchange{padding-bottom:10px;}
+.qtd {
+padding-left: 22px;
+padding-right: 22px;
+}
+.mod_1_head_dsk {
+padding-right: 0px;
+}
+.quote_img_e1 {
+padding-right:0px;
+}
+.quts_img_cls {
+margin-right:0px;
+}
+}
+@media screen and (min-width: 320px) and (max-width: 359px) {
+.carousel_class {
+height:160px;
+}
+.quts_img_cls {
+margin-right:0px;
+}
+}
+*:focus {
+outline: 0;
+border: none;
+}
+</style>
+<script async custom-element=amp-selector src=https://cdn.ampproject.org/v0/amp-selector-0.1.js></script>
+</head>
+<body style="margin:0;padding:0;width:100%; " class=body_class>
+<table role=presentation align=center cellpadding=0 cellspacing=0 style="margin:0 auto;padding:0; width:100%; " class=email-layout-width width=100%>
+<tr>
+<td class=email-layout-width style="line-height:0px; margin:0px auto; padding:0px; ">
+<table role=presentation border=0 cellpadding=0 cellspacing=0 width=100% style="border-collapse: collapse; border-spacing: 0; padding: 0; margin: 0; min-width:100%; width:100%; " class=main_table_class>
+<tr>
+<td align="" valign="" bgcolor=#ffffff width=100% height="" class="" style="border-collapse: collapse; border-spacing: 0; padding: 0; margin: 0; width:100%; min-width:100%; ">
+<table role=presentation class="email-layout-width " width=89.59% border=0 cellpadding=0 cellspacing=0 style="border-collapse: collapse; border-spacing: 0; padding:0; margin:0 auto; width:89.59%; direction:ltr; " align=center>
+<tr>
+<td class=logo_td_class width=100% style="width:100%; padding-top:25px; text-align:left; direction:ltr; " valign=top dir=ltr>
+<amp-img src=https://www.gstatic.com/gumdrop/files/self-identified-merchant-google-logo-transparent-w156px-h56px-2x.png width=78 height=28 style="width:78px;outline:0; border:0;margin:0 auto; " alt="" class=logo_class layout=fixed></amp-img>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+<tr>
+<td align="" valign="" bgcolor=#ffffff width=100% height="" class="" style="border-collapse: collapse; border-spacing: 0; padding: 0; margin: 0; width:100%; min-width:100%; ">
+<div class=desktop_only><table dir=ltr class=custom_table_class role=presentation width=100% align=center cellspacing=0 cellpadding=0 style="margin:0px auto; padding:0px; width:100%; ">
+<tbody>
+<tr>
+<td class="" width=50% style="margin:0px auto; padding:0px;width:50%;vertical-align:top; vertical-align: top; padding-left: 5.5%; padding-top: 39px;">
+<table dir=ltr class=mod_1_text_table_class role=presentation width=100% bgcolor="" border=0 cellpadding=0 cellspacing=0 style="border-collapse: collapse; border-spacing: 0; padding:0; margin:0 auto; width:100%; " align=center>
+<tr>
+<td dir=ltr class=hero_subhead style="width:100%; font-family:Google sans, Roboto, Open Sans, arial,sans-serif; color:#606368; font-weight: bold; word-break:normal; letter-spacing: 2px; direction:ltr; ">BUSINESS TIP</td>
+</tr>
+<tr>
+<td class=mod_1_head_dsk style="width:100%; font-family:Google sans, Roboto, Open Sans, arial,sans-serif; font-size:36px; line-height:44px; color:#606368; padding-bottom:30px; padding-top:12px; word-break:normal; direction:ltr;">
+Stand out on Google with a free Business Profile
+</td>
+</tr>
+<tr>
+<td dir=ltr class=hero_para style="width:100%; font-family:Roboto, Open Sans, arial,sans-serif; color:#606368; word-break:normal; direction:ltr; padding-right: 39px;padding-bottom: 22px;font-size: 14px;line-height: 21px;">Attract customers on Google Search and Maps with a free Business Profile for your storefront or service area. Your profile appears when people are looking for businesses like yours. Make it stand out with personalized photos, posts, offers, and more.</td>
+</tr>
+<tr>
+<td dir=ltr style="padding-top: 7px; padding-bottom: 43px;" class=cta_main_td_class>
+<table role=presentation cellpadding=0 cellspacing=0 border=0 class=cta_table_class style="border-radius:4px; background-color: #1A73E8; direction:ltr; ">
+<tbody>
+<tr>
+<td class=cta_td_class style="text-align: center; font-family:Google sans, Roboto, Open Sans, arial,sans-serif; font-size:16px; line-height:24px; direction:ltr; ">
+<a class="cta-a-pad cta_anchor_class" style=" font-family:Google sans, Roboto, Open Sans, arial,sans-serif; display: block; color: #ffffff; text-decoration: none; padding: 12px 23px; font-weight: bold; padding: 12px 15px;" href=https://business.google.com/create?gmbsrc=ww-ww-xs-em-sim-gmb-v-z-u~z-sim_gbp-u&ppsrc=GMBB0&utm_campaign=ww-ww-xs-em-sim-gmb-v-z-u~z-sim_gbp-u&utm_source=gmb&utm_medium=xs&trk=https%3A%2F%2Fc.gle%2FACT4xYyRMU-vz_tB8S2ihty4kMahSZF9h7W6JH3QOuZ1JgfCs7LPhW4OOjfXiwqkGFmDaMY-4Re0BhXgWG3ZBAdTlDnUb57nRmEuMU3olzUBwykKqqwqRcghng target=_blank>Manage&nbsp;now</a>
+</td>
+</tr>
+</tbody>
+</table>
+</td>
+</tr>
+</table>
+</td>
+<td class="" width=50% style="margin:0px auto; padding:0px; vertical-align:top; width:50%; vertical-align: top; padding-top:0px;">
+<table dir=dir role=presentation cellpadding=0 cellspacing=0 border=0 style="border-spacing:0; border-collapse:collapse; direction:ltr; " class=mod_2_outer_table_class align=right>
+<tr><td class=mod_2_outer_td_class style="text-align:right; margin:0px; padding:0px; vertical-align:top; ">
+<table dir=dir role=presentation cellpadding=0 cellspacing=0 border=0 style="border-spacing:0; border-collapse:collapse; direction:ltr; " class=mod_2_table_class align=right>
+<tbody>
+<tr>
+<td class=hero_img_class align=right style="direction:ltr; vertical-align:top; text-align:center; padding-top: 0px; padding-right: 3px;">
+<amp-img src=https://www.gstatic.com/gumdrop/files/sim-bp-en-us-sliced-hero-transparent-w788px-h928px-2x.png width=331 height=452 style="width:331px;outline:0; border:0;margin:0 auto; " alt="" class="" layout=fixed></amp-img>
+</td>
+</tr>
+<tr>
+</tr>
+</tbody>
+</table>
+</td></tr>
+</table>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class=mobile_only> <table dir=ltr class=mod_1_text_table_class role=presentation width=84.44% bgcolor="" border=0 cellpadding=0 cellspacing=0 style="border-collapse: collapse; border-spacing: 0; padding:0; margin:0 auto; width:84.44%; " align=center>
+<tr>
+<td dir=ltr class=hero_subhead style="width:100%; font-family:Google sans, Roboto, Open Sans, arial,sans-serif; color:#606368; font-weight: bold; word-break:normal; letter-spacing: 2px; direction:ltr; ">BUSINESS TIP</td>
+</tr>
+<tr>
+<td class=mod_1_head style="width:100%; font-family:Google sans, Roboto, Open Sans, arial,sans-serif; font-size:36px; line-height:44px; color:#606368; padding-bottom:30px; padding-top:12px; word-break:normal; direction:ltr;">
+Stand out on Google with a free Business Profile
+</td>
+</tr>
+<tr>
+<td dir=ltr class=hero_para style="width:100%; font-family:Roboto, Open Sans, arial,sans-serif; color:#606368; word-break:normal; direction:ltr; ">Attract customers on Google Search and Maps with a free Business Profile for your storefront or service area. Your profile appears when people are looking for businesses like yours. Make it stand out with personalized photos, posts, offers, and more.</td>
+</tr>
+<tr>
+<td dir=ltr style="" class=ctapading>
+<table role=presentation cellpadding=0 cellspacing=0 border=0 class=cta_table_class style="border-radius:4px; background-color: #1A73E8; direction:ltr; ">
+<tbody>
+<tr>
+<td class=cta_td_class style="text-align: center; font-family:Google sans, Roboto, Open Sans, arial,sans-serif; font-size:16px; line-height:24px; direction:ltr; ">
+<a class="cta-a-pad cta_anchor_class" style=" font-family:Google sans, Roboto, Open Sans, arial,sans-serif; display: block; color: #ffffff; text-decoration: none; padding: 12px 23px; font-weight: bold; padding: 12px 15px;" href=https://business.google.com/create?gmbsrc=ww-ww-xs-em-sim-gmb-v-z-u~z-sim_gbp-u&ppsrc=GMBB0&utm_campaign=ww-ww-xs-em-sim-gmb-v-z-u~z-sim_gbp-u&utm_source=gmb&utm_medium=xs&trk=https%3A%2F%2Fc.gle%2FACT4xYyRMU-vz_tB8S2ihty4kMahSZF9h7W6JH3QOuZ1JgfCs7LPhW4OOjfXiwqkGFmDaMY-4Re0BhXgWG3ZBAdTlDnUb57nRmEuMU3olzUBwykKqqwqRcghng target=_blank>Manage&nbsp;now</a>
+</td>
+</tr>
+</tbody>
+</table>
+</td>
+</tr>
+<tr>
+<td class=mob_hero_img_td_class align=center style="direction:ltr; ">
+<amp-img src=https://www.gstatic.com/gumdrop/files/sim-bp-en-us-hero-transparent-w931px-h983px-2x.png width=330 height=343 style="width:330px;outline:0; border:0;margin:0 auto; " alt="" class="" layout=responsive></amp-img>
+</td>
+</tr>
+</table>
+</div>
+</td>
+</tr>
+<tr>
+<td align="" valign="" bgcolor=#ffffff width=100% height="" class="" style="border-collapse: collapse; border-spacing: 0; padding: 0; margin: 0; width:100%; min-width:100%; ">
+<table role=presentation cellpadding=0 cellspacing=0 border=0 width=768 style="width:100%; background:#fff" class=width-100>
+<tr>
+<td class="" style="line-height:0px;padding-left:0px; padding-right:0px; text-align:center; ">
+<table class=width-100 role=presentation cellpadding=0 cellspacing=0 border=0 width=100% style="width:100%; background:#fff">
+<tr><td class="center_icon_tdclass desktop_only pd_email6" style=padding-top:61px;><amp-img width=768 height=62 layout=responsive src=https://www.gstatic.com/gumdrop/files/merchant-center-email1-icon3-transparent-w1536px-h120px-2x.png style=""></amp-img></td>
+<td class="center_icon_tdclass mobile_only pd_email6" style=padding-top:61px;><amp-img width=360 height=62 layout=responsive src=https://www.gstatic.com/gumdrop/files/merchant-center-icon1-bar-mob-transparent-w720px-h120px-2x.png style=""></amp-img></td></tr>
+<tr>
+<td class="mobile-spacing text-gray icon_head" style="color:#606368;font-size:26px; line-height:39px; font-weight:normal; text-align:center;direction:ltr;word-break:normal;color: #606368;font-family:Google sans, Roboto, Open Sans, arial,sans-serif; word-break:break-word; padding: 18px 28px 23px 28px; padding-bottom:8px;" dir=ltr>Why your Business Profile is good for business</td>
+</tr>
+</table>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+<tr>
+<td align="" valign="" bgcolor=#ffffff width=100% height="" class="" style="border-collapse: collapse; border-spacing: 0; padding: 0; margin: 0; width:100%; min-width:100%; ">
+<table cellspacing=0 cellpadding=0 border=0 width=100% role=presentation style="width:100%; border:0; border-spacing:0; border-collapse:collapse;" class=bg-white bgcolor=#ffffff>
+<tr>
+<td class=desktop_only width=720 valign=top style="line-height:0px; padding-top:0px; padding-bottom:0px;">
+<table cellspacing=0 cellpadding=0 border=0 width=720 role=presentation style="width:720px; border:0; border-spacing:0; border-collapse:collapse; direction:ltr;" align=left dir=ltr>
+<tr>
+<td width=100% valign=middle style="width:100%px; padding-left:84px;line-height:0px; padding-top:108">
+<table role=presentation cellpadding=0 cellspacing=0 border=0 style="border-spacing:0; border-collapse:collapse; border:0; " align=left class="margin-auto width-100 text-center table-transparent mob-center">
+<tr>
+<td class="mobile_only img_mob_2" style="width:279px; text-align:center; margin:0 auto; font-size:0px; line-height:0px; padding-top:37px;"><amp-img class=img_mob_inner_class src=https://www.gstatic.com/gumdrop/files/sim-bp-en-us-asset1-transparent-w686px-h628px-2x.png alt="" width=279 height=250 layout=responsive style=""></amp-img>
+</td>
+</tr>
+<tr>
+<td style="font-family:Google sans, Roboto, Open Sans, arial,sans-serif; font-size:20px; line-height:30px; color:#3C4043; word-break:normal; direction:ltr; color:#606368;font-size:20px; line-height:30px; font-weight: bold; padding-top: 28px; padding-bottom: 7px;" class="text-gray mobile-spacing head_class ">Be easy to find online</td>
+</tr>
+<tr>
+<td style="font-family:Roboto, Open Sans, arial,sans-serif; font-size:14px; line-height:21px; color:#606368; word-break:normal; direction:ltr; font-size:14px; line-height:21px; font-weight:normal; padding-top:7px; padding-right: 24px;" class="text-gray mobile-spacing mob_side_pad subhead1_class subheadfix">Add essential info like your location, phone number, and operating hours. Attract customers with special offers and more.</td>
+</tr>
+</table>
+</td>
+<td width=279 valign=top align=right style="font-size:0px; line-height:0px; text-align:right; ">
+<table cellspacing=0 cellpadding=0 border=0 width=100% role=presentation align=right>
+<tr><td style="padding-right:38px; line-height:0px; text-align:right; padding-top: 23px;">
+<amp-img src=https://www.gstatic.com/gumdrop/files/sim-bp-en-us-asset1-transparent-w686px-h628px-2x.png alt="" width=279 height=250 style=""></amp-img>
+</td></tr>
+</table>
+</td>
+</tr>
+</table></td></tr>
+<tr>
+<td class=mobile_only style=line-height:0px;>
+<table role=presentation cellpadding=0 cellspacing=0 border=0 style="border-spacing:0; border-collapse:collapse; border:0; " align=left class="margin-auto width-100 text-center table-transparent mob-center">
+<tr>
+<td class="mobile_only img_mob_2" style="width:279px; text-align:center; margin:0 auto; font-size:0px; line-height:0px; padding-top:37px;"><amp-img class=img_mob_inner_class src=https://www.gstatic.com/gumdrop/files/sim-bp-en-us-asset1-transparent-w686px-h628px-2x.png alt="" width=279 height=250 layout=responsive style=""></amp-img>
+</td>
+</tr>
+<tr>
+<td style="font-family:Google sans, Roboto, Open Sans, arial,sans-serif; font-size:20px; line-height:30px; color:#3C4043; word-break:normal; direction:ltr; color:#606368;font-size:20px; line-height:30px; font-weight: bold; padding-top: 28px; padding-bottom: 7px;" class="text-gray mobile-spacing head_class ">Be easy to find online</td>
+</tr>
+<tr>
+<td style="font-family:Roboto, Open Sans, arial,sans-serif; font-size:14px; line-height:21px; color:#606368; word-break:normal; direction:ltr; font-size:14px; line-height:21px; font-weight:normal; padding-top:7px; padding-right: 24px;" class="text-gray mobile-spacing mob_side_pad subhead1_class subheadfix">Add essential info like your location, phone number, and operating hours. Attract customers with special offers and more.</td>
+</tr>
+</table>
+</td>
+</tr></table>
+<table cellspacing=0 cellpadding=0 border=0 width=100% role=presentation style="width:100%; border:0; border-spacing:0; border-collapse:collapse;" class=bg-white bgcolor=#ffffff>
+<tr>
+<td class=desktop_only width=720 valign=top style="line-height:0px; padding-top:0px; padding-bottom:0px;">
+<table cellspacing=0 cellpadding=0 border=0 width=720 role=presentation style="width:720px; border:0; border-spacing:0; border-collapse:collapse; direction:ltr;" align=right dir=ltr>
+<tr>
+<td width=293 valign=top align=left style="font-size:0px; line-height:0px; text-align:left; ">
+<table cellspacing=0 cellpadding=0 border=0 width=100% role=presentation align=left>
+<tr><td style="padding-left:44px; line-height:0px; text-align:left; padding-right:30px;">
+<amp-img src=https://www.gstatic.com/gumdrop/files/merchant-center-bp-en-gb-asset2-transparent-w587px-h701px-2x.png alt="" width=293 height=350 style=""></amp-img>
+</td></tr>
+</table>
+</td>
+<td width=100% valign=middle style="width:100%px; padding-right:66px;line-height:0px; ">
+<table role=presentation cellpadding=0 cellspacing=0 border=0 style="border-spacing:0; border-collapse:collapse; border:0; " align=right class="margin-auto width-100 text-center table-transparent mob-center">
+<tr>
+<td class="mobile_only img_mob_2" style="width:293px; text-align:center; margin:0 auto; font-size:0px; line-height:0px; padding-top:16px;"><amp-img class=img_mob_inner_class src=https://www.gstatic.com/gumdrop/files/merchant-center-bp-en-gb-asset2-transparent-w587px-h701px-2x.png alt="" width=293 height=350 layout=responsive style=""></amp-img>
+</td>
+</tr>
+<tr>
+<td style="font-family:Google sans, Roboto, Open Sans, arial,sans-serif; font-size:20px; line-height:30px; color:#3C4043; word-break:normal; direction:ltr; color:#606368;font-size:20px; line-height:30px; font-weight: bold; padding-top: 0px; padding-bottom: 10px; " class="text-gray mobile-spacing head_class ">Build a stronger presence</td>
+</tr>
+<tr>
+<td style="font-family:Roboto, Open Sans, arial,sans-serif; font-size:14px; line-height:21px; color:#606368; word-break:normal; direction:ltr; padding-bottom:13px; font-size:14px; line-height:21px; font-weight:normal;" class="text-gray mobile-spacing mob_side_pad subhead1_class ">Show your business's personality with photos, a cover image, and your logo.</td>
+</tr>
+</table>
+</td>
+</tr>
+</table></td></tr>
+<tr>
+<td class=mobile_only style=line-height:0px;>
+<table role=presentation cellpadding=0 cellspacing=0 border=0 style="border-spacing:0; border-collapse:collapse; border:0; " align=right class="margin-auto width-100 text-center table-transparent mob-center">
+<tr>
+<td class="mobile_only img_mob_2" style="width:293px; text-align:center; margin:0 auto; font-size:0px; line-height:0px; padding-top:16px;"><amp-img class=img_mob_inner_class src=https://www.gstatic.com/gumdrop/files/merchant-center-bp-en-gb-asset2-transparent-w587px-h701px-2x.png alt="" width=293 height=350 layout=responsive style=""></amp-img>
+</td>
+</tr>
+<tr>
+<td style="font-family:Google sans, Roboto, Open Sans, arial,sans-serif; font-size:20px; line-height:30px; color:#3C4043; word-break:normal; direction:ltr; color:#606368;font-size:20px; line-height:30px; font-weight: bold; padding-top: 0px; padding-bottom: 10px; " class="text-gray mobile-spacing head_class ">Build a stronger presence</td>
+</tr>
+<tr>
+<td style="font-family:Roboto, Open Sans, arial,sans-serif; font-size:14px; line-height:21px; color:#606368; word-break:normal; direction:ltr; padding-bottom:13px; font-size:14px; line-height:21px; font-weight:normal;" class="text-gray mobile-spacing mob_side_pad subhead1_class ">Show your business's personality with photos, a cover image, and your logo.</td>
+</tr>
+</table>
+</td>
+</tr></table>
+<table cellspacing=0 cellpadding=0 border=0 width=100% role=presentation style="width:100%; border:0; border-spacing:0; border-collapse:collapse;" class=bg-white bgcolor=#ffffff>
+<tr>
+<td class=desktop_only width=720 valign=top style="line-height:0px; padding-top:0px; padding-bottom:33px;">
+<table cellspacing=0 cellpadding=0 border=0 width=720 role=presentation style="width:720px; border:0; border-spacing:0; border-collapse:collapse; direction:ltr;" align=left dir=ltr>
+<tr>
+<td width=100% valign=middle style="width:100%px; padding-left:84px;line-height:0px; ">
+<table role=presentation cellpadding=0 cellspacing=0 border=0 style="border-spacing:0; border-collapse:collapse; border:0; " align=left class="margin-auto width-100 text-center table-transparent mob-center">
+<tr>
+<td class="mobile_only img_mob_2" style="width:351px; text-align:center; margin:0 auto; font-size:0px; line-height:0px; padding-top:37px;"><amp-img class=img_mob_inner_class src=https://www.gstatic.com/gumdrop/files/merchant-center-bp-en-gb-asset3-transparent-w703px-h641px-2x.png alt="" width=351 height=320 layout=responsive style=""></amp-img>
+</td>
+</tr>
+<tr>
+<td style="font-family:Google sans, Roboto, Open Sans, arial,sans-serif; font-size:20px; line-height:30px; color:#3C4043; word-break:normal; direction:ltr; color:#606368;font-size:20px; line-height:30px; font-weight: bold; padding-bottom: 10px; " class="text-gray mobile-spacing head_class headfix">Know how customers find your business</td>
+</tr>
+<tr>
+<td style="font-family:Roboto, Open Sans, arial,sans-serif; font-size:14px; line-height:21px; color:#606368; word-break:normal; direction:ltr; padding-bottom:26px; font-size:14px; line-height:21px; font-weight:normal;" class="text-gray mobile-spacing mob_side_pad subhead1_class ">Discover what keywords people search to find you, and get insights on calls, reviews, bookings, and more.</td>
+</tr>
+<tr>
+<td style="text-align: ltr;" class=pdchange>
+<div>
+<a href=https://business.google.com/create?gmbsrc=ww-ww-xs-em-sim-gmb-v-z-u~z-sim_gbp-u&ppsrc=GMBB0&utm_campaign=ww-ww-xs-em-sim-gmb-v-z-u~z-sim_gbp-u&utm_source=gmb&utm_medium=xs&trk=https%3A%2F%2Fc.gle%2FACT4xYyRMU-vz_tB8S2ihty4kMahSZF9h7W6JH3QOuZ1JgfCs7LPhW4OOjfXiwqkGFmDaMY-4Re0BhXgWG3ZBAdTlDnUb57nRmEuMU3olzUBwykKqqwqRcghng target=_blank dir=ltr style="display: inline-block;">
+<table role=presentation cellspacing=0 cellpadding=0 align=ltr>
+<tr><td style="background-color:#1A73E8;border:1px solid #1A73E8;border-radius:5px;color:#ffffff;display:inline-block;font-family:Google sans, Roboto, Open Sans, arial,sans-serif;font-size:16px;line-height:24px;text-decoration:none; padding: 12px 15px;font-weight:bold;text-align: center;word-break:normal;direction:ltr; font-size:16px;" dir=ltr>Manage my profile</td></tr>
+</table>
+</a>
+</div>
+</td>
+</tr>
+</table>
+</td>
+<td width=351 valign=top align=right style="font-size:0px; line-height:0px; text-align:right; ">
+<table cellspacing=0 cellpadding=0 border=0 width=100% role=presentation align=right>
+<tr><td style="padding-right:35px; line-height:0px; text-align:right; padding-left: 0px; padding-right: 28px;">
+<amp-img src=https://www.gstatic.com/gumdrop/files/merchant-center-bp-en-gb-asset3-transparent-w703px-h641px-2x.png alt="" width=351 height=320 style=""></amp-img>
+</td></tr>
+</table>
+</td>
+</tr>
+</table></td></tr>
+<tr>
+<td class=mobile_only style=line-height:0px;>
+<table role=presentation cellpadding=0 cellspacing=0 border=0 style="border-spacing:0; border-collapse:collapse; border:0; " align=left class="margin-auto width-100 text-center table-transparent mob-center">
+<tr>
+<td class="mobile_only img_mob_2" style="width:351px; text-align:center; margin:0 auto; font-size:0px; line-height:0px; padding-top:37px;"><amp-img class=img_mob_inner_class src=https://www.gstatic.com/gumdrop/files/merchant-center-bp-en-gb-asset3-transparent-w703px-h641px-2x.png alt="" width=351 height=320 layout=responsive style=""></amp-img>
+</td>
+</tr>
+<tr>
+<td style="font-family:Google sans, Roboto, Open Sans, arial,sans-serif; font-size:20px; line-height:30px; color:#3C4043; word-break:normal; direction:ltr; color:#606368;font-size:20px; line-height:30px; font-weight: bold; padding-bottom: 10px; " class="text-gray mobile-spacing head_class headfix">Know how customers find your business</td>
+</tr>
+<tr>
+<td style="font-family:Roboto, Open Sans, arial,sans-serif; font-size:14px; line-height:21px; color:#606368; word-break:normal; direction:ltr; padding-bottom:26px; font-size:14px; line-height:21px; font-weight:normal;" class="text-gray mobile-spacing mob_side_pad subhead1_class ">Discover what keywords people search to find you, and get insights on calls, reviews, bookings, and more.</td>
+</tr>
+<tr>
+<td style="text-align: ltr;" class=pdchange>
+<div>
+<a href=https://business.google.com/create?gmbsrc=ww-ww-xs-em-sim-gmb-v-z-u~z-sim_gbp-u&ppsrc=GMBB0&utm_campaign=ww-ww-xs-em-sim-gmb-v-z-u~z-sim_gbp-u&utm_source=gmb&utm_medium=xs&trk=https%3A%2F%2Fc.gle%2FACT4xYyRMU-vz_tB8S2ihty4kMahSZF9h7W6JH3QOuZ1JgfCs7LPhW4OOjfXiwqkGFmDaMY-4Re0BhXgWG3ZBAdTlDnUb57nRmEuMU3olzUBwykKqqwqRcghng target=_blank dir=ltr style="display: inline-block;">
+<table role=presentation cellspacing=0 cellpadding=0 align=ltr>
+<tr><td style="background-color:#1A73E8;border:1px solid #1A73E8;border-radius:5px;color:#ffffff;display:inline-block;font-family:Google sans, Roboto, Open Sans, arial,sans-serif;font-size:16px;line-height:24px;text-decoration:none; padding: 12px 15px;font-weight:bold;text-align: center;word-break:normal;direction:ltr; font-size:16px;" dir=ltr>Manage my profile</td></tr>
+</table>
+</a>
+</div>
+</td>
+</tr>
+</table>
+</td>
+</tr></table>
+</td>
+</tr>
+<tr>
+<td align="" valign="" bgcolor=#ffffff width=100% height="" class="" style="border-collapse: collapse; border-spacing: 0; padding: 0; margin: 0; width:100%; min-width:100%; ">
+<table role=presentation cellpadding=0 cellspacing=0 border=0 width=100% style=background:#fff class=width-100>
+<tr>
+<td class="height_mob " style="line-height:0px;padding-left:0px; padding-right:0px;text-align:center; padding-top:22px;">
+<table class=width-100 role=presentation cellpadding=0 cellspacing=0 border=0 width=100% style=background:#fff>
+<tr><td style="border-bottom:1px solid #DADCE0;padding-left:0px; padding-right:0px; "> </td></tr></table>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+<tr>
+<td align="" valign="" bgcolor=#ffffff width=100% height="" class="" style="border-collapse: collapse; border-spacing: 0; padding: 0; margin: 0; width:100%; min-width:100%; ">
+<table role=presentation width=100% align=center bgcolor=#ffffff cellspacing=0 cellpadding=0 class="outer_width mobile-email-width " style="margin:0px; padding:0px; width:100%; background:#ffffff;">
+<tr>
+<td class=main_td style="padding-top: 42px; padding-bottom: 28px;">
+<table role=presentation width=100% align=center bgcolor=#ffffff cellspacing=0 cellpadding=0 class="outer_width mobile-email-width" style="padding:0px; max-width:515px; width:100%; background:#ffffff; text-align:center;">
+<tr>
+<td class="mobile-spacing headline_class" dir=ltr style="font-family:Google sans, Roboto, Open Sans, arial,sans-serif; padding-bottom: 21px; vertical-align:top; text-align:center; font-size: 26px; line-height: 39px; color:#606368; padding-bottom: 18px; padding-top: 14px; direction:ltr; padding-left:4%; padding-right:4%; ">Powerful on their own. Better together.</td>
+</tr>
+<tr>
+<td class="mobile-spacing subheadline_class" dir=ltr style="font-family:Roboto, Open Sans, arial,sans-serif; font-weight:normal; vertical-align:top; text-align:center; font-size: 14px; line-height: 21px; color: #606368; color:#606368; padding-bottom: 0px; direction:ltr; padding-left:4%; padding-right:4%; ">We've created this short series to help you make the most of all the different ways Google can help you grow your business – from getting more done to getting more customers. Want our top tips now? <a href=https://c.gle/ACT4xYxg81k7MyMRoCIN241dqjEscF7-an2eq4GBhy4QGBfxDN12pGx7bPifkfhXy_vpn0KyqXYFQLiIRlP64Ja3DJm7o2i04ej330-QpmMGIf0gB-pd2Q7rZ_9ZdQ4qUydGFsVBl_3viLyYZXZTjUIA_3WAydFUT437qkyKPKpDxrm48CZ82KNWaelYWpz8aV9CNvc0t9HFj4GWNIclb5rNLOVxPwZqM_poF0n7lmzWzYq4MDiMcN7-jKouoqMjI8122HLiyFw target=_blank style="text-decoration:none; color:#1A73E8; " class="">Read our guide</a></td>
+</tr>
+</table>
+</td>
+</tr>
+</table>
+<amp-state id=AmpStateId>
+<script type=application/json>
+{
+"index_value": 0
+}
+</script>
+</amp-state>
+<amp-carousel class=carousel_class id=carousel_id layout=responsive width=301 height=100 type=slides delay=5000 controls loop on="slideChange:AMP.setState({AmpStateId: {index_value: event.index}})">
+<table width=100% cellpadding=0 cellspacing=0 style="margin:0 auto;">
+<tbody>
+<tr>
+<td valign=bottom align=center class=desktop_only style="vertical-align: bottom; width:100%; height: 50px;">
+<amp-img src=https://www.gstatic.com/gumdrop/files/sim-icon-one-desk-transparent-w705px-h174px-2x.png width=343 height=86 alt=""></amp-img>
+</td>
+<td valign=bottom align=center class=mobile_only style="vertical-align: bottom; width:100%; height: 50px;">
+<amp-img src=https://www.gstatic.com/gumdrop/files/sim-icon-one-mob-transparent-w533px-h174px-2x.png width=257 height=85 alt=""></amp-img>
+</td>
+</tr>
+<tr>
+<td valign=top class=amp-text1 style="color:#606368; font-family: Google sans, Roboto, Open Sans, arial,sans-serif; font-weight:normal; width:100%; text-align: center; font-size:20px; line-height:34px; height:30px; padding-top:6px;" width=100% align=center dir=ltr>Stand out on Google with a free <a href=https://www.google.com/business/?trk=https%3A%2F%2Fc.gle%2FACT4xYwSCMOnDUu0-9a8DldVzip67XOxs-0CUwaSvoibtDtLeAN3_6hBoaRs7ZWx49iqUq8_EPzdi9Ut44VdCo6gqQmdUuwJHIYPmQvB9trpcyAP9ubqgw-fR-181K_M target=_blank style="text-decoration:none; color:#1A73E8; " class="">Business Profile</a>
+</td>
+</tr>
+</tbody>
+</table>
+<table width=100% cellpadding=0 cellspacing=0 style="margin:0 auto;">
+<tbody>
+<tr>
+<td valign=bottom align=center class=desktop_only style="vertical-align: bottom; width:100%; height: 50px;">
+<amp-img src=https://www.gstatic.com/gumdrop/files/sim-icon-two-desk-transparent-w705px-h174px-2x.png width=343 height=86 alt=""></amp-img>
+</td>
+<td valign=bottom align=center class=mobile_only style="vertical-align: bottom; width:100%; height: 50px;">
+<amp-img src=https://www.gstatic.com/gumdrop/files/sim-icon-two-mob-transparent-w533px-h174px-2x.png width=257 height=85 alt=""></amp-img>
+</td>
+</tr>
+<tr>
+<td valign=top class=amp-text1 style="color:#606368; font-family: Google sans, Roboto, Open Sans, arial,sans-serif; font-weight:normal; width:100%; text-align: center; font-size:20px; line-height:34px; height:30px; padding-top:6px;" width=100% align=center dir=ltr>Get a custom domain and site with <a href=https://c.gle/ACT4xYyERJLwLlUz52KIZIc6HA8li7ZKz6py-rkYc9Znc8ZOnhRFIP4Y_OrDLlr5HvMI7ZL1RS6dAJp7PSFj4yni4g3WUYVK7qR5l4KbEs-h48VkQcEo2x4qDldys2esCvtvf6MG2mc target=_blank style="text-decoration:none; color:#1A73E8; " class="">Google Domains</a>
+</td>
+</tr>
+</tbody>
+</table>
+<table width=100% cellpadding=0 cellspacing=0 style="margin:0 auto;">
+<tbody>
+<tr>
+<td valign=bottom align=center class=desktop_only style="vertical-align: bottom; width:100%; height: 50px;">
+<amp-img src=https://www.gstatic.com/gumdrop/files/sim-icon-three-desk-transparent-w705px-h174px-2x.png width=343 height=86 alt=""></amp-img>
+</td>
+<td valign=bottom align=center class=mobile_only style="vertical-align: bottom; width:100%; height: 50px;">
+<amp-img src=https://www.gstatic.com/gumdrop/files/sim-icon-three-mob-transparent-w533px-h174px-2x.png width=257 height=85 alt=""></amp-img>
+</td>
+</tr>
+<tr>
+<td valign=top class=amp-text1 style="color:#606368; font-family: Google sans, Roboto, Open Sans, arial,sans-serif; font-weight:normal; width:100%; text-align: center; font-size:20px; line-height:34px; height:30px; padding-top:6px; padding-left:20px; padding-right:20px;" width=100% align=center dir=ltr>Work smarter with <a href=https://c.gle/ACT4xYys33jRv33U95CKXk18DBani3paNXkOqr_ZFxZYvH0PKSNdqYYiZIL7MsIaa-nHSaYDyWod4EddwQmf14Fo93zBYU4D7Mx8J6aPjTjmdbp2Eb5uspPoM1VhsR_7JEA9SgbDy8edJ_z4RcEzQA target=_blank style="text-decoration:none; color:#1A73E8; " class=""><span style="white-space:nowrap; word-break: break-word; " class="span " dir="">Google Workspace</span></a>
+</td>
+</tr>
+</tbody>
+</table>
+<table width=100% cellpadding=0 cellspacing=0 style="margin:0 auto;">
+<tbody>
+<tr>
+<td valign=bottom align=center class=desktop_only style="vertical-align: bottom; width:100%; height: 50px;">
+<amp-img src=https://www.gstatic.com/gumdrop/files/sim-icon-four-desk-transparent-w705px-h174px-2x.png width=343 height=86 alt=""></amp-img>
+</td>
+<td valign=bottom align=center class=mobile_only style="vertical-align: bottom; width:100%; height: 50px;">
+<amp-img src=https://www.gstatic.com/gumdrop/files/sim-icon-four-mob-transparent-w533px-h174px-2x.png width=257 height=85 alt=""></amp-img>
+</td>
+</tr>
+<tr>
+<td valign=top class=amp-text1 style="color:#606368; font-family: Google sans, Roboto, Open Sans, arial,sans-serif; font-weight:normal; width:100%; text-align: center; font-size:20px; line-height:34px; height:30px; padding-top:6px;" width=100% align=center dir=ltr>List products for free on <a href=https://c.gle/ACT4xYynWLMMqtSg9xl1C26sx_0YPgAjtWh-JCatZo_NYUOw7EeI1SOQvcfvzuG30zBkb2-wPIRhfi5smeGKE6oVx8Kc4nf99DR1j5y5D-htP0ZBZaFCBAOh1e_hWzrp_IBy20w6SxMHFbuSa7j0i1sQ7JnnS7wIAqBuztbF9f8MrxZcnoYzfzTIKwwQxBRmIfNJ1Rc target=_blank style="text-decoration:none; color:#1A73E8; " class=""><span style="white-space:nowrap; word-break: break-word; " class="span " dir="">Google Merchant Center</span></a>
+</td>
+</tr>
+</tbody>
+</table>
+<table width=100% cellpadding=0 cellspacing=0 style="margin:0 auto;">
+<tbody>
+<tr>
+<td valign=bottom align=center class=desktop_only style="vertical-align: bottom; width:100%; height: 50px;">
+<amp-img src=https://www.gstatic.com/gumdrop/files/sim-icon-five-desk-transparent-w705px-h174px-2x.png width=343 height=86 alt=""></amp-img>
+</td>
+<td valign=bottom align=center class=mobile_only style="vertical-align: bottom; width:100%; height: 50px;">
+<amp-img src=https://www.gstatic.com/gumdrop/files/sim-icon-five-mob-transparent-w533px-h174px-2x.png width=257 height=85 alt=""></amp-img>
+</td>
+</tr>
+<tr>
+<td valign=top class=amp-text1 style="color:#606368; font-family: Google sans, Roboto, Open Sans, arial,sans-serif; font-weight:normal; width:100%; text-align: center; font-size:20px; line-height:34px; height:30px; padding-top:6px;" width=100% align=center dir=ltr>Discover new insights with <a href=https://c.gle/ACT4xYyKGqCouZVeqyZIG5mhHX_eGIVq9Cw9l-pW-yDcrl1v4UtvGBbCr6ejYL_jXU4GRccPGiQDY5vcw7l1tPK8NdVDtKkg3fhKKycLDp5wwaHa8n7TkrcdIZQdlNwOwZ4m964vmEOaBccTSlZ_wUhq6qlaHkMASYc7wMiENTw0oDQIHsRamw target=_blank style="text-decoration:none; color:#1A73E8; " class=""><span style="white-space:nowrap; word-break: break-word; " class="span " dir="">Google Analytics</span></a>
+</td>
+</tr>
+</tbody>
+</table>
+<table width=100% cellpadding=0 cellspacing=0 style="margin:0 auto;">
+<tbody>
+<tr>
+<td valign=bottom align=center class=desktop_only style="vertical-align: bottom; width:100%; height: 50px;">
+<amp-img src=https://www.gstatic.com/gumdrop/files/sim-icon-six-desk-transparent-w705px-h174px-2x.png width=343 height=86 alt=""></amp-img>
+</td>
+<td valign=bottom align=center class=mobile_only style="vertical-align: bottom; width:100%; height: 50px;">
+<amp-img src=https://www.gstatic.com/gumdrop/files/sim-icon-six-mob-transparent-w533px-h174px-2x.png width=257 height=85 alt=""></amp-img>
+</td>
+</tr>
+<tr>
+<td valign=top class=amp-text1 style="color:#606368; font-family: Google sans, Roboto, Open Sans, arial,sans-serif; font-weight:normal; width:100%; text-align: center; font-size:20px; line-height:34px; height:30px; padding-top:6px; padding-left:40px; padding-right:40px;" width=100% align=center dir=ltr>Expand your reach with <a href=https://c.gle/ACT4xYwkEKcmmRHmMBKsmnS5x0LhobKJVwoI2XKw7Clf_V3FCbvgnsygcp50df-WdZECkfOW06iEH1Pz7PwPHmSX27sGnar6yG4qX6GpdOMY86BGyzP7HcTeW0gehDpL9J9aKg target=_blank style="text-decoration:none; color:#1A73E8; " class=""><span style="white-space:nowrap; word-break: break-word; " class="span " dir="">Google Ads</span></a>
+</td>
+</tr>
+</tbody>
+</table>
+</amp-carousel>
+<table align=center class=circle_div><tr>
+<td>
+<!--Circle : Starts -->
+<span [class]="(AmpStateId.index_value == 0 ? 'active' : '')" class=active on="tap:carousel_id.goToSlide(index=0), AMP.setState({AmpStateId:{index_value:0}})" role=button tabindex=1></span></td>
+<!--Circle : Ends -->
+<td>
+<!--Circle : Starts -->
+<span [class]="(AmpStateId.index_value == 1 ? 'active' : '')" class="" on="tap:carousel_id.goToSlide(index=1), AMP.setState({AmpStateId:{index_value:1}})" role=button tabindex=1></span></td>
+<!--Circle : Ends -->
+<td>
+<!--Circle : Starts -->
+<span [class]="(AmpStateId.index_value == 2 ? 'active' : '')" class="" on="tap:carousel_id.goToSlide(index=2), AMP.setState({AmpStateId:{index_value:2}})" role=button tabindex=1></span></td>
+<!--Circle : Ends -->
+<td>
+<!--Circle : Starts -->
+<span [class]="(AmpStateId.index_value == 3 ? 'active' : '')" class="" on="tap:carousel_id.goToSlide(index=3), AMP.setState({AmpStateId:{index_value:3}})" role=button tabindex=1></span></td>
+<!--Circle : Ends -->
+<td>
+<!--Circle : Starts -->
+<span [class]="(AmpStateId.index_value == 4 ? 'active' : '')" class="" on="tap:carousel_id.goToSlide(index=4), AMP.setState({AmpStateId:{index_value:4}})" role=button tabindex=1></span></td>
+<!--Circle : Ends -->
+<td>
+<!--Circle : Starts -->
+<span [class]="(AmpStateId.index_value == 5 ? 'active' : '')" class="" on="tap:carousel_id.goToSlide(index=5), AMP.setState({AmpStateId:{index_value:5}})" role=button tabindex=1></span></td>
+<!--Circle : Ends -->
+</tr>
+</table>
+<table class=table_spacer_class role=presentation align=center width=100% cellpadding=0 cellspacing=0 style="width:100%; margin:0px auto; padding:0px;">
+<tr>
+<td style="height:28px; " height=28></td>
+</tr>
+</table>
+</td>
+</tr>
+<tr>
+<td align="" valign="" bgcolor=#3C4043 width=100% height="" class="" style="border-collapse: collapse; border-spacing: 0; padding: 0; margin: 0; width:100%; min-width:100%; padding-bottom:40px;">
+<table role=presentation align=center class=footer_table_class cellpadding=0 cellspacing=0 style="margin: 0 auto; width:90%; " width=90%>
+<tr>
+<td style="line-height:0px; padding:27px 0 28px 0px;">
+<table width=100% role=presentation align=center class="" cellpadding=0 cellspacing=0 style="max-width:680px; width:100%; margin: 0 auto;">
+<tr>
+<td align=left style="margin:0px; line-height:0px; vertical-align:top;">
+<table role=presentation cellpadding=0 cellspacing=0>
+<tr><td style="padding:0px; margin:0px; padding-bottom: 10px; font-size:22px; line-height:33px; vertical-align:top; color:#ffffff; font-family: Google sans, Roboto, Open Sans, arial,sans-serif;">Have questions?</td></tr>
+</table>
+<table role=presentation cellpadding=0 cellspacing=0 border=0 style="background:#fff; width:100%" class=width-100>
+<tr>
+<td colspan=2 align=top><hr role=presentation style="background-color: #DADCE0;color: #DADCE0; height: 2px; border: none;font-size:0pt; line-height:0pt; padding:0; margin:0;"></td>
+</tr>
+</table>
+<table role=presentation cellpadding=0 cellspacing=0>
+<tr>
+<td>
+<table role=presentation cellpadding=0 cellspacing=0>
+<tr>
+<td style="padding:7px 0px 0 0; margin:0px; font-size:14px; line-height:21px; font-weight:bold; vertical-align:top;color:#ffffff; font-family: Google sans, Roboto, Open Sans, arial,sans-serif;"><a href=https://c.gle/ACT4xYwE2JHq7Io8OXcFVgsc1-f0Dt_fSgM5Kr_W5fKNN6rOzhxkbENJgMIf14tTUHwYScGG-WZmfYD429qr6RrbSSQ_c2RpdGOcTJhgSSuqjvxWQQss4xNUtgme8XcFQJLhI8Sm6qGZcwj9V3HwEiCK9dN-B-QjlZXUsP5bOiI style="color:#ffffff; text-decoration:none; cursor: pointer; " target=_blank class="">
+<amp-img src=https://www.gstatic.com/gumdrop/files/merchant-center-help-center-transparent-w34px-h34px-2x.png width=16 height=16 layout=fixed style="color:#ffffff; margin-right: 8px; vertical-align:middle; font-family: Google sans, Roboto, Open Sans, arial,sans-serif;"></amp-img>Visit the Help Center</a></td><td style="padding:7px 0px 0 35px; margin:0px; font-size:14px; line-height:21px; vertical-align:top; font-weight:bold; color:#ffffff; font-family: Google sans, Roboto, Open Sans, arial,sans-serif;"><a href=https://c.gle/ACT4xYwX326qcU52QLP5f9fofM2hvA_Br-S27ORCbhNTVN8w7-q5e8QmNhcI3EauIMEDNxsifVM9NVmBmW9lKgprjCEp-jp7Cykq4nAxus5QR4WQAJQ7QOFKSCvvwyD2pQzlxxPybz53OFEuZsjeEtQObRImq5eJ style="color:#ffffff; text-decoration:none; cursor: pointer; " target=_blank class="">
+<amp-img src=https://www.gstatic.com/gumdrop/files/merchant-center-contact-us-transparent-w34px-h34px-2x.png width=16 height=16 layout=fixed style="vertical-align:middle; margin-right: 8px; color:#ffffff; font-family: Google sans, Roboto, Open Sans, arial,sans-serif;"></amp-img>Contact us</a></td>
+</tr>
+</table>
+</td>
+</tr>
+</table>
+</td></tr></table></td></tr>
+</table>
+<table role=presentation align=center class=footer_table_class cellpadding=0 cellspacing=0 style="margin: 0 auto; width:90%; " width=90%>
+<tbody>
+<tr>
+<td class="desktop_only footer_logo_main_td_class" style="width:100%; vertical-align:top;">
+<table dir=ltr role=presentation align=left class=footer_logo_table_class cellpadding=0 cellspacing=0 style="margin: 0 auto; width:100%; " width=90%>
+<tr>
+<td class=footer_logo_td_class dir=ltr style="vertical-align:top;width:79px; padding-top:42px;text-align:left;line-height:0px; ">
+<amp-img src=https://www.gstatic.com/gumdrop/files/sim-footer-google-logo-transparent-w158px-h51px-2x.png width=79 height=26 style="width:79px;outline:0; border:0;margin:0 auto; " alt="" class=footer_logo_class layout=fixed></amp-img>
+</td>
+<td class=footer_separator_td_class dir=ltr style="vertical-align:top; width:2px; padding-top:30px; padding-left:21px; padding-right:24px; text-align:left;line-height:0px; ">
+<amp-img src=https://www.gstatic.com/gumdrop/files/sim-line-transparent-w2px-h102px-2x.png width=2 height=52 style="width:2px;outline:0; border:0;margin:0 auto; " alt="" class=footer_separator_class layout=fixed></amp-img>
+</td>
+<td class="footer_common_class footer_address_class" style="vertical-align:top; width:100%;table-layout:fixed;font-family: Google sans, Roboto, Open Sans, arial,sans-serif; font-weight:normal; font-size:12px;line-height:18px; word-break:break-word; color: #FFFFFF; padding-top:28px; padding-bottom:47px;text-align:left; " dir=ltr>
+<span style="font-size:inherit; color:inherit; font-weight:inherit; line-height:inherit; font-family:inherit;">Google Ireland Ltd,<br />Gordon House, Barrow Street,<br />Dublin 4, Ireland.</span>
+</td>
+</tr>
+</table>
+</td>
+<td class="mobile_only footer_logo_main_td_class" style="width:100%; vertical-align:top; direction:ltr;" dir=ltr>
+<table role=presentation align=left class=footer_logo_table_class cellpadding=0 cellspacing=0 style="margin: 0 auto; width:100%; " width=90%>
+<tr>
+<td class=footer_logo_td_class dir=ltr style="vertical-align:top;width:79px; padding-top:42px;text-align:left;line-height:0px; ">
+<amp-img src=https://www.gstatic.com/gumdrop/files/sim-footer-google-logo-transparent-w158px-h51px-2x.png width=79 height=26 style="width:79px;outline:0; border:0;margin:0 auto; " alt="" class=footer_logo_class layout=fixed></amp-img>
+</td>
+<td class=footer_separator_td_class dir=ltr style="vertical-align:top; width:2px; padding-top:30px; padding-left:21px; padding-right:24px; text-align:left;line-height:0px; ">
+<amp-img src=https://www.gstatic.com/gumdrop/files/sim-line-transparent-w2px-h102px-2x.png width=2 height=52 style="width:2px;outline:0; border:0;margin:0 auto; " alt="" class=footer_separator_class layout=fixed></amp-img>
+</td>
+<td class="footer_common_class footer_address_class" style="vertical-align:top; width:100%;table-layout:fixed;font-family: Google sans, Roboto, Open Sans, arial,sans-serif; font-weight:normal; font-size:12px;line-height:18px; word-break:break-word; color: #FFFFFF; padding-top:28px; padding-bottom:33px;text-align:left; " dir=ltr>
+<span style="font-size:inherit; color:inherit; font-weight:inherit; line-height:inherit; font-family:inherit;">Google Ireland Ltd,<br />Gordon House, Barrow Street,<br />Dublin 4, Ireland.</span>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+<tr>
+<td style="width:100%;table-layout:fixed;font-family: Google sans, Roboto, Open Sans, arial,sans-serif;font-size:12px;line-height:18px;font-weight:normal; word-break:break-word; color: #FFFFFF; padding-top:1px; padding-bottom:57px;text-align:left; direction:ltr; " dir=ltr class="footer_common_class footer_optout_class">You received this email because you indicated you manage a business and would like to receive tailored recommendations for business tools. If you don't want to receive these emails in the future, you can unsubscribe <a href=https://myaccount.google.com/communication-preferences/unsubscribe/gt/ACT4xYza_2wDkI761CrgAqjfwsxzssXaehSU-0vLHPRv7qmqTboyY5z1VaBy_nCLPJcFMEBbSnDWcBM1Gxqurktx49fmj5Ng072pzRj9druP-d0iUNgHx8hUuf7Rx9oWoS-dPnK3QCwetL_bWc-WZTY-Hyk3xPEGk3JmeITeoHJVRCEvu4ND1j2c1VvXnb4AkEaiZJR4AToAMvo7dPIRaqsSYQdBDub9lo5lpy4WEwvWlDyfqCJ2uwdvBAF8fJOo3TUGL2nR-kEF0hXjlK8mzHrBiw?utm_source=gm&utm_medium=email&auto=true target=_blank style="text-decoration:none; color:#1A73E8; color:#ffffff;text-decoration: underline;" class="">here</a>.</td>
+</tr>
+</tbody>
+</table>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+</table>
+</body>
+</html>

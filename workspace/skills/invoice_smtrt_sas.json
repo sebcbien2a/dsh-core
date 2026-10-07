@@ -1,0 +1,39 @@
+{
+  "skill_name": "invoice_smtrt_sas",
+  "domain": "invoice_processing",
+  "version": "1.0.0",
+  "tenant": "GLOBAL",
+  "lifecycle": {
+    "confidence": 1.0,
+    "usage_count": 3
+  },
+  "match_signature": {
+    "siret": null,
+    "tva_intra": null,
+    "keywords": [
+      "SMTRT",
+      "SMTRT_SAS"
+    ]
+  },
+  "overrides": {
+    "fournisseur": "SMTRT SAS",
+    "type_tva": "NORMALE",
+    "type_piece": "FACTURE"
+  },
+  "extraction_rules": {
+    "regex_numero_facture": "\\b(\\d{8})\\b",
+    "trusted_labels": {
+      "ht": "TOTAL H.T.",
+      "tva": "MT TVA",
+      "ttc": "NET A PAYER"
+    }
+  },
+  "audit_trail": {
+    "corrected_fields": [
+      "fournisseur",
+      "numero_facture"
+    ],
+    "source_error_supplier": "RCSAIXENPROVENCE",
+    "source_error_number": "3ZALESPIELETES"
+  }
+}

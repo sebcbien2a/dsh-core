@@ -1,11 +1,17 @@
 # n8n_api.py - Point d'entrée principal (Webhook) pour les requêtes n8n
+import os
+from dotenv import load_dotenv
+
+# Force le chargement du fichier .env AVANT le reste
+load_dotenv()
+
 import shutil
 from pathlib import Path
 from fastapi import FastAPI, File, UploadFile, HTTPException
 import uvicorn
 
-# Import de notre agent existant
-from invoice_agent import InvoiceProcessingAgent
+# IMPORT CORRIGÉ : On pointe vers le bon dossier et le bon nom de classe
+from agents.invoice_agent import InvoiceAgent
 
 app = FastAPI(
     title="DSH-Core API", 
@@ -14,37 +20,29 @@ app = FastAPI(
 )
 
 print("Initialisation de l'Agent Facture (chargement des modèles en mémoire)...")
-agent = InvoiceProcessingAgent()
+# INSTANCIATION CORRIGÉE
+agent = InvoiceAgent()
 
 INPUT_DIR = Path(r"A:\dsh-core\workspace\invoices\input")
 INPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-
-@app.post("/api/v1/process-invoice")
+# URL CORRIGÉE : Correspond exactement à ce que tu as mis dans le nœud HTTP Request de n8n
+@app.post("/api/v1/ingest")
 async def process_invoice(file: UploadFile = File(...)):
-    """
-    Point d'entrée pour n8n :
-    1. Reçoit le fichier (PDF/Image) de n8n.
-    2. Le sauvegarde dans le dossier input.
-    3. Lance le pipeline OCR + Qwen + Pydantic.
-    4. Renvoie le JSON structuré à n8n.
-    """
     try:
-        # 1. Sauvegarde temporaire du fichier reçu
         file_path = INPUT_DIR / file.filename
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
         
         print(f"\n[API] Nouvelle requête n8n reçue : {file.filename}")
         
-        # 2. Traitement par l'agent (Surya + Qwen + Pydantic)
-        # (L'agent va aussi déplacer l'image dans 'processed' et sauver le JSON localement)
-        facture_validee = agent.traiter_facture(file_path)
+        # Lancement du vrai agent
+        facture_validee = agent.process_invoice(str(file_path))
         
         print(f"[API] Traitement terminé avec succès pour {file.filename}")
         
-        # 3. Renvoi du JSON propre à n8n
-        return facture_validee.model_dump()
+        # Renvoi du JSON structuré à n8n
+        return facture_validee
         
     except Exception as e:
         print(f"[API] Erreur lors du traitement : {e}")

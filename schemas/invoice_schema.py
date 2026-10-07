@@ -1,94 +1,166 @@
-# schemas/invoice_schema.py - Schéma de validation Pydantic strict pour factures
-from typing import List, Optional
+from enum import Enum
+from typing import Optional
 from pydantic import BaseModel, Field, model_validator
 
+class TypePiece(str, Enum):
+    FACTURE = "FACTURE"
+    AVOIR = "AVOIR"
 
-class SupplierInfo(BaseModel):
-    nom: str = Field(..., description="Nom ou raison sociale du fournisseur")
-    siret: Optional[str] = Field(None, description="Numéro SIRET / Siren (14 ou 9 chiffres)")
-    numero_tva: Optional[str] = Field(None, description="Numéro de TVA intracommunautaire")
-    adresse: Optional[str] = Field(None, description="Adresse postale de l'émetteur")
+class TypeTVA(str, Enum):
+    NORMALE = "NORMALE"                      # Régime standard (TVA déductible classique)
+    AUTOLIQUIDATION = "AUTOLIQUIDATION"      # Intracommunautaire (TVA payée nulle, CA3 requise)
+    NON_ASSUJETTI = "NON_ASSUJETTI"          # Franchise en base art. 293 B CGI (Aucune TVA)
 
-
-class ClientInfo(BaseModel):
-    nom: str = Field(..., description="Nom ou raison sociale du client")
-    siret: Optional[str] = Field(None, description="Numéro SIRET du client si professionnel")
-    adresse: Optional[str] = Field(None, description="Adresse de facturation du client")
-
-
-class InvoiceItem(BaseModel):
-    description: str = Field(..., description="Désignation du produit ou de la prestation")
-    quantite: float = Field(default=1.0, description="Quantité facturée")
-    prix_unitaire_ht: float = Field(..., description="Prix unitaire Hors Taxes")
-    total_ht: float = Field(..., description="Total HT de la ligne (quantite * prix_unitaire)")
-    taux_tva: Optional[float] = Field(default=20.0, description="Taux de TVA applicable en %")
-
-
-class InvoiceSchema(BaseModel):
-    numero_facture: str = Field(..., description="Identifiant unique / numéro de la pièce comptable")
-    date_emission: str = Field(..., description="Date d'émission au format ISO YYYY-MM-DD")
-    date_echeance: Optional[str] = Field(None, description="Date limite de règlement")
-    fournisseur: SupplierInfo
-    client: ClientInfo
-    lignes: List[InvoiceItem] = Field(default_factory=list, description="Détail des lignes facturées")
-    total_ht: float = Field(..., description="Montant total Hors Taxes cumulé")
-    montant_tva: float = Field(..., description="Montant total de la TVA")
-    total_ttc: float = Field(..., description="Montant net à payer Toutes Taxes Comprises")
-    devise: str = Field(default="EUR", description="Devise comptable (EUR, USD, etc.)")
-    statut_validation_math: bool = Field(default=False, description="Validation arithmétique interne")
+class InvoiceData(BaseModel):
+    # --- 0. Métadonnées & Typage métier ---
+    type_piece: TypePiece = TypePiece.FACTURE
+    type_tva: TypeTVA = TypeTVA.NORMALE
+    origine_document: str = "INCONNU"
+    
+    fournisseur: str
+    date_facture: str
+    numero_facture: Optional[str] = None
+    
+    # --- 1. Valeurs fiscales d'origine ---
+    montant_ht: float
+    taux_tva_pourcentage: Optional[float] = None
+    taux_tva_theorique: Optional[float] = None  # 20.0 % pour calcul CA3 en autoliquidation
+    montant_tva: Optional[float] = None
+    montant_ttc: float
+    
+    # --- 2. Valeurs commerciales ---
+    montant_remise: Optional[float] = 0.0
+    montant_paye: Optional[float] = None
+    
+    # --- 3. Valeurs recalculées par DSH-Core ---
+    montant_ht_net: Optional[float] = None
+    montant_tva_net: Optional[float] = None
+    montant_ttc_net: Optional[float] = None
+    
+    # --- 4. Statut et Audit (Soft Fail) ---
+    statut_traitement: str = "VALIDE"
+    commentaires_controle: list[str] = Field(default_factory=list)
+    
+    devise: str = "EUR"
 
     @model_validator(mode="after")
-    def verifier_coherence_mathematique(self):
-        """Vérifie l'exactitude de l'équation : Total HT + Montant TVA == Total TTC."""
-        somme_theorique = round(self.total_ht + self.montant_tva, 2)
-        total_declare = round(self.total_ttc, 2)
-        
-        # Tolérance de 5 centimes pour absorber les arrondis de centimes par ligne
-        if abs(somme_theorique - total_declare) <= 0.05:
-            self.statut_validation_math = True
-            return self
-        
-        raise ValueError(
-            f"Écart arithmétique détecté : HT ({self.total_ht:.2f}) + "
-            f"TVA ({self.montant_tva:.2f}) = {somme_theorique:.2f} €, "
-            f"mais le TTC déclaré est de {total_declare:.2f} €"
-        )
+    def process_and_verify(self):
+        # ==========================================
+        # CONTRÔLES DES RÉGIMES DE TVA SPÉCIAUX
+        # ==========================================
+        if self.type_tva in [TypeTVA.AUTOLIQUIDATION, TypeTVA.NON_ASSUJETTI]:
+            self.montant_tva = 0.0
+            self.taux_tva_pourcentage = None
+            
+            if self.type_tva == TypeTVA.AUTOLIQUIDATION and self.taux_tva_theorique is None:
+                self.taux_tva_theorique = 20.0
 
+        # ==========================================
+        # CONTRÔLES TAUX TVA (Factures NORMALE)
+        # ==========================================
+        if self.type_tva == TypeTVA.NORMALE and self.taux_tva_pourcentage is not None:
+            if self.type_piece == TypePiece.FACTURE and self.taux_tva_pourcentage < 0:
+                self.commentaires_controle.append(f"Taux TVA négatif détecté ({self.taux_tva_pourcentage}%).")
+                self.taux_tva_pourcentage = None
+                self.statut_traitement = "A_VERIFIER"
+            elif self.type_piece == TypePiece.FACTURE and self.taux_tva_pourcentage > 30:
+                self.commentaires_controle.append(f"Taux TVA improbable détecté ({self.taux_tva_pourcentage}%). Valeur invalidée.")
+                self.taux_tva_pourcentage = None
+                self.statut_traitement = "A_VERIFIER"
 
-if __name__ == "__main__":
-    print("=== TEST DE VALIDATION DU SCHÉMA FACTURE ===")
-    
-    # 1. Test avec une facture valide
-    donnees_valides = {
-        "numero_facture": "FA-2026-0042",
-        "date_emission": "2026-09-25",
-        "fournisseur": {"nom": "Paintcar Distribution", "siret": "12345678900012"},
-        "client": {"nom": "Atelier Carrosserie Centre"},
-        "lignes": [
-            {"description": "Vernis UHS 5L", "quantite": 2, "prix_unitaire_ht": 50.0, "total_ht": 100.0, "taux_tva": 20.0}
-        ],
-        "total_ht": 100.0,
-        "montant_tva": 20.0,
-        "total_ttc": 120.0
-    }
-    
-    facture = InvoiceSchema(**donnees_valides)
-    print(f" Facture valide acceptée : N° {facture.numero_facture}")
-    print(f"-> Cohérence mathématique validée : {facture.statut_validation_math}")
+        # ==========================================
+        # CONTRÔLES MONTANTS (Restreints aux Factures)
+        # ==========================================
+        if self.montant_tva is not None and self.type_piece == TypePiece.FACTURE:
+            if self.montant_tva < 0:
+                self.commentaires_controle.append(f"Montant TVA négatif détecté ({self.montant_tva}).")
+                self.statut_traitement = "A_VERIFIER"
+            if self.montant_ttc > 0 and self.montant_tva > self.montant_ttc:
+                self.commentaires_controle.append("TVA supérieure au TTC : valeur incohérente.")
+                self.statut_traitement = "A_VERIFIER"
+            if self.montant_ht > 0 and self.montant_tva > self.montant_ht:
+                self.commentaires_controle.append("TVA supérieure au HT : valeur incohérente.")
+                self.statut_traitement = "A_VERIFIER"
 
-    # 2. Test avec une facture incohérente (doit lever une alerte)
-    print("\n--- Test de détection d'incohérence arithmétique ---")
-    donnees_invalides = {
-        "numero_facture": "FA-ERREUR",
-        "date_emission": "2026-09-25",
-        "fournisseur": {"nom": "Fournisseur Test"},
-        "client": {"nom": "Client Test"},
-        "total_ht": 100.0,
-        "montant_tva": 20.0,
-        "total_ttc": 150.0  # Erreur volontaire : 100 + 20 != 150
-    }
-    
-    try:
-        InvoiceSchema(**donnees_invalides)
-    except Exception as e:
-        print(f" Incohérence interceptée avec succès :\n   {e}")
+        if self.type_piece == TypePiece.FACTURE:
+            if self.montant_ht < 0:
+                self.commentaires_controle.append(f"Montant HT négatif détecté ({self.montant_ht}).")
+                self.statut_traitement = "A_VERIFIER"
+            if self.montant_ttc < 0:
+                self.commentaires_controle.append(f"Montant TTC négatif détecté ({self.montant_ttc}).")
+                self.statut_traitement = "A_VERIFIER"
+            if self.montant_ht > self.montant_ttc:
+                self.commentaires_controle.append("HT supérieur au TTC : valeur incohérente.")
+                self.statut_traitement = "A_VERIFIER"
+
+        # ==========================================
+        # DÉTECTION D'HALLUCINATION (HT = TVA = TTC)
+        # ==========================================
+        if (
+            self.montant_tva is not None
+            and abs(self.montant_ht) > 0
+            and abs(self.montant_ttc) > 0
+            and abs(self.montant_ht - self.montant_tva) < 0.01
+            and abs(self.montant_tva - self.montant_ttc) < 0.01
+        ):
+            self.commentaires_controle.append("Configuration HT = TVA = TTC détectée. Hallucination probable du LLM.")
+            self.statut_traitement = "A_VERIFIER"
+            self.taux_tva_pourcentage = None
+            self.montant_tva = None
+
+        # ==========================================
+        # VÉRIFICATION FISCALE SELON RÉGIME
+        # ==========================================
+        if self.type_tva == TypeTVA.NORMALE:
+            if self.montant_tva is not None:
+                attendu_ttc = round(self.montant_ht + self.montant_tva, 2)
+                if abs(attendu_ttc - self.montant_ttc) > 0.02:
+                    self.statut_traitement = "A_VERIFIER"
+                    self.commentaires_controle.append(
+                        f"Anomalie fiscale : HT ({self.montant_ht}) + TVA ({self.montant_tva}) != TTC ({self.montant_ttc})"
+                    )
+            else:
+                if self.type_piece == TypePiece.FACTURE:
+                    self.commentaires_controle.append("TVA absente ou invalidée : contrôle fiscal automatique impossible.")
+                    self.statut_traitement = "A_VERIFIER"
+        else:
+            if abs(self.montant_ht - self.montant_ttc) > 0.02:
+                self.statut_traitement = "A_VERIFIER"
+                self.commentaires_controle.append(
+                    f"Anomalie régime {self.type_tva.value} : HT ({self.montant_ht}) != TTC ({self.montant_ttc})"
+                )
+            
+        # ==========================================
+        # COHÉRENCE BANCAIRE
+        # ==========================================
+        remise = self.montant_remise or 0.0
+        if self.montant_paye is None:
+            self.montant_paye = round(self.montant_ttc - remise, 2)
+            
+        attendu_paye = round(self.montant_ttc - remise, 2)
+        if abs(attendu_paye - self.montant_paye) > 0.02:
+            self.statut_traitement = "A_VERIFIER"
+            self.commentaires_controle.append(
+                f"Anomalie bancaire : TTC ({self.montant_ttc}) - Remise ({remise}) != Payé ({self.montant_paye})"
+            )
+            
+        # ==========================================
+        # CALCUL TRÉSORERIE NETTE
+        # ==========================================
+        if self.montant_ttc != 0:
+            ratio = self.montant_paye / self.montant_ttc
+            self.montant_ht_net = round(self.montant_ht * ratio, 2)
+            
+            tva_valide = self.montant_tva if self.montant_tva is not None else 0.0
+            self.montant_tva_net = round(tva_valide * ratio, 2)
+            self.montant_ttc_net = self.montant_paye
+            
+            attendu_ttc_net = round(self.montant_ht_net + self.montant_tva_net, 2)
+            if abs(attendu_ttc_net - self.montant_ttc_net) > 0.02:
+                self.montant_ht_net = round(self.montant_ttc_net - self.montant_tva_net, 2)
+        else:
+            self.montant_ht_net = 0.0
+            self.montant_tva_net = 0.0
+            self.montant_ttc_net = 0.0
+
+        return self

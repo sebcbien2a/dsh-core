@@ -37,3 +37,67 @@ Phase 6 : Déploiement de Langfuse local via Docker (Validée - Port 3000).
 Phase 7 : Connexion du tableau de bord animé (LangGraph Studio / React Flow) sur écran secondaire.
 Phase 8 : Pipeline Factures & API locale (Validée).
 Phase 9 : Intégration Neo4j via Docker (Validée - Port 7474).
+Phase 10
+Plain Text
+ResearchAgent V5
+Afficher plus de lignes
+
+Objectif :
+
+Plain Text
+DDGS
+Playwright
+Qdrant
+TOR
+Cache Qdrant
+Langfuse
+Afficher plus de lignes
+Phase 11
+Plain Text
+InvoiceAgent V2
+Afficher plus de lignes
+
+Objectif :
+
+Plain Text
+Surya OCR
+Vision
+Validation
+Repair Agent
+Qdrant
+n8n
+``
+Afficher plus de lignes
+Phase 12
+Plain Text
+Agent Registry
+Afficher plus de lignes
+
+Objectif :
+
+Plain Text
+agents_catalog
+dans Qdrant
+``
+Afficher plus de lignes
+
+
+NOUVEAUX 
+
+# PHASES DE DÉPLOIEMENT
+
+- [x] **Phase 1 à 5 :** Environnement virtuel, Serveur FastAPI, Outils MCP, Agents IA, Orchestrateur LangGraph. (Terminées)
+- [x] **Phase 6 : Base de données de Traces (Langfuse)**
+  - [x] Remplacement de l'image `latest` par la version `2` dans le `docker-compose.yml`.
+  - [x] Démarrage réussi sur `http://localhost:3001` (contournement des bloqueurs de navigateur).
+  - [x] Création des clés API (Secret/Public).
+  - [x] Sécurisation des clés dans `.env`.
+  - [x] Branchement du callback Langfuse dans `api.py`.
+- [x] **Phase 8 : Sauvegarde Distante (GitHub)**
+  - [x] Création du dépôt privé.
+  - [x] Synchronisation sécurisée (`git push -u origin main --force`).
+- [~] **Phase 9 : Modélisation des Lettrages et Base Graphe (Neo4j)**
+  - [x] Test de connexion et d'exécution Cypher sur le port 7474.
+  - [ ] Création du modèle "Rapprochement Achats" (Factures fournisseurs).
+  - [ ] Création du modèle "Rapprochement Ventes" (Clients et LCR).
+  - [ ] Outil d'extraction des articles pour export Excel.
