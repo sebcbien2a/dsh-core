@@ -7,6 +7,7 @@
 - journal : [docs/03_JOURNAL.md](./03_JOURNAL.md)
 - architecture cible : [docs/DSH_CORE_AI_ARCHITECTURE_V2.md](./DSH_CORE_AI_ARCHITECTURE_V2.md)
 - synthèse audit Argon : [docs/05_AUDIT_ARCHITECTURE_V2_ARGON.md](./05_AUDIT_ARCHITECTURE_V2_ARGON.md)
+- dernier commit documentaire observé : `4c3f6aa`
 - commit de base observé avant consolidation Argon :
   `3f979a05c149b0497e2ac4d85dae5d715a4fe962`
   (`3f979a0`, `docs: corriger le handoff et les dates d architecture`)
@@ -40,7 +41,8 @@
 - Aucun import multi-format réel.
 - Aucune interface humaine.
 - Aucune garantie ACID multi-fichiers.
-- Hermes et Mem0 non encore connectés.
+- Hermes est confiné en lecture seule ; les intégrations Mem0, Qdrant, Neo4j
+  et DeepSeek Harness ne sont pas connectées.
 - `architecture-ia-v2.md` est une source externe reçue, absente du dépôt ; la
   roadmap n’en conserve qu’une synthèse candidate. L'audit Argon est terminé.
 
@@ -52,10 +54,8 @@
 
 ## Prochaine étape
 
-Après validation documentaire, poursuivre le confinement Hermes en lecture
-seule : liste blanche Docker de DSH-Core (montages `:ro` individuels, sorties
-dans un volume séparé), puis vérifier l'impossibilité d'écrire dans
-`A:\dsh-core`.
+Effectuer un test fonctionnel minimal de lecture Hermes dès qu’un modèle local
+est disponible.
 
 Architecture cible (validée, non installée) : trois machines — PC principal
 (vérité comptable, Vision local, LangGraph, Neo4j, Qdrant, Mem0, Hermes),
@@ -64,8 +64,9 @@ PC principal publie les données comptables. DeepSeek Harness est un outil
 externe à intégrer sur mesure par un Skill Hermes, pas un plugin natif.
 
 État réel de Hermes : 0.22.4 installé, approbations `manual`, cron /
-single-query / unattended en `deny`, aucun MCP ni plugin, `terminal.backend`
-`local`, aucun accès DSH-Core accordé.
+single-query / unattended en `deny`, aucun MCP ni plugin connecté,
+`terminal.backend` `docker`, réseau désactivé, aucun accès direct à
+`A:\dsh-core`.
 
 Audit Argon terminé ; synthèse dans [docs/05_AUDIT_ARCHITECTURE_V2_ARGON.md](./05_AUDIT_ARCHITECTURE_V2_ARGON.md).
 Ne pas relancer l'audit Argon ni les audits déjà terminés (P1-8A à P1-8D,
@@ -80,8 +81,35 @@ writer). Ne pas confondre architecture validée et composants installés.
 - **P1-7 bancaire — PARTIELLEMENT TERMINÉ** : contrat et tests existent, mais
   des décisions métier bloquantes restent ouvertes et non signées. Voir la
   synthèse Argon pour les preuves et réserves.
-- **P1-8 — EN COURS** ; le confinement Hermes en lecture seule est la prochaine
-  action.
+- **P1-8 — EN COURS** ; confinement technique réussi, intégrations mémoire
+  encore non commencées.
+
+## État opérationnel après confinement Hermes
+
+- Hermes 0.22.4 confirmé.
+- Chemin : `%LOCALAPPDATA%\hermes\bin\hermes.exe`.
+- `approvals.mode = manual`.
+- `cron_mode = deny`.
+- `single_query_mode = deny`.
+- `unattended_mode = deny`.
+- `terminal.backend = docker`.
+- `terminal.cwd = /workspace/dsh-core`.
+- `docker_network = false`.
+- `docker_mount_cwd_to_workspace = false`.
+- `A:\dsh-hermes-context` monté en lecture seule.
+- `A:\dsh-hermes-output` monté en écriture.
+- 10 fichiers présents dans le contexte assaini.
+- Test de lecture réussi ; écriture dans le contexte refusée.
+- Écriture dans `/output` réussie.
+- Pendant le confinement, `A:\dsh-core` n'a pas été monté et est resté inchangé.
+- Aucun MCP, Mem0, Qdrant, Neo4j ou DeepSeek Harness connecté.
+- Test conversationnel Hermes reporté car le modèle actif est distant.
+- Fournisseur observé : `auto` / OpenRouter.
+- Modèle observé : `anthropic/claude-opus-4.6`.
+
+Audit Argon terminé, ne pas le relancer. Référence :
+[docs/05_AUDIT_ARCHITECTURE_V2_ARGON.md](./05_AUDIT_ARCHITECTURE_V2_ARGON.md).
+P1-5 : TERMINÉ ET PROUVÉ. P1-7 : PARTIELLEMENT TERMINÉ.
 
 Contraintes :
 
