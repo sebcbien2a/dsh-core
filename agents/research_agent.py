@@ -132,10 +132,10 @@ Format: {{"requires_search": true, "depth": "quick", "optimized_query": "mots cl
             try:
                 skills_repo = SkillsRepository(self.qdrant_client)
                 router = SkillRouter(skills_repo=skills_repo)
-                routing_res = router.find_relevant_skill(task=query)
-                if routing_res and routing_res.get("skills"):
+                routing_res = router.retrieve_skill_for_task(task=query)
+                if routing_res:
                     print(f"[ResearchAgent] 💡 Compétence mémorisée injectée pour le rôle [{self.base_role}] !")
-                    skill_context = "\n" + routing_res["context"] + "\n"
+                    skill_context = "\n" + routing_res + "\n"
             except Exception as e:
                 print(f"[ResearchAgent] Erreur consultation SkillRouter : {e}")
 

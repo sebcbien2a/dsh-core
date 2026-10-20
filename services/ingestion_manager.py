@@ -125,7 +125,7 @@ class IngestionManager:
                 else:
                     return IngestionResult(
                         asset_id=asset_id, asset_type=asset_type, source=source,
-                        status="error", error_log=result.get("last_error")
+                        status="error", error_log=result.get("message")
                     ).model_dump()
 
         elif asset_type == AssetType.BANK_STATEMENT:

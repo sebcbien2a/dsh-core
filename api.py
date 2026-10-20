@@ -114,11 +114,10 @@ def run_autocode(request: AutoCodeRequest):
 @app.post("/api/router")
 def run_router(request: RouterRequest):
     try:
-        from router import router_intelligent
-        result = router_intelligent(
+        from router import route_prompt
+        result = route_prompt(
             prompt=request.prompt,
-            image_path=request.image_path,
-            complexite_haute=request.complexite_haute
+            image_provided=bool(request.image_path)
         )
         return {
             "status": "success", 
