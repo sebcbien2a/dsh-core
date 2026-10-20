@@ -202,3 +202,15 @@ connecteurs ou ses stockages sont déjà implémentés.
   Community n'a pas permis de certifier un rôle exclusivement read-only.
 - La définition d'un mécanisme permanent de lecture seule reste nécessaire;
   aucune écriture Neo4j n'est autorisée avant cette définition.
+
+## 15 octobre 2026 — audits Qdrant P1-2 et P1-3
+
+- La comparaison non destructive des stockages Qdrant est terminée; ils sont
+  déclarés **DIFFÉRENTS**.
+- Le stockage racine est relié à l'instance active observée. Le stockage
+  secondaire a été préservé et est inactif; aucune seconde instance n'a été
+  démarrée.
+- Quatre points `agent_skills` ont été examinés en lecture seule. Aucun
+  doublon strict n'a été établi; leur redondance fonctionnelle est probable.
+- Aucun skill canonique n'a été choisi; P1-4 reste bloqué.
+- Aucune écriture, suppression, fusion ou migration n'a été effectuée.

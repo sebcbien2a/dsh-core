@@ -206,3 +206,68 @@ Les collections vides restent néanmoins susceptibles d'être créées ou utilis
 par ces chemins lorsqu'ils sont exécutés. Les classes de repository et services
 non instanciés ne prouvent pas qu'une écriture ou une lecture a effectivement eu
 lieu.
+
+# AUDITS QDRANT P1-2 ET P1-3 — 15 OCTOBRE 2026
+
+Cette section consigne les résultats communiqués pour les audits P1-2 et P1-3.
+La date du 15 octobre 2026 est la date réelle d'intervention déclarée. Les
+horodatages de fichiers ci-dessous sont des métadonnées observées pendant la
+comparaison, et non des dates d'exécution des audits.
+
+## P1-2 — Comparaison non destructive des stockages
+
+- Stockage relié à l'instance Qdrant active observée :
+  `A:\dsh-core\qdrant_storage`.
+- Stockage secondaire inactif, sans seconde instance démarrée :
+  `A:\dsh-core\docker\qdrant_storage`.
+- La comparaison a été strictement non destructive; aucun stockage n'a été
+  modifié, fusionné, renommé ou déplacé.
+- Stockage actif : **4 366 859 237 octets**, **1 574 fichiers** et
+  **738 répertoires**.
+- Stockage secondaire : **3 553 976 763 octets**, **1 652 fichiers** et
+  **775 répertoires**.
+- Collections identifiables dans le stockage actif :
+  `agent_skills`, `document_bus`, `invoice_documents`, `mem0`,
+  `mem0migrations`, `research_cache`, `skills_catalog`,
+  `teacher_student_metrics`.
+- Collections identifiables dans le stockage secondaire :
+  `document_bus`, `invoices`, `mem0`, `mem0_memories`, `mem0migrations`.
+- Collections communes : `document_bus`, `mem0`, `mem0migrations`.
+- Cinq collections exclusives au stockage actif :
+  `agent_skills`, `invoice_documents`, `research_cache`, `skills_catalog`,
+  `teacher_student_metrics`.
+- Deux collections exclusives au stockage secondaire : `invoices` et
+  `mem0_memories`.
+- **1 544 fichiers** sont présents uniquement dans le stockage actif et
+  **1 622 fichiers** uniquement dans le stockage secondaire. Six chemins
+  communs ont des tailles différentes.
+- Le répertoire `.deleted` est présent uniquement dans le stockage secondaire.
+- Les dates extrêmes de dernière modification observées sur les fichiers sont
+  des métadonnées : stockage actif, du 27 septembre 2026 au 19 octobre 2026;
+  stockage secondaire, du 24 au 27 septembre 2026. Elles ne datent pas
+  l'exécution de l'audit.
+- **Statut P1-2 : `DIFFÉRENTS`.** Aucune équivalence, fusion ou autorité du
+  stockage secondaire ne peut être déduite. Le stockage racine reste le seul
+  stockage relié à l'instance active observée.
+
+## P1-3 — Lecture des quatre points `agent_skills`
+
+- La collection active `agent_skills` a été interrogée en lecture seule; quatre
+  points ont été examinés.
+- Les quatre points ont le même `task_name` et le même objectif général :
+  extraire la TVA d'une facture présentant une inversion visuelle des montants
+  HT et TTC. Leurs contenus textuels, identifiants, dates et compteurs d'usage
+  diffèrent.
+- Chaque vecteur visible compte **768 dimensions**. Les similarités cosinus
+  calculées entre paires vont de **94,90 % à 99,04 %**; elles indiquent une
+  proximité, pas une identité.
+- Aucun doublon strict ni aucune contradiction de règle n'a été observé. La
+  redondance fonctionnelle est probable et les formulations sont partiellement
+  complémentaires.
+- Les payloads ne fournissent aucun champ de version ou de cycle de vie
+  exploitable. Un seul point a `usage_count=1`; les trois autres ont
+  `usage_count=0`.
+- Statut des quatre entrées : **`PROBABLE_DOUBLON`**.
+- Réponse à « Peut-on désigner immédiatement un skill canonique sans perte
+  d'information ? » : **NON**.
+- Aucune suppression, fusion, réécriture ou promotion n'a été effectuée.

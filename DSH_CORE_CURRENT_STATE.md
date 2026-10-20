@@ -200,15 +200,17 @@ pas la quantité de données métier utilisables.
 | Service ou chemin | État observé | Montage / taille mesurée |
 |---|---|---|
 | Qdrant `dsh-qdrant` | **EXISTANT ET ACTIF** | Port `6333`; stockage racine `A:\dsh-core\qdrant_storage`, 4 366 859 237 octets (1 574 fichiers). |
-| Stockage Qdrant secondaire | **ÉTAT INCONNU** quant à son contenu logique | `A:\dsh-core\docker\qdrant_storage`, 3 553 976 763 octets (1 652 fichiers); aucune seconde instance active associée. |
+| Stockage Qdrant secondaire | **DIFFÉRENT** du stockage actif | `A:\dsh-core\docker\qdrant_storage`, 3 553 976 763 octets (1 652 fichiers, 775 répertoires); aucune seconde instance active associée. |
 | Neo4j `dsh-neo4j` | **EXISTANT ET ACTIF** | Ports `7474` HTTP et `7687` Bolt; `A:\dsh-core\neo4j_data`, 541 130 919 octets (85 fichiers). |
 | Langfuse web et base | **EXISTANT ET ACTIF** au niveau des conteneurs | Web `3001→3000`; base PostgreSQL `5432`; répertoire `langfuse_db`, 68 148 891 octets. |
 | Open WebUI | **EXISTANT ET ACTIF** au niveau du conteneur | Port `3000→8080`; `open-webui_data`, 932 511 306 octets. |
 | n8n | **EXISTANT ET ACTIF** au niveau du conteneur | Port `5678`; `n8n_data`, 11 262 646 octets. |
 
-Les deux répertoires Qdrant ont des tailles et nombres de fichiers différents.
-Leur relation est plausible, mais leur équivalence n’est pas prouvée. Aucune
-fusion, comparaison destructive ou suppression n’a été effectuée.
+La comparaison non destructive P1-2 les a déclarés **DIFFÉRENTS** : les
+collections, les chemins, les tailles et les nombres de fichiers divergent.
+Seul le stockage racine est relié à l'instance active observée. Aucune
+équivalence ni autorité du stockage secondaire n'en est déduite; aucune fusion
+ou suppression n'a été effectuée.
 
 ## 4. API, points d’entrée et raccordements
 
@@ -351,8 +353,9 @@ décisions métier nécessaires restent **BLOQUÉ**.
 Le conteneur `dsh-qdrant` était **EXISTANT ET ACTIF** lors de l’inspection
 Docker; son API locale sur `6333` répondait. Le bind mount actif est
 `A:\dsh-core\qdrant_storage`, d’une taille totale observée de 4 366 859 237
-octets. Le répertoire secondaire `A:\dsh-core\docker\qdrant_storage` mesure
-3 553 976 763 octets et n’est lié à aucun second conteneur actif observé.
+octets (1 574 fichiers, 738 répertoires). Le répertoire secondaire
+`A:\dsh-core\docker\qdrant_storage` mesure 3 553 976 763 octets (1 652
+fichiers, 775 répertoires) et n’est lié à aucun second conteneur actif observé.
 
 La liste des huit collections a répondu à une requête de lecture. Les comptes
 actuels directement récupérés dans cette vérification étaient :
@@ -377,17 +380,31 @@ unique.
 
 ### 9.2 Skills dans Qdrant et interdiction de fusion
 
-- `agent_skills` contient quatre points visant la même tâche d’extraction de
-  TVA avec inversion HT/TTC.
-- Leurs contenus ont des empreintes distinctes; **aucun doublon strict** entre
-  ces quatre points n’est établi.
-- Leur recouvrement fonctionnel est jugé **probable**, pas prouvé comme
-  équivalence exacte.
+- P1-2 a comparé les deux stockages sans modification et a conclu
+  **DIFFÉRENTS**. Le stockage actif contient `agent_skills`, `document_bus`,
+  `invoice_documents`, `mem0`, `mem0migrations`, `research_cache`,
+  `skills_catalog` et `teacher_student_metrics`. Le stockage secondaire
+  contient `document_bus`, `invoices`, `mem0`, `mem0_memories` et
+  `mem0migrations`; seules `document_bus`, `mem0` et `mem0migrations` sont
+  communes. Cinq collections sont exclusives à l'actif et deux au secondaire.
+- Seul `A:\dsh-core\qdrant_storage` est relié à l'instance active observée.
+  L'équivalence ou l'autorité du stockage secondaire ne peut pas être déduite.
+- P1-3 a examiné en lecture seule les quatre points de `agent_skills`, qui
+  visent la même tâche d'extraction de TVA avec inversion visuelle HT/TTC.
+- Les points ont des identifiants, contenus, dates et compteurs d'usage
+  différents, et leurs vecteurs de 768 dimensions ont des similarités cosinus
+  entre 94,90 % et 99,04 %. Aucun doublon strict ni aucune contradiction de
+  règle n'est établi; il s'agit de doublons fonctionnels **probables**, avec
+  des formulations partiellement complémentaires.
+- Aucun champ de version ou de cycle de vie exploitable n'est présent dans
+  leurs payloads. Un seul point a `usage_count=1`; les trois autres ont
+  `usage_count=0`. Aucun skill canonique ne peut être choisi immédiatement
+  sans risque de perte d'information.
 - `skills_catalog` est vide.
 - `teacher_student_metrics` contient 16 métriques; les inventaires ne
   confirment aucun événement `skill_created=true` ou `skill_reused=true`.
-- Aucun stockage n’a été fusionné ou supprimé. La similarité des noms ou
-  finalités ne suffit pas à autoriser une opération destructive.
+- Aucune fusion ou suppression de stockage ni de skill n'a été effectuée ou
+  n'est autorisée par ces audits.
 
 ## 10. Neo4j
 
@@ -572,9 +589,9 @@ du document racine `03_JOURNAL.md`.
 | API et facture | Webhook raccordé à `InvoiceAgent`; contrôles facture non raccordés. | Pipeline documentaire orchestré et traçable. | Profilage, validations métier et persistance ne sont pas dans le webhook. | **BLOQUÉ** par `InvoiceSchema` pour les chemins qui l’importent. | Tests ciblés des corrections, contrat de schéma arbitré, test HTTP contrôlé. |
 | `InvoiceSchema` | Symbole absent; deux `InvoiceData` distincts. | Contrat facture unique validé avant intégration. | Appelants dépendent d’un schéma absent. | **BLOQUÉ** jusqu’à l’arbitrage. | Décision de contrat et tests de validation JSON approuvés. |
 | Banque | Détection de type présente; branche `pending_implementation`; schéma vide. | BankingRecord et allocations N↔N validés localement. | Aucun parseur, ledger ou rapprochement opérationnel. | **BLOQUÉ** sur les règles de comptes, allocations, devises, tolérances et remises. | Décisions métier puis relevés anonymisés et tests de parsers. |
-| Qdrant | Service actif, 8 collections listées, stockages racine et secondaire présents. | Similarité/RAG et synchronisation logique contrôlée. | Second stockage inactif, identité non prouvée; certains comptes de points du 20 octobre non récupérés. | **ÉTAT INCONNU** pour l’équivalence des stockages et certains décomptes courants. | Comparaison read-only et reproductible; ne pas fusionner. |
+| Qdrant | Service actif; P1-2 comparatif exécuté, P1-3 des quatre skills exécuté techniquement. | Similarité/RAG et synchronisation logique contrôlée. | Stockages **DIFFÉRENTS**; quatre skills à redondance fonctionnelle probable, sans version/cycle de vie exploitable. | P1-4 **BLOQUÉ** : aucun choix canonique immédiat sans risque de perte d'information. | Maintenir les stockages et les quatre variantes sans fusion ni suppression; arbitrer le registre canonique. |
 | Neo4j | Conteneur actif; authentification réussie en session `read`; `PARTIAL_READ_ONLY`; 3 nœuds, 2 relations, aucune contrainte et deux index techniques. | Relations métier stables et validées. | Schéma runtime français divergent des repositories anglais; provenance inconnue; rôle exclusivement read-only non certifié. | **BLOQUÉ** pour toute écriture tant qu'un mécanisme permanent de lecture seule n'est pas défini. | Établir la provenance quand elle est vérifiable et définir une protection permanente avant toute écriture. |
-| Skills | Registre JSON présent; 4 variantes Qdrant, catalogue vide, 16 métriques. | Registre canonique local et cycle de vie gouverné. | Stockages et versions/états non unifiés; redondance fonctionnelle probable. | **BLOQUÉ** par décision de registre et évaluation des variantes. | Audit des quatre contenus et décision métier/technique documentée. |
+| Skills | Registre JSON présent; 4 variantes Qdrant, catalogue vide, 16 métriques. | Registre canonique local et cycle de vie gouverné. | Les quatre variantes sont des doublons fonctionnels probables, non stricts; versions/états non unifiés. | P1-4 **BLOQUÉ** : aucun choix canonique immédiat sans risque de perte d'information. | Arbitrer le registre et son autorité; maintenir les quatre variantes sans fusion ni suppression. |
 | Mem0 | Code de récupération présent; collection `mem0` vide au relevé. | Mémoire épisodique au service du contexte, jamais vérité métier. | Présence du code sans données persistées observées. | **ÉTAT INCONNU** pour activité récente et contenu ultérieur au relevé. | Lecture contrôlée de métadonnées et test sans écriture métier. |
 | LangGraph | Deux graphes définis/compilés avec logique ou nœuds simulés. | Orchestrateur métier unique. | Aucun pipeline métier complet raccordé. | **CIBLE NON IMPLÉMENTÉE** pour l’orchestration complète. | Tests E2E de graphe avec intégrations réelles et preuve d’appel applicatif. |
 | Langfuse | Conteneurs actifs; imports/décorateurs dans le code. | Observabilité des flux. | Traces effectives non vérifiées. | **ÉTAT INCONNU** pour les traces et leur couverture. | Vérifier une trace non sensible sur flux contrôlé. |
@@ -595,13 +612,16 @@ aucune hypothèse ne les contourne.
    l'inventaire runtime ont été obtenus en session `read`; la provenance reste
    inconnue et le rôle exclusivement read-only n'est pas certifié. Aucune
    écriture avant définition d'un mécanisme permanent de lecture seule.
-3. **Comparer sans modification les deux stockages Qdrant.** Capturer des
-   inventaires/empreintes compatibles; établir les éléments prouvés et les
-   inconnues, sans démarrer une seconde instance.
-4. **Évaluer les quatre variantes `agent_skills`.** Comparer leurs fonctions et
-   cas de test; aucune fusion ou suppression avant décision.
-5. **Décider le registre canonique des skills.** Définir stockage, versions,
-   états, transitions et autorité locale de publication.
+3. **P1-2 — Comparaison non destructive des stockages Qdrant exécutée :
+   `DIFFÉRENTS`.** Seul le stockage racine est relié à l'instance active
+   observée; aucune équivalence n'est déduite.
+4. **P1-3 — Audit technique des quatre `agent_skills` exécuté.** Ils sont des
+   doublons fonctionnels probables, mais pas stricts; aucune fusion ou
+   suppression n'a eu lieu.
+5. **P1-4 — Décider le registre canonique des skills : BLOQUÉ.** Aucun skill
+   canonique ne peut être choisi immédiatement sans risque de perte
+   d'information; définir stockage, versions, états, transitions et autorité
+   locale de publication.
 6. **Résoudre les décisions bancaires bloquantes.** Propriété des comptes,
    objets rapprochables, allocations, devises, tolérances, parties et remises
    de chèques.
@@ -620,11 +640,12 @@ décisions, conformément à la Roadmap V2.
   restent des dates documentaires non vérifiées. L'audit authentifié daté du
   15 octobre fournit un relevé structurel, sans établir la provenance des
   données ni un privilège permanent exclusivement read-only.
-- Les comptes exacts de toutes les collections Qdrant ne sont pas tous
-  certifiés dans la lecture du 20 octobre; les anciens chiffres sont attribués
-  explicitement à leur date de mesure.
-- L’équivalence des deux stockages Qdrant n’est pas prouvée malgré leur rôle
-  vraisemblablement apparenté.
+- Les deux stockages Qdrant sont **DIFFÉRENTS** selon la comparaison P1-2;
+  les nombres de fichiers et tailles sont des mesures d'inventaire et peuvent
+  évoluer.
+- Les quatre points `agent_skills` sont des doublons fonctionnels probables,
+  mais leurs différences de contenu excluent de les traiter comme doublons
+  stricts; le choix canonique reste bloqué.
 - Les chemins applicatifs sont vérifiés statiquement; aucune requête HTTP
   facture ni test ciblé n’a été exécuté durant cette génération.
 - La présence du conteneur Langfuse ne confirme pas que les traces soient
@@ -636,4 +657,3 @@ décisions, conformément à la Roadmap V2.
   décisions; ils ne certifient pas une installation ni un raccordement.
 - Les nombres de fichiers et tailles de stockage sont des mesures de
   l’inventaire du 20 octobre et peuvent évoluer.
-

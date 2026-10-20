@@ -10167,6 +10167,11 @@ droits de publication.
 
 **P1-2 — Comparer sans modification les deux stockages Qdrant**
 
+- **Statut : audit exécuté le 15 octobre 2026 — `DIFFÉRENTS`.**
+- Le stockage actif racine et le stockage secondaire ont des collections,
+  structures, nombres de fichiers et tailles différents. Seul le stockage
+  racine est relié à l'instance active observée; aucune seconde instance n'a
+  été démarrée.
 - Dépendances : P0-2, P0-3.
 - Livrables : comparaison non destructive des collections, compteurs, hashes ou
   empreintes compatibles et paramètres disponibles.
@@ -10179,6 +10184,11 @@ droits de publication.
 
 **P1-3 — Évaluer les quatre variantes `agent_skills`**
 
+- **Statut : audit technique exécuté le 15 octobre 2026.**
+- Les quatre variantes sont des doublons fonctionnels probables, non stricts;
+  leurs règles ne présentent pas de contradiction observée. Les métadonnées
+  disponibles ne justifient pas un choix canonique sans risque de perte
+  d'information.
 - Dépendances : P0-2, P1-2.
 - Livrables : comparaison fonctionnelle, provenance/version si disponible,
   cas d'usage et risques de régression pour chacune.
@@ -10190,6 +10200,8 @@ droits de publication.
 
 **P1-4 — Décider le registre canonique des skills**
 
+- **Statut : BLOQUÉ.** Aucun skill canonique ne peut être désigné
+  immédiatement sans risque de perte d'information.
 - Dépendances : P1-3; revue des stockages et formats locaux existants.
 - Livrables : décision validée sur le format, l'identifiant stable, les
   versions, états, transitions, historique et autorité locale du registre.
@@ -10648,7 +10660,7 @@ attesté.
 | Phase | Statut initial | Dépendances majeures | Livrables et critères d'acceptation | Risques et interdictions | Données/tests nécessaires |
 |---|---|---|---|---|---|
 | 0 — Preuve/sauvegarde | CIBLE | Aucune; accès autorisés | État Git/code/documentation et snapshots vérifiés; tests ciblés des trois corrections | Pas d'écrasement, secret exposé ou suppression; conserver Qdrant secondaire | Statut Git, empreintes, sauvegardes restaurables, fixtures non sensibles |
-| 1 — Contrats bloqués | BLOQUÉ/CIBLE | Phase 0 | Accès Neo4j read-only; comparaison Qdrant; décision skills, InvoiceSchema et banque | Aucun write, merge, suppression ou schéma supposé | Exports read-only, exemples facture/relevé anonymisés, décisions métier |
+| 1 — Contrats bloqués | PARTIEL/BLOQUÉ | Phase 0 | P1-1 audit Neo4j exécuté; P1-2 stockages Qdrant comparés (`DIFFÉRENTS`); P1-3 audit technique des skills exécuté; P1-4 décision du registre canonique bloquée, ainsi que InvoiceSchema et banque | Aucun write, merge, suppression ou schéma supposé | Provenance et protections, arbitrage canonique des skills, exemples facture/relevé anonymisés, décisions métier |
 | 2 — MasterData | CIBLE | P1 et décisions compte/société | Référentiels, clés stables, unicité, Excel vers validation locale | Pas d'identité déduite par similarité seule | Cas alias, doublons, multi-sociétés |
 | 3 — Tableaux | CIBLE | P1, P2 | Contrats et transitions des trois tableaux, conventions de signe et audit | Pas de ventilation incertaine ni publication implicite | Parcours de validation/correction/rejet |
 | 4 — Facture | PARTIEL/NON RACCORDE/BLOQUÉ | P0, P1-5, P2, P3 | Pipeline LangGraph vérifié de l'ingestion à la persistance locale | Ne pas remplacer InvoiceSchema par InvoiceData | Factures, avoirs, frais, images et anomalies anonymisés |
@@ -10679,18 +10691,20 @@ par une hypothèse technique.
    mode `read`; provenance inconnue et rôle exclusivement read-only non
    certifié. Ne faire aucune écriture avant définition d'un mécanisme permanent
    de lecture seule.
-3. **Comparer sans modification les deux stockages Qdrant — P1-2.**
-   Dépendances : sauvegardes et cartographie des montages. Livrable :
-   comparaison vérifiable des collections/données. Acceptation : aucune
-   équivalence supposée et aucun changement des stockages.
-4. **Évaluer les quatre variantes `agent_skills` — P1-3.**
-   Dépendance : lecture des contenus et sauvegarde. Livrable : comparaison
-   fonctionnelle/versionnée. Acceptation : décision fondée sur des cas, sans
-   suppression ni fusion pendant l'évaluation.
-5. **Décider le registre canonique des skills — P1-4.**
-   Dépendance : inventaire P1-3. Livrable : décision locale sur format,
-   versions, états, transitions et permissions. Acceptation : cycle complet et
-   autorité de publication définis.
+3. **P1-2 — Audit comparatif non destructif des deux stockages Qdrant exécuté :
+   `DIFFÉRENTS`.** Seul le stockage racine est relié à l'instance active
+   observée; cinq collections lui sont exclusives et deux le sont au stockage
+   secondaire. Aucun changement des stockages.
+4. **P1-3 — Audit technique des quatre variantes `agent_skills` exécuté.**
+   Les entrées sont des doublons fonctionnels probables, mais non stricts;
+   aucune contradiction de règle n'a été observée. Aucun skill canonique ne
+   peut être choisi immédiatement sans risque de perte d'information.
+   Aucune suppression, fusion ou promotion n'a eu lieu.
+5. **P1-4 — Décider le registre canonique des skills : BLOQUÉ.**
+   Dépendance : résultats P1-3. La décision locale doit établir le stockage,
+   les versions, états, transitions et permissions; aucun choix canonique
+   immédiat n'est validé. Maintenir les quatre variantes sans suppression ni
+   fusion jusqu'à arbitrage.
 6. **Résoudre les décisions bancaires bloquantes — P1-6.**
    Statut : **BLOQUÉ** jusqu'à arbitrage métier. Livrable : décisions sur
    propriété des comptes, objets rapprochables, allocations, devises,
