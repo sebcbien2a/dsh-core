@@ -398,7 +398,13 @@ unique.
   leurs payloads. Un seul point a `usage_count=1`; les trois autres ont
   `usage_count=0`. Aucun skill canonique ne peut être choisi immédiatement
   sans risque de perte d'information.
+- La décision P1-4 établit désormais que ces quatre points restent inchangés
+  et sont classés `LEGACY_CANDIDATE_UNREVIEWED`; aucun n'est désigné comme
+  canonique. Le registre canonique local décidé n'est pas implémenté.
 - `skills_catalog` est vide.
+- La cible est une projection Qdrant de recherche sémantique, reconstructible
+  intégralement depuis le registre canonique local; Qdrant ne décide pas d'une
+  publication. Aucune collection n'est migrée ou supprimée.
 - `teacher_student_metrics` contient 16 métriques; les inventaires ne
   confirment aucun événement `skill_created=true` ou `skill_reused=true`.
 - Aucune fusion ou suppression de stockage ni de skill n'a été effectuée ou
@@ -446,12 +452,14 @@ seule n'est pas défini.
 
 | Stockage/composant | État réel |
 |---|---|
-| `skills/registry.json` | **EXISTANT ET ACTIF** via les routes skills de `api.py`; une entrée `ping_qdrant` au relevé. |
-| `skills/ping_qdrant.py` | Fichier présent; le contenu observé est un affichage fixe, pas une sonde réseau démontrée. |
-| `workspace/skills/invoice_smtrt_sas.json` | **EXISTANT MAIS PARTIEL**; JSON présent, version `1.0.0`, `usage_count=2` selon l’inventaire. |
-| Qdrant `agent_skills` | **EXISTANT MAIS PARTIEL**; quatre points, recherche exercée par test; les variantes n’ont ni version ni état de cycle de vie attesté. |
-| Qdrant `skills_catalog` | Présent et vide. Aucun catalogue canonique opérationnel n’est démontré. |
+| `skills/registry.json` | `LEGACY_ACTIVE`; fichier utilisé par les routes skills de `api.py`, avec une entrée `ping_qdrant` au relevé. |
+| `skills/*.py` | `LEGACY_ARTIFACT`; fichiers conservés, sans statut de version canonique établi. |
+| `workspace/skills/invoice_smtrt_sas.json` | `LEGACY_DOMAIN_SKILL`; JSON présent, version `1.0.0`, `usage_count=2` selon l’inventaire. |
+| Qdrant `agent_skills` | `LEGACY_VECTOR_PROJECTION`; quatre points conservés, recherche exercée par test; aucun versionnage ou cycle de vie exploitable attesté. |
+| Qdrant `skills_catalog` | `UNUSED_EMPTY`; présent et vide, pas le registre canonique. |
 | Qdrant `teacher_student_metrics` | 16 métriques; aucune preuve de création/réutilisation de skills selon les indicateurs recensés. |
+| Mem0 | `CONTEXT_ONLY`; souvenirs contextuels et événements d'usage, pas autorité ni publication de skills. |
+| Oracle | Staging uniquement pour produire des candidats et preuves de tests; aucune approbation ou publication directe. |
 | `SkillOpt` | **CIBLE NON IMPLÉMENTÉE**; aucun module/configuration trouvé dans le dépôt audité. |
 | `SKILL.md` métier DSH-Core | **CIBLE NON IMPLÉMENTÉE** dans le dépôt projet. Cinq fichiers `SKILL.md` repérés appartiennent à des packages sous `.venv-v3`, pas au registre métier du projet. |
 
@@ -461,10 +469,19 @@ de leur tâche déclarée commune. L’entrée JSON `invoice_smtrt_sas` traite a
 des factures, mais le rapport d’inventaire n’établit pas qu’elle soit
 fonctionnellement identique aux règles des quatre points.
 
-Les registres JSON et Qdrant sont des voies distinctes. Le cycle cible
-`CANDIDATE`, `TESTING`, `APPROVED`, `PUBLISHED`, `REJECTED`, `RETIRED`,
-l’approbation SkillOpt et la distribution Oracle après publication locale ne
-sont pas constatés comme implémentés.
+L'architecture du registre est décidée mais **non implémentée**. La cible
+documentaire est décrite dans `SKILLS_REGISTRY_ARCHITECTURE.md`; elle prévoit
+`skills/catalog/<skill_id>/manifest.json` et des artefacts versionnés. Cette
+cible n'a pas été créée. Les voies existantes restent legacy et aucune n'est
+migrée ou supprimée. Les skills facture suivent le contrat général avec des
+champs de domaine supplémentaires, sans second registre.
+
+Le cycle décidé est `CANDIDATE` → `TESTING` → `APPROVED` → `PUBLISHED`, avec
+`REJECTED` et `RETIRED` comme sorties. Seuls les skills publiés sont utilisables
+automatiquement en production; les skills `TESTING` sont limités aux tests
+isolés. La publication demeure l'autorité de DSH-Core local. Qdrant est une
+projection sémantique reconstructible depuis le registre; Mem0 reste
+contextuel et Oracle écrit uniquement en staging.
 
 ## 12. Mémoire, orchestration et observabilité
 
@@ -588,9 +605,9 @@ du document racine `03_JOURNAL.md`.
 | `InvoiceSchema` | Symbole absent; deux `InvoiceData` distincts. | Contrat facture unique validé avant intégration. | Appelants dépendent d’un schéma absent. | **BLOQUÉ** jusqu’à l’arbitrage. | Décision de contrat et tests de validation JSON approuvés. |
 | Banque | Détection de type présente; branche `pending_implementation`; schéma vide. | BankingRecord et allocations N↔N validés localement. | Aucun parseur, ledger ou rapprochement opérationnel. | **BLOQUÉ** sur les règles de comptes, allocations, devises, tolérances et remises. | Décisions métier puis relevés anonymisés et tests de parsers. |
 | Web / scraping / Tor | DDGS, Playwright, `/api/scrape` et wrapper MCP présents. | Recherche Web sûre et Tor explicitement configuré et validé. | Scraping partiel/non validé; wrapper non raccordé; Tor reconnu mais non fonctionnel; SearXNG documenté seulement. | Web **EXISTANT MAIS PARTIEL**; Tor **BLOQUÉ** jusqu'au traitement SSRF et au contrôle réseau. | Chantier reporté; sécuriser accès, destinations et redirections avant réactivation. |
-| Qdrant | Service actif; P1-2 comparatif exécuté, P1-3 des quatre skills exécuté techniquement. | Similarité/RAG et synchronisation logique contrôlée. | Stockages **DIFFÉRENTS**; quatre skills à redondance fonctionnelle probable, sans version/cycle de vie exploitable. | P1-4 **BLOQUÉ** : aucun choix canonique immédiat sans risque de perte d'information. | Maintenir les stockages et les quatre variantes sans fusion ni suppression; arbitrer le registre canonique. |
+| Qdrant | Service actif; P1-2 comparatif exécuté, P1-3 des quatre skills exécuté techniquement. | Projection sémantique reconstructible depuis le registre canonique local. | Stockages **DIFFÉRENTS**; la projection canonique cible et son registre ne sont pas implémentés. | P1-4 **DÉCISION D'ARCHITECTURE TERMINÉE**; implémentation non commencée. | Garder les stockages existants sans migration; définir le schéma JSON canonique et ses tests en P1-5. |
 | Neo4j | Conteneur actif; authentification réussie en session `read`; `PARTIAL_READ_ONLY`; 3 nœuds, 2 relations, aucune contrainte et deux index techniques. | Relations métier stables et validées. | Schéma runtime français divergent des repositories anglais; provenance inconnue; rôle exclusivement read-only non certifié. | **BLOQUÉ** pour toute écriture tant qu'un mécanisme permanent de lecture seule n'est pas défini. | Établir la provenance quand elle est vérifiable et définir une protection permanente avant toute écriture. |
-| Skills | Registre JSON présent; 4 variantes Qdrant, catalogue vide, 16 métriques. | Registre canonique local et cycle de vie gouverné. | Les quatre variantes sont des doublons fonctionnels probables, non stricts; versions/états non unifiés. | P1-4 **BLOQUÉ** : aucun choix canonique immédiat sans risque de perte d'information. | Arbitrer le registre et son autorité; maintenir les quatre variantes sans fusion ni suppression. |
+| Skills | Plusieurs voies legacy présentes; 4 points `agent_skills`, catalogue vide, 16 métriques. | Registre canonique local versionné, publication gouvernée; Qdrant en projection. | L'architecture est décidée; schéma et implémentation restent à faire. Les quatre points restent inchangés `LEGACY_CANDIDATE_UNREVIEWED`. | P1-4 **DÉCISION D'ARCHITECTURE TERMINÉE**; implémentation non commencée. | P1-5 : définir le schéma JSON canonique et les tests; aucune migration ni suppression. |
 | Mem0 | Code de récupération présent; collection `mem0` vide au relevé. | Mémoire épisodique au service du contexte, jamais vérité métier. | Présence du code sans données persistées observées. | **ÉTAT INCONNU** pour activité récente et contenu ultérieur au relevé. | Lecture contrôlée de métadonnées et test sans écriture métier. |
 | LangGraph | Deux graphes définis/compilés avec logique ou nœuds simulés. | Orchestrateur métier unique. | Aucun pipeline métier complet raccordé. | **CIBLE NON IMPLÉMENTÉE** pour l’orchestration complète. | Tests E2E de graphe avec intégrations réelles et preuve d’appel applicatif. |
 | Langfuse | Conteneurs actifs; imports/décorateurs dans le code. | Observabilité des flux. | Traces effectives non vérifiées. | **ÉTAT INCONNU** pour les traces et leur couverture. | Vérifier une trace non sensible sur flux contrôlé. |
@@ -618,16 +635,18 @@ aucune hypothèse ne les contourne.
 4. **P1-3 — Audit technique des quatre `agent_skills` exécuté.** Ils sont des
    doublons fonctionnels probables, mais pas stricts; aucune fusion ou
    suppression n'a eu lieu.
-5. **P1-4 — Décider le registre canonique des skills : BLOQUÉ.** Aucun skill
-   canonique ne peut être choisi immédiatement sans risque de perte
-   d'information; définir stockage, versions, états, transitions et autorité
-   locale de publication.
-6. **Résoudre les décisions bancaires bloquantes.** Propriété des comptes,
+5. **P1-4 — Décision d'architecture du registre canonique : terminée.**
+   L'architecture est documentée dans `SKILLS_REGISTRY_ARCHITECTURE.md`;
+   l'implémentation n'a pas commencé. Les quatre points restent inchangés et
+   `LEGACY_CANDIDATE_UNREVIEWED`.
+6. **P1-5 — Définir le schéma JSON canonique et les tests du registre.**
+   Aucun schéma ni test d'implémentation n'est créé par la décision P1-4.
+7. **P1-6 — Résoudre `InvoiceSchema` avant tout raccordement dépendant.**
+   Définir le contrat exact et sa relation aux deux `InvoiceData`.
+8. **P1-7 — Résoudre les décisions bancaires bloquantes.** Propriété des comptes,
    objets rapprochables, allocations, devises, tolérances, parties et remises
    de chèques.
-7. **Résoudre `InvoiceSchema` avant tout raccordement dépendant.** Définir le
-   contrat exact et sa relation aux deux `InvoiceData`.
-8. **Figer les contrats des trois tableaux.** Pièces comptables, validation
+9. **Figer les contrats des trois tableaux.** Pièces comptables, validation
    locale avant ventilation, et rapprochement bancaire avec audit et
    validation humaine.
 

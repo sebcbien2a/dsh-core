@@ -215,6 +215,20 @@ connecteurs ou ses stockages sont déjà implémentés.
 - Aucun skill canonique n'a été choisi; P1-4 reste bloqué.
 - Aucune écriture, suppression, fusion ou migration n'a été effectuée.
 
+## 15 octobre 2026 — décision d'architecture P1-4 du registre des skills
+
+- DSH-Core local est l'unique autorité de publication; le registre canonique
+  cible est local, explicite, versionné et sauvegardable par Git.
+- Le cycle `CANDIDATE` → `TESTING` → `APPROVED` → `PUBLISHED` est validé;
+  `REJECTED` et `RETIRED` sont des sorties possibles.
+- Qdrant est une projection de recherche sémantique reconstructible depuis le
+  registre local, jamais une autorité de publication.
+- Mem0 conserve uniquement du contexte et des événements d'usage; Oracle
+  écrit uniquement en staging et ne peut ni approuver ni publier.
+- Aucune migration ni suppression n'est autorisée maintenant. Les voies
+  existantes restent classées legacy; les quatre points `agent_skills` restent
+  inchangés, `LEGACY_CANDIDATE_UNREVIEWED`, sans skill canonique désigné.
+
 ## 15 octobre 2026 — audit Web, scraping et Tor
 
 - Aucun code SearXNG implémenté n'a été retrouvé; DDGS et Playwright sont

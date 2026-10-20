@@ -10200,19 +10200,34 @@ droits de publication.
 
 **P1-4 — Décider le registre canonique des skills**
 
-- **Statut : BLOQUÉ.** Aucun skill canonique ne peut être désigné
-  immédiatement sans risque de perte d'information.
+- **Statut : DÉCISION D’ARCHITECTURE TERMINÉE.**
+- **Implémentation : NON COMMENCÉE.**
 - Dépendances : P1-3; revue des stockages et formats locaux existants.
-- Livrables : décision validée sur le format, l'identifiant stable, les
-  versions, états, transitions, historique et autorité locale du registre.
-- Critères d'acceptation : les états `CANDIDATE`, `TESTING`, `APPROVED`,
-  `PUBLISHED`, `REJECTED`, `RETIRED` et les permissions Oracle/local sont
-  définis sans ambiguïté.
-- Risques/interdictions : ne pas déclarer `skills_catalog` existant ou actif;
-  ne pas publier un candidat.
-- Données/tests : scénarios de création, revue, publication, rejet et retrait.
+- Décision : voir `SKILLS_REGISTRY_ARCHITECTURE.md`. DSH-Core local est
+  l'unique autorité de publication; le registre est local, versionné et
+  sauvegardable par Git. Qdrant est une projection reconstructible; Mem0 est
+  contextuel; Oracle écrit uniquement en staging.
+- Les quatre `agent_skills` restent inchangés et
+  `LEGACY_CANDIDATE_UNREVIEWED`; aucun skill canonique n'est désigné.
+- Interdictions : aucune migration ou suppression maintenant; aucun candidat
+  utilisé automatiquement ni publié directement par Oracle.
 
-**P1-5 — Résoudre le contrat `InvoiceSchema`**
+**P1-5 — Définir le schéma JSON canonique et les tests du registre**
+
+- **Statut : À FAIRE.** L'architecture P1-4 est décidée; le schéma et les tests
+  du registre ne sont pas encore définis ni implémentés.
+- Dépendances : P1-4.
+- Livrables : schéma JSON du manifeste et des artefacts versionnés, contraintes
+  de champs et de références, et tests de validation du contrat.
+- Critères d'acceptation : les champs d'identité, version, cycle de vie,
+  provenance, dépendances, références et embedding sont validés; les
+  transitions et règles d'immuabilité sont couvertes.
+- Risques/interdictions : ne créer aucun catalogue ni migrer les voies legacy
+  dans ce ticket; aucune publication ou suppression automatique.
+- Données/tests : fixtures de skills candidates, versionnées, publiées,
+  rejetées et retirées, sans écrire dans les stockages existants.
+
+**P1-6 — Résoudre le contrat `InvoiceSchema`**
 
 - Dépendances : P0-1; inventorier les appelants concernés.
 - Livrables : arbitrage métier/technique des champs, types, contraintes,
@@ -10224,7 +10239,7 @@ droits de publication.
 - Données/tests : exemples anonymisés facture, avoir, lignes multiples, devise
   et valeurs absentes/ambiguës.
 
-**P1-6 — Résoudre les décisions bancaires bloquantes**
+**P1-7 — Résoudre les décisions bancaires bloquantes**
 
 - Dépendances : P0-1; revue métier, comptable et bancaire.
 - Livrables : décisions signées sur propriété des comptes, objets
@@ -10256,13 +10271,13 @@ droits de publication.
 ## 5. Phase 2 — MasterData et identifiants stables
 
 **Statut initial :** **CIBLE**; classeurs et raccordements non tous vérifiés.
-**Dépendances :** résultats applicables de P1-1 et P1-6.
+**Dépendances :** résultats applicables de P1-1 et P1-7.
 
 **P2-1 — Figer référentiels et clés stables**
 
 - Périmètre : sociétés, comptes bancaires, fournisseurs, clients, alias
   bancaires et catégories.
-- Dépendances : P1-1, décisions de P1-6.
+- Dépendances : P1-1, décisions de P1-7.
 - Livrables : dictionnaire de données, identifiants stables, contraintes
   d'unicité et règles d'identité/provenance.
 - Critères d'acceptation : les collisions, alias, changements de nom et
@@ -10288,7 +10303,7 @@ droits de publication.
 ## 6. Phase 3 — Contrats des trois tableaux
 
 **Statut initial :** **CIBLE**; aucun tableau de bout en bout n'est attesté.
-**Dépendances :** P1-5, P1-6, P2-1.
+**Dépendances :** P1-6, P1-7, P2-1.
 
 **P3-1 — Spécifier les vues et transitions**
 
@@ -10307,7 +10322,7 @@ droits de publication.
 
 **P3-2 — Figer conventions de signe, corrections et audit**
 
-- Dépendances : P3-1, P1-6.
+- Dépendances : P3-1, P1-7.
 - Livrables : conventions de signe pour factures, avoirs, frais, mouvements et
   allocations; modèle d'audit des valeurs avant/après, acteur, motif et heure.
 - Critères d'acceptation : scénarios de débits/crédits, paiements partiels,
@@ -10321,7 +10336,7 @@ droits de publication.
 
 **Statut initial :** webhook actif minimal; autres composants **PARTIELS**,
 **NON RACCORDE** ou **BLOQUÉS**.
-**Dépendances :** P0-5, P1-5, P2-1, P3-1.
+**Dépendances :** P0-5, P1-6, P2-1, P3-1.
 
 **P4-1 — Raccorder dans l'ordre validé**
 
@@ -10330,7 +10345,7 @@ droits de publication.
 3. `RoutingEngine`.
 4. Extraction OCR/Vision adaptée au document.
 5. Validation au contrat de schéma décidé; `InvoiceSchema` demeure gelé
-   jusqu'à clôture de P1-5.
+   jusqu'à clôture de P1-6.
 6. `InvoiceReconciliationEngine`.
 7. `TaxClassificationEngine`.
 8. Résolution locale de société et de tiers par les référentiels.
@@ -10365,11 +10380,11 @@ droits de publication.
 
 **Statut initial :** branche `pending_implementation`; schéma bancaire vide;
 pipeline bancaire **FUTUR**.
-**Dépendances :** P1-6, P2-1, P3-1 et P3-2.
+**Dépendances :** P1-7, P2-1, P3-1 et P3-2.
 
 **P5-1 — Arrêter le contrat BankingRecord et les métadonnées de relevé**
 
-- Dépendances : P1-6.
+- Dépendances : P1-7.
 - Livrables : schéma versionné `BankingRecord`, contrat de relevé, provenance,
   compte et montants décimaux signés.
 - Critères d'acceptation : date transactionnelle/inscription, devise, montant,
@@ -10394,7 +10409,7 @@ pipeline bancaire **FUTUR**.
 
 **P5-3 — Construire comptes, mouvements et allocations N↔N**
 
-- Dépendances : P5-1, P5-2, P2-1 et décisions de P1-6.
+- Dépendances : P5-1, P5-2, P2-1 et décisions de P1-7.
 - Livrables : relations compte/société, mouvements, allocations auditées et
   états dérivés; prise en charge des paiements partiels et groupés.
 - Critères d'acceptation : sommes, soldes ouverts, devises et dépassements
@@ -10675,12 +10690,12 @@ attesté.
 | Phase | Statut initial | Dépendances majeures | Livrables et critères d'acceptation | Risques et interdictions | Données/tests nécessaires |
 |---|---|---|---|---|---|
 | 0 — Preuve/sauvegarde | CIBLE | Aucune; accès autorisés | État Git/code/documentation et snapshots vérifiés; tests ciblés des trois corrections | Pas d'écrasement, secret exposé ou suppression; conserver Qdrant secondaire | Statut Git, empreintes, sauvegardes restaurables, fixtures non sensibles |
-| 1 — Contrats bloqués | PARTIEL/BLOQUÉ | Phase 0 | P1-1 audit Neo4j exécuté; P1-2 stockages Qdrant comparés (`DIFFÉRENTS`); P1-3 audit technique des skills exécuté; P1-4 décision du registre canonique bloquée, ainsi que InvoiceSchema et banque | Aucun write, merge, suppression ou schéma supposé | Provenance et protections, arbitrage canonique des skills, exemples facture/relevé anonymisés, décisions métier |
+| 1 — Contrats bloqués | PARTIEL/BLOQUÉ | Phase 0 | P1-1 audit Neo4j exécuté; P1-2 stockages Qdrant comparés (`DIFFÉRENTS`); P1-3 audit technique des skills exécuté; décision P1-4 du registre terminée, implémentation à faire; P1-5 schéma JSON et tests du registre à définir; InvoiceSchema et banque restent à résoudre | Aucun write, merge, suppression ou schéma métier supposé | Provenance et protections, contrat JSON canonique, exemples facture/relevé anonymisés, décisions métier |
 | 2 — MasterData | CIBLE | P1 et décisions compte/société | Référentiels, clés stables, unicité, Excel vers validation locale | Pas d'identité déduite par similarité seule | Cas alias, doublons, multi-sociétés |
 | 3 — Tableaux | CIBLE | P1, P2 | Contrats et transitions des trois tableaux, conventions de signe et audit | Pas de ventilation incertaine ni publication implicite | Parcours de validation/correction/rejet |
-| 4 — Facture | PARTIEL/NON RACCORDE/BLOQUÉ | P0, P1-5, P2, P3 | Pipeline LangGraph vérifié de l'ingestion à la persistance locale | Ne pas remplacer InvoiceSchema par InvoiceData | Factures, avoirs, frais, images et anomalies anonymisés |
-| 5 — Banque | FUTUR/BLOQUÉ | P1-6, P2, P3 | BankingRecord, parseurs distincts, allocations N↔N, contrôles et revue locale | Pas de règle de signe/devise non décidée; pas d'invention de remises | OFX, MT940, CSV/PDF selon mapping, paiements partiels/groupés |
-| 6 — Mémoire/skills | CIBLE/PARTIEL | P1-3/P1-4, P2/P3 | Registre local, versions, trajectoires, SkillOpt, non-régression et distribution contrôlée | Aucune promotion automatique ou fusion avant audit | Variantes sauvegardées, cas skills approuvés et régressions |
+| 4 — Facture | PARTIEL/NON RACCORDE/BLOQUÉ | P0, P1-6, P2, P3 | Pipeline LangGraph vérifié de l'ingestion à la persistance locale | Ne pas remplacer InvoiceSchema par InvoiceData | Factures, avoirs, frais, images et anomalies anonymisés |
+| 5 — Banque | FUTUR/BLOQUÉ | P1-7, P2, P3 | BankingRecord, parseurs distincts, allocations N↔N, contrôles et revue locale | Pas de règle de signe/devise non décidée; pas d'invention de remises | OFX, MT940, CSV/PDF selon mapping, paiements partiels/groupés |
+| 6 — Mémoire/skills | CIBLE/PARTIEL | P1-3/P1-4/P1-5, P2/P3 | Registre local, versions, trajectoires, SkillOpt, non-régression et distribution contrôlée | Aucune promotion automatique ou fusion avant audit | Variantes sauvegardées, cas skills approuvés et régressions |
 | 7 — Synchronisation | CIBLE/FUTUR | P0, P2, P3, P6 | Manifeste, staging, statuts, transport, conflits, reprise/idempotence | Pas de copie physique, DELETE ou écriture Oracle locale directe | Lots valides/altérés/doublons, coupures et incompatibilités |
 | 8 — Indexation Oracle | CIBLE/FUTUR | P7, confidentialité | Corpus autorisé, chunks et index, ré-embedding/local publication | Pas de document publié sans validation ni droits | Documentation, produits, contrats, factures et sources autorisées |
 | 9 — Interfaces | CIBLE/FUTUR | Workflows et permissions | Hermes Desktop/Oracle, cinq canaux Telegram, interfaces auxiliaires | Hermes ne remplace pas DSH-Core; droits séparés | Tests permissions, pannes et mode local |
@@ -10715,21 +10730,21 @@ par une hypothèse technique.
    aucune contradiction de règle n'a été observée. Aucun skill canonique ne
    peut être choisi immédiatement sans risque de perte d'information.
    Aucune suppression, fusion ou promotion n'a eu lieu.
-5. **P1-4 — Décider le registre canonique des skills : BLOQUÉ.**
-   Dépendance : résultats P1-3. La décision locale doit établir le stockage,
-   les versions, états, transitions et permissions; aucun choix canonique
-   immédiat n'est validé. Maintenir les quatre variantes sans suppression ni
-   fusion jusqu'à arbitrage.
-6. **Résoudre les décisions bancaires bloquantes — P1-6.**
+5. **P1-4 — Décision d'architecture du registre canonique : terminée.**
+   Le registre local et son autorité sont décidés; l'implémentation reste à
+   faire. Les quatre variantes restent inchangées.
+6. **P1-5 — Définir le schéma JSON canonique et les tests du registre.**
+   Définir et valider le contrat avant toute implémentation ou migration.
+7. **Résoudre `InvoiceSchema` — P1-6.**
+   Statut : **BLOQUÉ** jusqu'à arbitrage. Livrable : contrat vérifiable et
+   exemples approuvés. Acceptation : validation de schéma testée; aucune
+   substitution par `InvoiceData` non décidée.
+8. **Résoudre les décisions bancaires bloquantes — P1-7.**
    Statut : **BLOQUÉ** jusqu'à arbitrage métier. Livrable : décisions sur
    propriété des comptes, objets rapprochables, allocations, devises,
    tolérances, rôles des parties et remises de chèques. Acceptation : chaque
    point est décidé ou explicitement maintenu bloqué avec responsable.
-7. **Résoudre `InvoiceSchema` avant tout raccordement qui en dépend — P1-5.**
-   Statut : **BLOQUÉ** jusqu'à arbitrage. Livrable : contrat vérifiable et
-   exemples approuvés. Acceptation : validation de schéma testée; aucune
-   substitution par `InvoiceData` non décidée.
-8. **Figer les contrats des trois tableaux — P3-1/P3-2.**
+9. **Figer les contrats des trois tableaux — P3-1/P3-2.**
    Dépendances : décisions P1 et identifiants MasterData de P2. Livrable :
    champs, statuts, signes, audit, corrections et validations humaines.
    Acceptation : parcours documentés pour pièces, pré-ventilation et
