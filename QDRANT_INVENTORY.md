@@ -52,12 +52,13 @@
   `SkillsRepository.increment_usage`, appelés par
   `services/skill_router.py::SkillRouter.retrieve_skill_for_task`.
   `test_learning_loop.py` exerce cette voie.
-- **Raccordement applicatif :** `agents/research_agent.py` tente d'appeler
-  `find_relevant_skill`, méthode absente de `SkillRouter`; son bloc d'exception
-  absorbe l'échec. La lecture de skills par ce chemin de recherche n'aboutit
-  donc pas comme écrit. Les points présents et l'activité journalisée
-  correspondent au moins à une utilisation antérieure; les sources actuelles
-  ne permettent pas d'attribuer cette activité à un appel de production précis.
+- **Raccordement applicatif :** `agents/research_agent.py` appelle désormais
+  `SkillRouter.retrieve_skill_for_task`. Cette correction est enregistrée dans
+  le commit `658dc45` et a été validée par test isolé; ce test ne constitue pas
+  une validation E2E du pipeline de recherche. Les points présents et l'activité
+  journalisée correspondent au moins à une utilisation antérieure; les sources
+  actuelles ne permettent pas d'attribuer cette activité à un appel de
+  production précis.
 - **Payload :** le dernier `created_at` observé est
   `2026-09-30T06:08:58.616308`; le payload contient `usage_count`, mais pas de
   date de dernière utilisation.

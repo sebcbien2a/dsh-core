@@ -26,6 +26,7 @@ fonctionnalités existantes.
 16. [Tableau des écarts](#16-tableau-des-écarts)
 17. [Prochaines actions issues de la Roadmap V2](#17-prochaines-actions-issues-de-la-roadmap-v2)
 18. [Limites et incertitudes](#18-limites-et-incertitudes)
+19. [Web, scraping et Tor](#19-web-scraping-et-tor)
 
 ## 1. Méthode, portée et statuts
 
@@ -315,17 +316,14 @@ complet de bout en bout n’a été démontré ici.
 
 ## 7. Vérification des trois corrections
 
-La présence effective dans les fichiers actuels a été vérifiée par inspection
-ciblée; aucun test n’a été lancé pendant cet inventaire.
+Les trois corrections ont réussi la compilation ciblée et les tests isolés
+avec doubles. Aucun test E2E global n'a encore été réalisé.
 
 | Correction attendue | Preuve actuelle | Résultat |
 |---|---|---|
-| `api.py` utilise `route_prompt` | `api.py::run_router` importe `route_prompt` et lui transmet `prompt` ainsi que `image_provided`. | Présente. La route `/api/router` n’importe plus le symbole absent `router_intelligent`. |
-| `ResearchAgent` utilise `retrieve_skill_for_task` | `agents/research_agent.py` instancie `SkillRouter` et appelle `retrieve_skill_for_task(task=query)`; le résultat optionnel est utilisé comme texte. | Présente dans le code actuel. |
-| L’erreur d’IngestionManager vient de `message` plutôt que `last_error` | La branche d’erreur dans `services/ingestion_manager.py` utilise `result.get("message")`. | Présente dans le code actuel. |
-
-Leur comportement à l’exécution demeure à confirmer par les tests ciblés
-priorisés dans la Roadmap V2.
+| `api.py` utilise `route_prompt` | `api.py::run_router` importe `route_prompt` et lui transmet `prompt` ainsi que `image_provided`. | Compilation ciblée et test isolé réussis; aucune validation E2E globale. |
+| `ResearchAgent` utilise `retrieve_skill_for_task` | `agents/research_agent.py` instancie `SkillRouter` et appelle `retrieve_skill_for_task(task=query)`; le résultat optionnel est utilisé comme texte. | Compilation ciblée et test isolé réussis; aucune validation E2E globale. |
+| L’erreur d’IngestionManager vient de `message` plutôt que `last_error` | La branche d’erreur dans `services/ingestion_manager.py` utilise `result.get("message")`. | Compilation ciblée et test isolé réussis; aucune validation E2E globale. |
 
 ## 8. Pipeline bancaire
 
@@ -586,9 +584,10 @@ du document racine `03_JOURNAL.md`.
 
 | Domaine | État réel | Cible validée | Écart constaté | Blocage | Prochaine preuve nécessaire |
 |---|---|---|---|---|---|
-| API et facture | Webhook raccordé à `InvoiceAgent`; contrôles facture non raccordés. | Pipeline documentaire orchestré et traçable. | Profilage, validations métier et persistance ne sont pas dans le webhook. | **BLOQUÉ** par `InvoiceSchema` pour les chemins qui l’importent. | Tests ciblés des corrections, contrat de schéma arbitré, test HTTP contrôlé. |
+| API et facture | Webhook raccordé à `InvoiceAgent`; contrôles facture non raccordés. | Pipeline documentaire orchestré et traçable. | Profilage, validations métier et persistance ne sont pas dans le webhook. | **BLOQUÉ** par `InvoiceSchema` pour les chemins qui l’importent. | Contrat de schéma arbitré puis test E2E contrôlé. |
 | `InvoiceSchema` | Symbole absent; deux `InvoiceData` distincts. | Contrat facture unique validé avant intégration. | Appelants dépendent d’un schéma absent. | **BLOQUÉ** jusqu’à l’arbitrage. | Décision de contrat et tests de validation JSON approuvés. |
 | Banque | Détection de type présente; branche `pending_implementation`; schéma vide. | BankingRecord et allocations N↔N validés localement. | Aucun parseur, ledger ou rapprochement opérationnel. | **BLOQUÉ** sur les règles de comptes, allocations, devises, tolérances et remises. | Décisions métier puis relevés anonymisés et tests de parsers. |
+| Web / scraping / Tor | DDGS, Playwright, `/api/scrape` et wrapper MCP présents. | Recherche Web sûre et Tor explicitement configuré et validé. | Scraping partiel/non validé; wrapper non raccordé; Tor reconnu mais non fonctionnel; SearXNG documenté seulement. | Web **EXISTANT MAIS PARTIEL**; Tor **BLOQUÉ** jusqu'au traitement SSRF et au contrôle réseau. | Chantier reporté; sécuriser accès, destinations et redirections avant réactivation. |
 | Qdrant | Service actif; P1-2 comparatif exécuté, P1-3 des quatre skills exécuté techniquement. | Similarité/RAG et synchronisation logique contrôlée. | Stockages **DIFFÉRENTS**; quatre skills à redondance fonctionnelle probable, sans version/cycle de vie exploitable. | P1-4 **BLOQUÉ** : aucun choix canonique immédiat sans risque de perte d'information. | Maintenir les stockages et les quatre variantes sans fusion ni suppression; arbitrer le registre canonique. |
 | Neo4j | Conteneur actif; authentification réussie en session `read`; `PARTIAL_READ_ONLY`; 3 nœuds, 2 relations, aucune contrainte et deux index techniques. | Relations métier stables et validées. | Schéma runtime français divergent des repositories anglais; provenance inconnue; rôle exclusivement read-only non certifié. | **BLOQUÉ** pour toute écriture tant qu'un mécanisme permanent de lecture seule n'est pas défini. | Établir la provenance quand elle est vérifiable et définir une protection permanente avant toute écriture. |
 | Skills | Registre JSON présent; 4 variantes Qdrant, catalogue vide, 16 métriques. | Registre canonique local et cycle de vie gouverné. | Les quatre variantes sont des doublons fonctionnels probables, non stricts; versions/états non unifiés. | P1-4 **BLOQUÉ** : aucun choix canonique immédiat sans risque de perte d'information. | Arbitrer le registre et son autorité; maintenir les quatre variantes sans fusion ni suppression. |
@@ -605,9 +604,10 @@ Les actions sont reprises dans l’ordre du « Prochain sprint concret » de
 `docs/02_ROADMAP.md`. Les éléments marqués **BLOQUÉ** exigent un arbitrage;
 aucune hypothèse ne les contourne.
 
-1. **Tester les trois corrections déjà présentes.** Tests ciblés pour
-   `route_prompt`, `retrieve_skill_for_task` et `message`; utiliser des fixtures
-   et doubles, sans écriture dans les bases actives.
+1. **Corrections ciblées des trois appels : exécutées et validées.** La
+   compilation ciblée et les tests isolés avec doubles ont réussi pour
+   `route_prompt`, `retrieve_skill_for_task` et `message`. Aucun test E2E global
+   n'a encore été réalisé.
 2. **P1-1 — Audit Neo4j en lecture authentifiée exécuté.** L'accès et
    l'inventaire runtime ont été obtenus en session `read`; la provenance reste
    inconnue et le rôle exclusivement read-only n'est pas certifié. Aucune
@@ -647,7 +647,8 @@ décisions, conformément à la Roadmap V2.
   mais leurs différences de contenu excluent de les traiter comme doublons
   stricts; le choix canonique reste bloqué.
 - Les chemins applicatifs sont vérifiés statiquement; aucune requête HTTP
-  facture ni test ciblé n’a été exécuté durant cette génération.
+  facture ni test E2E global n'a été exécuté. Les trois corrections ont passé
+  la compilation ciblée et des tests isolés avec doubles.
 - La présence du conteneur Langfuse ne confirme pas que les traces soient
   écrites ou complètes.
 - La présence du fichier `.env` a été observée indirectement dans la liste du
@@ -657,3 +658,21 @@ décisions, conformément à la Roadmap V2.
   décisions; ils ne certifient pas une installation ni un raccordement.
 - Les nombres de fichiers et tailles de stockage sont des mesures de
   l’inventaire du 20 octobre et peuvent évoluer.
+
+## 19. Web, scraping et Tor
+
+- **Web : EXISTANT MAIS PARTIEL.** La recherche DDGS / DuckDuckGo et la
+  stratégie DDGS puis Playwright sont présentes. La route `/api/scrape` existe,
+  mais n'a pas été validée; le wrapper `mcp_scrape.py` existe sans raccordement
+  MCP actif démontré.
+- **Tor : BLOQUÉ.** Les chaînes `.onion` sont reconnues et la route de scraping
+  tente un proxy SOCKS, mais la disponibilité du proxy n'est pas réellement
+  vérifiée. `ResearchAgent._strategy_tor` est un stub et aucune configuration
+  Tor active n'a été trouvée dans Docker Compose.
+- SearXNG est documenté seulement et n'est pas implémenté.
+- Les risques SSRF, les redirections non contrôlées, l'accès possible aux
+  adresses locales ou internes et l'absence de contrôle d'accès visible doivent
+  être traités avant toute réactivation.
+- Ce chantier est **REPORTÉ** et ne bloque pas le sprint actuel, Qdrant, les
+  skills, la banque ni `InvoiceSchema`. Aucun service, test réseau,
+  installation ou correction n'est lancé dans cet état.

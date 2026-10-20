@@ -214,3 +214,17 @@ connecteurs ou ses stockages sont déjà implémentés.
   doublon strict n'a été établi; leur redondance fonctionnelle est probable.
 - Aucun skill canonique n'a été choisi; P1-4 reste bloqué.
 - Aucune écriture, suppression, fusion ou migration n'a été effectuée.
+
+## 15 octobre 2026 — audit Web, scraping et Tor
+
+- Aucun code SearXNG implémenté n'a été retrouvé; DDGS et Playwright sont
+  présents dans le `ResearchAgent`.
+- `POST /api/scrape` et le wrapper `mcp_scrape.py` sont présents. Aucun
+  raccordement MCP actif du wrapper n'est démontré.
+- La capacité Tor reste un prototype incomplet; aucun accès à une adresse
+  `.onion` n'a été effectué.
+- Les risques SSRF, de redirections non contrôlées, d'accès aux adresses
+  internes et d'absence de contrôle d'accès visible sont consignés.
+- Décision : **REPORT AVEC CONSERVATION DOCUMENTAIRE**. Ce chantier ne bloque
+  pas Qdrant, les skills, la banque ni `InvoiceSchema`; aucune installation ni
+  correction n'est lancée.

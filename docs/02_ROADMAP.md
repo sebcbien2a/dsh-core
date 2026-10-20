@@ -10238,6 +10238,21 @@ droits de publication.
 - Données/tests : exemples de mouvements, factures/avoirs et scénarios multi-
   comptes/multi-sociétés représentatifs et anonymisés.
 
+### Ticket différé — Web / scraping / Tor
+
+**WEB-TOR-1 — Sécuriser et restaurer la recherche Web/Tor**
+
+- **Statut : REPORTÉ.** Ce ticket ne modifie pas l'ordre des priorités en
+  cours et ne bloque pas P1-4, les décisions bancaires ou `InvoiceSchema`.
+- **Dépendances avant implémentation :** validation anti-SSRF, liste blanche
+  réseau, contrôle des redirections, authentification de l'API, configuration
+  Tor explicite et tests isolés.
+- **Périmètre documentaire :** préserver l'état du `ResearchAgent`, de
+  `POST /api/scrape` et du wrapper MCP; le stub Tor n'est pas une fonctionnalité
+  opérationnelle.
+- **Interdictions avant levée du report :** aucune installation, correction,
+  activation Tor ou requête vers une adresse `.onion`.
+
 ## 5. Phase 2 — MasterData et identifiants stables
 
 **Statut initial :** **CIBLE**; classeurs et raccordements non tous vérifiés.
