@@ -186,3 +186,19 @@ connecteurs ou ses stockages sont déjà implémentés.
 - [BANKING_RECORD_SPEC.md](./BANKING_RECORD_SPEC.md)
 - [BANKING_SCHEMA_REVIEW.md](./BANKING_SCHEMA_REVIEW.md)
 - [BANKING_RELATIONS_REVIEW.md](./BANKING_RELATIONS_REVIEW.md)
+
+## 15 octobre 2026 — audit Neo4j authentifié en lecture
+
+- L'authentification existante a réussi sans afficher le secret; l'inventaire
+  a été exécuté avec `cypher-shell --access-mode read`.
+- L'audit de la base `neo4j` a relevé 3 nœuds (`Facture`,
+  `Fournisseur`, `MouvementBancaire`) et 2 relations (`A_EMIS`, `REGLE`).
+  Aucune valeur de propriété métier n'a été reproduite.
+- Le schéma runtime diverge des repositories DSH-Core, qui utilisent
+  principalement des labels anglais. La provenance des nœuds reste inconnue
+  et aucun writer applicatif n'est attribué.
+- Aucune écriture ni migration n'a été effectuée. Le ticket P1-1 est
+  techniquement exécuté pour l'accès et l'inventaire read-only; l'édition
+  Community n'a pas permis de certifier un rôle exclusivement read-only.
+- La définition d'un mécanisme permanent de lecture seule reste nécessaire;
+  aucune écriture Neo4j n'est autorisée avant cette définition.

@@ -10023,8 +10023,10 @@ roadmap à exécuter, pas la déclaration que ses cibles sont déjà livrées.
 - Deux répertoires Qdrant sont présents : celui à la racine correspond à
   l'instance active auditée; celui sous `docker` est secondaire et inactif.
   Leur identité ou équivalence n'est pas prouvée.
-- Neo4j est actif; l'accès de lecture authentifiée et la provenance des données
-  doivent être sécurisés et établis avant toute interprétation ou modification.
+- Neo4j est actif; l'audit authentifié du 15 octobre a obtenu l'accès et
+  l'inventaire runtime en session `read`. La provenance reste inconnue et un
+  rôle exclusivement read-only n'est pas certifié; aucune écriture n'est
+  permise avant la définition d'un mécanisme permanent de lecture seule.
 - Quatre variantes de `agent_skills` sont fonctionnellement redondantes de
   façon probable; leur identité stricte n'est pas établie.
 - `skills_catalog` est vide au relevé.
@@ -10140,11 +10142,25 @@ droits de publication.
 
 **P1-1 — Obtenir un accès Neo4j en lecture authentifiée**
 
+- **Statut : audit techniquement exécuté le 15 octobre 2026**
+  (`PARTIAL_READ_ONLY`).
+- Les dates des 19 et 20 octobre présentes dans les documents antérieurs
+  restent des dates documentaires non vérifiées, et ne remplacent pas la date
+  réelle de cet audit.
+- Accès authentifié obtenu; l'inventaire runtime de la base `neo4j` a été
+  obtenu en session `cypher-shell --access-mode read`.
+- Résultat : 3 nœuds et 2 relations; voir `NEO4J_INVENTORY.md` pour les seuls
+  détails structurels, sans valeurs de propriétés.
+- La provenance reste inconnue; aucun writer applicatif n'est attribué.
+- Le rôle exclusivement read-only n'est pas certifié par l'édition Community.
+- **Interdiction :** aucune écriture Neo4j tant qu'un mécanisme permanent de
+  lecture seule n'est pas défini.
 - Dépendances : P0-2.
-- Livrables : accès read-only contrôlé, inventaire des nœuds/relations et
-  origine documentée dans la mesure vérifiable.
-- Critères d'acceptation : une requête de lecture est autorisée et reproductible;
-  le rapport sépare observations, provenance connue et inconnues.
+- Livrables : accès authentifié et inventaire read-only; établir l'origine
+  seulement dans la mesure vérifiable.
+- Critères d'acceptation : accès lecture reproductible; rapport séparant
+  explicitement inventaire obtenu, provenance inconnue et privilèges non
+  certifiés.
 - Risques/interdictions : aucun accès d'écriture ni migration; préserver les
   données existantes.
 - Données/tests : schéma runtime et résultats expurgés de toute donnée sensible.
@@ -10658,10 +10674,11 @@ par une hypothèse technique.
    Dépendances : sauvegarde/référence Git et environnement de test.
    Livrable : tests ciblés et résultat de chaque correction. Acceptation :
    les trois contrats appelant/appelé passent sans écriture en base réelle.
-2. **Obtenir un accès Neo4j en lecture — P1-1.**
-   Dépendance : sauvegarde préalable. Livrable : inventaire read-only avec
-   provenance et inconnues distinguées. Acceptation : accès reproductible sans
-   privilège d'écriture.
+2. **P1-1 — Audit Neo4j en lecture exécuté le 15 octobre (`PARTIAL_READ_ONLY`).**
+   Accès authentifié obtenu et inventaire runtime de la base `neo4j` obtenu en
+   mode `read`; provenance inconnue et rôle exclusivement read-only non
+   certifié. Ne faire aucune écriture avant définition d'un mécanisme permanent
+   de lecture seule.
 3. **Comparer sans modification les deux stockages Qdrant — P1-2.**
    Dépendances : sauvegardes et cartographie des montages. Livrable :
    comparaison vérifiable des collections/données. Acceptation : aucune

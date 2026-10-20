@@ -395,29 +395,37 @@ unique.
 
 Le conteneur `dsh-neo4j` est **EXISTANT ET ACTIF**, avec ports `7474` HTTP et
 `7687` Bolt publiés et montage de données
-`A:\dsh-core\neo4j_data` (541 130 919 octets au relevé). La page HTTP a répondu
-`200` dans la cartographie du 20 octobre; une lecture de la base a alors
-renvoyé `401 Unauthorized`. L’accès authentifié en lecture reste **BLOQUÉ**.
+`A:\dsh-core\neo4j_data` (541 130 919 octets au relevé). L'audit authentifié
+du 15 octobre 2026 a réussi avec `cypher-shell --access-mode read`, sur Neo4j
+Community `2026.09.0`. Les bases `neo4j` et `system` étaient en ligne; la base
+auditée était `neo4j`. Statut : **PARTIAL_READ_ONLY**. Ce mode a protégé
+l'audit, mais l'édition Community n'a pas permis de certifier un rôle
+exclusivement read-only.
+Les dates des 19 et 20 octobre mentionnées dans les relevés antérieurs restent
+des dates documentaires non vérifiées; elles ne remplacent pas la date réelle
+de cet audit, le 15 octobre 2026.
 
 ### 10.2 Données certifiées et divergence des relevés
 
-- `NEO4J_INVENTORY.md`, relevé read-only du 19 octobre, rapporte 3 nœuds
-  (`Fournisseur`, `Facture`, `MouvementBancaire`) et 2 relations
-  (`A_EMIS`, `REGLE`).
-- `DATABASE_STORAGE_MAP.md`, relevé du 20 octobre, indique que la requête de
-  lecture a reçu `401` et que le contenu n’a pas pu être certifié.
-- En conséquence, les 3 nœuds et 2 relations sont **certifiés par le rapport
-  du 19 octobre**, mais leur persistance au relevé du 20 octobre n’a pas pu être
-  vérifiée. La provenance métier de ces données n’est pas attribuée.
+- L'audit authentifié du 15 octobre rapporte **3 nœuds** (`Facture` : 1,
+  `Fournisseur` : 1, `MouvementBancaire` : 1) et **2 relations**
+  (`Fournisseur` — `A_EMIS` → `Facture` : 1;
+  `MouvementBancaire` — `REGLE` → `Facture` : 1).
+- Aucune contrainte n'a été retournée; deux index techniques de lookup/token
+  étaient en ligne.
+- La provenance métier des nœuds reste inconnue et aucun writer applicatif
+  n'est attribué.
 
-Le graphe runtime du relevé du 19 octobre utilise des labels français. Les
-repositories/services du dépôt ciblent plutôt `Supplier`, `Invoice`, `Document`
-et les relations `BELONGS_TO`/`CONTAINS`. Cette divergence de schéma est
-observée; l’origine du graphe présent n’est pas démontrée.
+Le graphe runtime utilise des labels français. Les repositories/services du
+dépôt ciblent principalement `Document`, `Invoice`, `Supplier`, `Skill` et
+`Task`, avec notamment les relations `BELONGS_TO`/`CONTAINS`. Cette divergence
+de schéma est observée; l'origine du graphe présent n'est pas démontrée.
 
 `GraphRepository` et `Neo4jService` sont **EXISTANT MAIS NON RACCORDE** au
-pipeline applicatif selon les recherches d’appelants. La présence du service
+pipeline applicatif selon les recherches d'appelants. La présence du service
 ou du code repository ne prouve pas que le dépôt ait écrit les données runtime.
+N'effectuer aucune écriture Neo4j tant qu'un mécanisme permanent de lecture
+seule n'est pas défini.
 
 ## 11. Skills et apprentissage
 
@@ -565,7 +573,7 @@ du document racine `03_JOURNAL.md`.
 | `InvoiceSchema` | Symbole absent; deux `InvoiceData` distincts. | Contrat facture unique validé avant intégration. | Appelants dépendent d’un schéma absent. | **BLOQUÉ** jusqu’à l’arbitrage. | Décision de contrat et tests de validation JSON approuvés. |
 | Banque | Détection de type présente; branche `pending_implementation`; schéma vide. | BankingRecord et allocations N↔N validés localement. | Aucun parseur, ledger ou rapprochement opérationnel. | **BLOQUÉ** sur les règles de comptes, allocations, devises, tolérances et remises. | Décisions métier puis relevés anonymisés et tests de parsers. |
 | Qdrant | Service actif, 8 collections listées, stockages racine et secondaire présents. | Similarité/RAG et synchronisation logique contrôlée. | Second stockage inactif, identité non prouvée; certains comptes de points du 20 octobre non récupérés. | **ÉTAT INCONNU** pour l’équivalence des stockages et certains décomptes courants. | Comparaison read-only et reproductible; ne pas fusionner. |
-| Neo4j | Conteneur actif; lecture authentifiée refusée le 20 octobre. Relevé du 19 octobre : 3 nœuds/2 relations. | Relations métier stables et validées. | Schéma runtime français divergent des repositories anglais; provenance incertaine. | **BLOQUÉ** par l’accès lecture actuel et la divergence des relevés. | Accès read-only autorisé et inventaire reproductible. |
+| Neo4j | Conteneur actif; authentification réussie en session `read`; `PARTIAL_READ_ONLY`; 3 nœuds, 2 relations, aucune contrainte et deux index techniques. | Relations métier stables et validées. | Schéma runtime français divergent des repositories anglais; provenance inconnue; rôle exclusivement read-only non certifié. | **BLOQUÉ** pour toute écriture tant qu'un mécanisme permanent de lecture seule n'est pas défini. | Établir la provenance quand elle est vérifiable et définir une protection permanente avant toute écriture. |
 | Skills | Registre JSON présent; 4 variantes Qdrant, catalogue vide, 16 métriques. | Registre canonique local et cycle de vie gouverné. | Stockages et versions/états non unifiés; redondance fonctionnelle probable. | **BLOQUÉ** par décision de registre et évaluation des variantes. | Audit des quatre contenus et décision métier/technique documentée. |
 | Mem0 | Code de récupération présent; collection `mem0` vide au relevé. | Mémoire épisodique au service du contexte, jamais vérité métier. | Présence du code sans données persistées observées. | **ÉTAT INCONNU** pour activité récente et contenu ultérieur au relevé. | Lecture contrôlée de métadonnées et test sans écriture métier. |
 | LangGraph | Deux graphes définis/compilés avec logique ou nœuds simulés. | Orchestrateur métier unique. | Aucun pipeline métier complet raccordé. | **CIBLE NON IMPLÉMENTÉE** pour l’orchestration complète. | Tests E2E de graphe avec intégrations réelles et preuve d’appel applicatif. |
@@ -583,9 +591,10 @@ aucune hypothèse ne les contourne.
 1. **Tester les trois corrections déjà présentes.** Tests ciblés pour
    `route_prompt`, `retrieve_skill_for_task` et `message`; utiliser des fixtures
    et doubles, sans écriture dans les bases actives.
-2. **Obtenir un accès Neo4j en lecture authentifiée.** Confirmer le schéma,
-   l’origine vérifiable des données et l’écart entre les relevés du 19 et du
-   20 octobre.
+2. **P1-1 — Audit Neo4j en lecture authentifiée exécuté.** L'accès et
+   l'inventaire runtime ont été obtenus en session `read`; la provenance reste
+   inconnue et le rôle exclusivement read-only n'est pas certifié. Aucune
+   écriture avant définition d'un mécanisme permanent de lecture seule.
 3. **Comparer sans modification les deux stockages Qdrant.** Capturer des
    inventaires/empreintes compatibles; établir les éléments prouvés et les
    inconnues, sans démarrer une seconde instance.
@@ -607,8 +616,10 @@ décisions, conformément à la Roadmap V2.
 
 ## 18. Limites et incertitudes
 
-- Le relevé du contenu Neo4j diffère entre les rapports datés du 19 et du
-  20 octobre; le relevé récent n’a pas pu authentifier la lecture.
+- Les mentions des 19 et 20 octobre dans les rapports Neo4j et de stockage
+  restent des dates documentaires non vérifiées. L'audit authentifié daté du
+  15 octobre fournit un relevé structurel, sans établir la provenance des
+  données ni un privilège permanent exclusivement read-only.
 - Les comptes exacts de toutes les collections Qdrant ne sont pas tous
   certifiés dans la lecture du 20 octobre; les anciens chiffres sont attribués
   explicitement à leur date de mesure.

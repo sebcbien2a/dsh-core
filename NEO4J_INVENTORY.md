@@ -188,3 +188,68 @@ différent de celui des données présentes.
 - Aucun branchement de ces composants depuis l'API ou le pipeline facture
   courant n'a été trouvé. Les données runtime ne peuvent pas être attribuées
   avec certitude à ces méthodes et ne suivent pas leur schéma.
+
+# AUDIT AUTHENTIFIÉ EN LECTURE — 15 OCTOBRE 2026
+
+## Périmètre et méthode
+
+Audit complémentaire de l'instance `dsh-neo4j`, exécuté avec l'authentification
+déjà configurée. Le secret n'a pas été affiché. `cypher-shell` a été lancé avec
+`--access-mode read`; aucune écriture, migration, modification de schéma ou
+redémarrage du conteneur n'a été effectué.
+
+La date du 19 octobre inscrite dans l'inventaire précédent reste une date
+documentaire non vérifiée; elle n'est pas utilisée comme date réelle de cet
+audit.
+
+**Statut final : `PARTIAL_READ_ONLY`.** L'accès authentifié et l'inventaire de
+lecture ont réussi. Le mode read de `cypher-shell` a protégé cet audit, mais
+l'édition Community n'a pas permis de certifier un rôle exclusivement
+read-only pour l'utilisateur. Aucune écriture Neo4j ne doit être entreprise
+tant qu'un mécanisme permanent de lecture seule n'est pas défini.
+
+## Instance et bases
+
+- Le conteneur `dsh-neo4j` était actif.
+- Le stockage hôte `A:\dsh-core\neo4j_data` était monté vers `/data`.
+- Version : Neo4j Community `2026.09.0`.
+- Les bases `neo4j` et `system` étaient en ligne.
+- Base auditée : `neo4j`.
+- L'authentification existante a fonctionné sans affichage du secret.
+
+## Résultat structurel
+
+La base auditée contenait **3 nœuds** et **2 relations** :
+
+| Label | Nombre |
+|---|---:|
+| `Facture` | 1 |
+| `Fournisseur` | 1 |
+| `MouvementBancaire` | 1 |
+
+| Source | Relation | Cible | Nombre |
+|---|---|---|---:|
+| `Fournisseur` | `A_EMIS` | `Facture` | 1 |
+| `MouvementBancaire` | `REGLE` | `Facture` | 1 |
+
+Propriétés structurelles observées, sans aucune valeur de propriété :
+
+- `Facture` : `date`, `montant`, `numero`;
+- `Fournisseur` : `nom`, `region`;
+- `MouvementBancaire` : `date`, `id`, `montant`.
+
+Aucune propriété n'a été observée sur les relations. Aucune contrainte n'a été
+retournée. Deux index techniques de lookup/token, pour les nœuds et les
+relations, étaient en ligne.
+
+## Divergence et provenance
+
+Le graphe runtime observé utilise les labels `Facture`, `Fournisseur` et
+`MouvementBancaire` ainsi que les relations `A_EMIS` et `REGLE`. Les
+repositories/services DSH-Core utilisent principalement les labels anglais
+`Document`, `Invoice`, `Supplier`, `Skill` et `Task`, avec un schéma de
+relations différent.
+
+La provenance des trois nœuds est inconnue. Aucun writer applicatif n'est
+attribué aux données présentes. Le mode `read` a limité les opérations de cet
+audit, mais ne certifie pas un privilège permanent exclusivement en lecture.
