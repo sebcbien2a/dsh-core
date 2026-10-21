@@ -7,17 +7,29 @@ until authentication and authorization are implemented.
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from repositories.canonical_skill_repository import (
     CanonicalSkillRepository,
     SkillRegistryCorruptionError,
 )
-from schemas.skill_manifest_schema import SkillManifest, SkillStatus, SkillTestEvidence
+from schemas.skill_manifest_schema import (
+    SkillArtifact,
+    SkillDependency,
+    SkillDomain,
+    SkillManifest,
+    SkillStatus,
+    SkillTestEvidence,
+)
+from services.canonical_skill_creation_service import (
+    CanonicalSkillCreationService,
+    SkillCreationError,
+    SkillIdentityAlreadyExistsError,
+)
 from services.skill_lifecycle_service import (
     InvalidSkillTransitionError,
     InvalidSkillVersionError,
@@ -44,6 +56,26 @@ class SkillTransitionRequest(BaseModel):
     test_evidence: list[SkillTestEvidence] | None = None
     quality_score: float | None = None
     published_at: datetime | None = None
+
+
+class SkillCandidateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    skill_id: UUID | None = None
+    name: str
+    slug: str
+    domain: SkillDomain
+    version: str = "0.1.0"
+    description: str
+    content: str
+    author: str
+    tags: list[str] = Field(default_factory=list)
+    triggers: list[str] = Field(default_factory=list)
+    artifacts: list[SkillArtifact] = Field(default_factory=list)
+    dependencies: list[SkillDependency] = Field(default_factory=list)
+    embedding_model: str | None = None
+    embedding_dimension: int | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 def get_repository() -> CanonicalSkillRepository:
@@ -73,6 +105,48 @@ def _raise_invalid_version() -> None:
         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         detail="Invalid skill version",
     )
+
+
+@router.post(
+    "",
+    response_model=SkillManifest,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_candidate_skill(
+    request: SkillCandidateRequest,
+    repository: RepositoryDependency,
+) -> SkillManifest:
+    creation = CanonicalSkillCreationService(repository)
+    try:
+        return creation.create_candidate(
+            skill_id=request.skill_id,
+            name=request.name,
+            slug=request.slug,
+            domain=request.domain,
+            version=request.version,
+            description=request.description,
+            content=request.content,
+            author=request.author,
+            tags=request.tags,
+            triggers=request.triggers,
+            artifacts=request.artifacts,
+            dependencies=request.dependencies,
+            embedding_model=request.embedding_model,
+            embedding_dimension=request.embedding_dimension,
+            metadata=request.metadata,
+        )
+    except SkillIdentityAlreadyExistsError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Canonical skill identity and version already exist",
+        ) from exc
+    except SkillCreationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Canonical skill candidate is invalid",
+        ) from exc
+    except SkillRegistryCorruptionError:
+        _raise_registry_corruption()
 
 
 @router.get("/{skill_id}/versions")

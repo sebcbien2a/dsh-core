@@ -75,6 +75,19 @@ def save_revision(
     return manifest
 
 
+def candidate_payload(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "name": "API-created skill",
+        "slug": "api-created-skill",
+        "domain": "GENERAL",
+        "description": "Created through the canonical API.",
+        "content": "Canonical candidate content.",
+        "author": "api-test",
+    }
+    payload.update(overrides)
+    return payload
+
+
 def test_lists_versions(tmp_path: Path) -> None:
     client, repository = make_client(tmp_path)
     save_revision(repository)
@@ -437,3 +450,97 @@ def test_importing_router_does_not_create_registry_directory(
     importlib.reload(canonical_skills)
 
     assert not root.exists()
+
+
+def test_create_candidate_returns_201_with_generated_id_and_default_version(
+    tmp_path: Path,
+) -> None:
+    client, _ = make_client(tmp_path)
+
+    response = client.post(
+        "/api/canonical-skills",
+        json=candidate_payload(),
+    )
+
+    assert response.status_code == 201
+    assert UUID(response.json()["skill_id"])
+    assert response.json()["status"] == "CANDIDATE"
+    assert response.json()["version"] == "0.1.0"
+
+
+def test_create_candidate_keeps_supplied_id_and_version_and_can_be_read(
+    tmp_path: Path,
+) -> None:
+    client, _ = make_client(tmp_path)
+
+    response = client.post(
+        "/api/canonical-skills",
+        json=candidate_payload(skill_id=str(SKILL_ID), version="2.3.0"),
+    )
+    read_back = client.get(
+        f"/api/canonical-skills/{SKILL_ID}/versions/2.3.0"
+    )
+
+    assert response.status_code == 201
+    assert response.json()["skill_id"] == str(SKILL_ID)
+    assert response.json()["version"] == "2.3.0"
+    assert read_back.status_code == 200
+    assert read_back.json()["content"] == "Canonical candidate content."
+    assert read_back.json()["status"] == "CANDIDATE"
+
+
+def test_create_candidate_duplicate_returns_409(tmp_path: Path) -> None:
+    client, _ = make_client(tmp_path)
+    payload = candidate_payload(skill_id=str(SKILL_ID), version="1.0.0")
+
+    first = client.post("/api/canonical-skills", json=payload)
+    duplicate = client.post("/api/canonical-skills", json=payload)
+
+    assert first.status_code == 201
+    assert duplicate.status_code == 409
+    assert str(tmp_path) not in duplicate.text
+
+
+@pytest.mark.parametrize(
+    "extra_fields",
+    [
+        {"status": "CANDIDATE"},
+        {"approver": "reviewer"},
+        {"published_at": NOW.isoformat()},
+        {"supersedes": {"skill_id": str(SKILL_ID), "version": "0.0.9"}},
+    ],
+)
+def test_create_candidate_rejects_lifecycle_fields(
+    tmp_path: Path, extra_fields: dict[str, object]
+) -> None:
+    client, _ = make_client(tmp_path)
+
+    response = client.post(
+        "/api/canonical-skills",
+        json=candidate_payload(**extra_fields),
+    )
+
+    assert response.status_code == 422
+    assert str(tmp_path) not in response.text
+
+
+@pytest.mark.parametrize(
+    "invalid_fields",
+    [
+        {"slug": "Not a valid slug"},
+        {"content": " \t "},
+    ],
+)
+def test_create_candidate_rejects_invalid_manifest_values_without_path_leak(
+    tmp_path: Path, invalid_fields: dict[str, object]
+) -> None:
+    client, _ = make_client(tmp_path)
+
+    response = client.post(
+        "/api/canonical-skills",
+        json=candidate_payload(**invalid_fields),
+    )
+
+    assert response.status_code == 422
+    assert str(tmp_path) not in response.text
+    assert not list(tmp_path.rglob("skill.json"))
