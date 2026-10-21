@@ -1,10 +1,14 @@
 import os
 import uuid
-from typing import Dict, Any, Optional
+from copy import deepcopy
 from datetime import datetime
-from pydantic import BaseModel
+from typing import Dict, Any, Optional
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from langfuse import observe
 from enum import Enum
+from schemas.invoice_schema import InvoiceSchema
 
 # ==========================================
 # ENUMS : Contrats stricts d'Ingestion
@@ -33,6 +37,21 @@ class IngestionResult(BaseModel):
     target_ledger: Optional[str] = None
     extracted_data: Optional[Dict[str, Any]] = None
     error_log: Optional[str] = None
+
+
+class CanonicalInvoiceIngestionResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: str
+    invoice: InvoiceSchema
+    legacy_data: dict[str, Any]
+    source_file: str | None = None
+    warnings: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class InvoiceIngestionValidationError(Exception):
+    """Raised when an invoice agent result cannot be converted canonically."""
 
 
 # ==========================================
@@ -66,6 +85,70 @@ class IngestionManager:
             #     self._agents[agent_type] = BankingAgent()
         
         return self._agents.get(agent_type)
+
+    def ingest_canonical_invoice(
+        self,
+        file_path: str | os.PathLike[str],
+        *,
+        document_id: UUID,
+        created_at: datetime,
+        updated_at: datetime,
+    ) -> CanonicalInvoiceIngestionResult:
+        agent = self._get_agent("invoice")
+        if agent is None:
+            raise InvoiceIngestionValidationError(
+                "Invoice agent is unavailable"
+            )
+
+        result = agent.process_invoice(str(file_path))
+        if not isinstance(result, dict):
+            raise InvoiceIngestionValidationError(
+                "Invoice agent returned a malformed result"
+            )
+        if "status" not in result:
+            raise InvoiceIngestionValidationError(
+                "Invoice agent result is missing status"
+            )
+        if result["status"] != "success":
+            raise InvoiceIngestionValidationError(
+                "Invoice agent did not report success"
+            )
+        if "data" not in result or not isinstance(result["data"], dict):
+            raise InvoiceIngestionValidationError(
+                "Invoice agent result is missing valid invoice data"
+            )
+
+        from agents.invoice_agent import InvoiceAgentCanonicalValidationError
+
+        try:
+            invoice = agent.validate_canonical_invoice(
+                result["data"],
+                document_id=document_id,
+                created_at=created_at,
+                updated_at=updated_at,
+            )
+        except InvoiceAgentCanonicalValidationError as exc:
+            cause = exc.__cause__ or exc
+            raise InvoiceIngestionValidationError(
+                "Invoice agent data failed canonical validation"
+            ) from cause
+        except ValidationError as exc:
+            raise InvoiceIngestionValidationError(
+                "Invoice agent data failed canonical validation"
+            ) from exc
+
+        if not isinstance(invoice, InvoiceSchema):
+            raise InvoiceIngestionValidationError(
+                "Invoice agent returned an invalid canonical invoice"
+            )
+
+        return CanonicalInvoiceIngestionResult(
+            status="success",
+            invoice=invoice,
+            legacy_data=deepcopy(result["data"]),
+            source_file=str(file_path),
+            warnings=list(invoice.extraction_warnings),
+        )
 
     @observe(name="Ingestion_Detect_Type")
     def detect_asset_type(self, file_path: str) -> AssetType:
