@@ -691,10 +691,25 @@ class AccountingDocumentMasterRow(_VersionedRow):
             ),
             start=Decimal("0"),
         )
-        if self.payment_contributions and abs(
-            contributions_total - self.gross_amount
-        ) > _CENT:
-            raise ValueError("payment contributions must equal gross_amount")
+        paid_amount = self.paid_amount or Decimal("0")
+        if self.remaining_amount < 0:
+            raise ValueError("remaining_amount cannot be negative")
+        if paid_amount > self.gross_amount - self.discount_amount + allowed_tolerance:
+            raise ValueError("paid_amount cannot exceed the net amount payable")
+        if contributions_total > paid_amount + allowed_tolerance:
+            raise ValueError("payment contributions cannot exceed paid_amount")
+        if (
+            self.payment_contributions
+            and abs(contributions_total - paid_amount) > allowed_tolerance
+        ):
+            raise ValueError("payment contributions must equal paid_amount")
+        if (
+            self.net_amount is not None
+            and self.tax_amount is not None
+            and abs(self.net_amount + self.tax_amount - self.gross_amount)
+            > allowed_tolerance
+        ):
+            raise ValueError("net_amount + tax_amount must equal gross_amount")
         if abs(self.total_personal_amount - personal_total) > _CENT:
             raise ValueError("total_personal_amount does not match contributions")
         if abs(self.total_company_paid_amount - company_total) > _CENT:
@@ -730,6 +745,24 @@ class BankTransactionMasterRow(_VersionedRow):
     def validate_banking_record(self) -> BankTransactionMasterRow:
         if self.transaction_id != self.banking_record.transaction_id:
             raise ValueError("transaction_id must match banking_record.transaction_id")
+        record = self.banking_record
+        for field in (
+            "row_version",
+            "content_hash",
+            "import_batch_id",
+            "is_deleted",
+            "deleted_at",
+        ):
+            if getattr(self, field) != getattr(record, field):
+                raise ValueError(f"{field} must match banking_record.{field}")
+        if self.is_deleted:
+            envelope_actor = getattr(self.deleted_by, "value", self.deleted_by)
+            if envelope_actor != record.deleted_by:
+                raise ValueError("deleted_by must match banking_record.deleted_by")
+            if self.deletion_reason != record.deletion_reason:
+                raise ValueError(
+                    "deletion_reason must match banking_record.deletion_reason"
+                )
         return self
 
 

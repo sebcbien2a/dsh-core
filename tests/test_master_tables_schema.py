@@ -750,6 +750,8 @@ def test_professional_expense_paid_personally_is_not_a_company_bank_transaction(
             )
         ],
         total_personal_amount="100.00",
+        paid_amount="100.00",
+        remaining_amount="0.00",
         reconciliation_status=ReconciliationStatus.NOT_APPLICABLE,
     )
 
@@ -791,6 +793,8 @@ def test_company_account_contribution_requires_company_bank_reconciliation() -> 
     row = accounting_row(
         payment_contributions=[contribution],
         total_company_paid_amount="100.00",
+        paid_amount="100.00",
+        remaining_amount="0.00",
     )
     assert row.total_company_paid_amount == Decimal("100.00")
 
@@ -813,8 +817,10 @@ def test_mixed_company_and_personal_payment_keeps_origin_totals_separate() -> No
     )
     row = accounting_row(
         gross_amount="500.00",
-        paid_amount="0",
-        remaining_amount="500.00",
+        net_amount="400.00",
+        tax_amount="100.00",
+        paid_amount="500.00",
+        remaining_amount="0.00",
         payment_contributions=[company_contribution, personal_contribution],
         total_company_paid_amount="300.00",
         total_personal_amount="200.00",
@@ -834,6 +840,8 @@ def test_all_personal_contributions_require_not_applicable_reconciliation() -> N
     row = accounting_row(
         payment_contributions=[payment_contribution()],
         total_personal_amount="100.00",
+        paid_amount="100.00",
+        remaining_amount="0.00",
         reconciliation_status=ReconciliationStatus.NOT_APPLICABLE,
     )
 
@@ -843,6 +851,8 @@ def test_all_personal_contributions_require_not_applicable_reconciliation() -> N
         accounting_row(
             payment_contributions=[payment_contribution()],
             total_personal_amount="100.00",
+            paid_amount="100.00",
+            remaining_amount="0.00",
             reconciliation_status=ReconciliationStatus.UNMATCHED,
         )
 
@@ -909,8 +919,10 @@ def test_inconsistent_contribution_amounts_are_rejected(
     )
     values: dict[str, Any] = {
         "gross_amount": "500.00",
-        "paid_amount": "0",
-        "remaining_amount": "500.00",
+        "net_amount": "400.00",
+        "tax_amount": "100.00",
+        "paid_amount": "500.00",
+        "remaining_amount": "0.00",
         "payment_contributions": [company_contribution, personal_contribution],
         "total_company_paid_amount": "300.00",
         "total_personal_amount": "200.00",
@@ -967,7 +979,8 @@ def test_personal_payment_contributions_json_roundtrip_preserves_decimal() -> No
         net_amount="160.00",
         tax_amount="40.00",
         gross_amount="200.00",
-        remaining_amount="200.00",
+        paid_amount="200.00",
+        remaining_amount="0.00",
         payment_contributions=[
             payment_contribution(
                 amount="200.00",
@@ -989,7 +1002,223 @@ def test_personal_payment_models_do_not_create_files(tmp_path: Path) -> None:
     accounting_row(
         payment_contributions=[payment_contribution()],
         total_personal_amount="100.00",
+        paid_amount="100.00",
+        remaining_amount="0.00",
         reconciliation_status=ReconciliationStatus.NOT_APPLICABLE,
     )
 
     assert list(tmp_path.iterdir()) == []
+
+
+# ---------------------------------------------------------------------------
+# Contract decisions J (envelope / banking record) and K (paid contributions).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("row_version", 2),
+        ("content_hash", "b" * 64),
+        ("import_batch_id", UUID("0a8c3d52-4a6c-4a2e-8d45-0e5b7f3c2f10")),
+    ],
+)
+def test_bank_envelope_versioning_must_match_banking_record(
+    field: str,
+    value: Any,
+) -> None:
+    with pytest.raises(ValidationError):
+        bank_row(**{field: value})
+
+
+DELETION_OPERATION_ID = UUID("b3c0d1b2-0a46-4d0e-9a53-6d8f1f4d6f55")
+
+
+def deleted_bank_row(
+    *,
+    envelope: dict[str, Any] | None = None,
+    record: dict[str, Any] | None = None,
+) -> BankTransactionMasterRow:
+    record_values: dict[str, Any] = {
+        "is_deleted": True,
+        "deleted_at": LATER,
+        "deleted_by": "HUMAN",
+        "deletion_reason": "Duplicate",
+    }
+    record_values.update(record or {})
+    envelope_values: dict[str, Any] = {
+        "banking_record": banking_record(**record_values),
+        "is_deleted": True,
+        "deleted_at": LATER,
+        "deleted_by": ActorSystem.HUMAN,
+        "deletion_reason": "Duplicate",
+        "deletion_operation_id": DELETION_OPERATION_ID,
+    }
+    envelope_values.update(envelope or {})
+    return bank_row(**envelope_values)
+
+
+def test_consistent_deleted_bank_envelope_is_accepted() -> None:
+    row = deleted_bank_row()
+
+    assert row.is_deleted is True
+    assert row.banking_record.deleted_by == row.deleted_by.value
+    assert row.banking_record.deletion_reason == row.deletion_reason
+
+
+@pytest.mark.parametrize(
+    ("envelope", "record"),
+    [
+        ({"deleted_at": NOW}, {}),
+        ({"deleted_by": ActorSystem.LOCAL}, {}),
+        ({"deletion_reason": "Other"}, {}),
+        ({}, {"deleted_by": "LOCAL"}),
+        ({}, {"deletion_reason": "Other"}),
+    ],
+    ids=[
+        "deleted_at",
+        "envelope-deleted_by",
+        "envelope-deletion_reason",
+        "record-deleted_by",
+        "record-deletion_reason",
+    ],
+)
+def test_bank_envelope_deletion_must_match_banking_record(
+    envelope: dict[str, Any],
+    record: dict[str, Any],
+) -> None:
+    with pytest.raises(ValidationError):
+        deleted_bank_row(envelope=envelope, record=record)
+
+
+def test_bank_envelope_deletion_flag_must_match_banking_record() -> None:
+    with pytest.raises(ValidationError):
+        bank_row(
+            is_deleted=True,
+            deleted_at=LATER,
+            deleted_by=ActorSystem.HUMAN,
+            deletion_reason="Duplicate",
+            deletion_operation_id=DELETION_OPERATION_ID,
+        )
+
+
+def test_bank_envelope_creation_and_update_dates_may_differ_from_record() -> None:
+    row = bank_row(updated_at=LATER + timedelta(days=1))
+
+    assert row.updated_at != row.banking_record.updated_at
+
+
+def test_partially_paid_document_accepts_contributions_equal_to_paid_amount() -> None:
+    row = accounting_row(
+        gross_amount="500.00",
+        net_amount="400.00",
+        tax_amount="100.00",
+        payment_contributions=[payment_contribution(amount="200.00")],
+        total_personal_amount="200.00",
+        paid_amount="200.00",
+        remaining_amount="300.00",
+        reconciliation_status=ReconciliationStatus.NOT_APPLICABLE,
+    )
+
+    assert row.remaining_amount == Decimal("300.00")
+    assert row.total_personal_amount == Decimal("200.00")
+
+
+def test_fully_paid_mixed_document_is_accepted() -> None:
+    row = accounting_row(
+        gross_amount="500.00",
+        net_amount="400.00",
+        tax_amount="100.00",
+        payment_contributions=[
+            payment_contribution(
+                payment_origin=PaymentOrigin.COMPANY_ACCOUNT,
+                payment_method=DocumentPaymentMethod.COMPANY_TRANSFER,
+                amount="300.00",
+                payer_name=None,
+                contribution_id=UUID("7f2a62a8-6e7a-4f0b-8b0e-4f5a8f5c9d10"),
+                company_bank_reconciliation_required=True,
+                settlement_route=SettlementRoute.BANK_RECONCILIATION,
+            ),
+            payment_contribution(amount="200.00"),
+        ],
+        total_personal_amount="200.00",
+        total_company_paid_amount="300.00",
+        paid_amount="500.00",
+        remaining_amount="0.00",
+    )
+
+    assert row.paid_amount == Decimal("500.00")
+    assert row.remaining_amount == Decimal("0.00")
+
+
+@pytest.mark.parametrize(
+    ("contribution", "paid", "remaining"),
+    [
+        ("100.00", "40.00", "60.00"),
+        ("40.00", "100.00", "0.00"),
+        ("40.00", "40.00", "100.00"),
+    ],
+    ids=["contributions-exceed-paid", "contributions-below-paid", "sum-exceeds-gross"],
+)
+def test_contributions_must_equal_the_effectively_paid_amount(
+    contribution: str,
+    paid: str,
+    remaining: str,
+) -> None:
+    with pytest.raises(ValidationError):
+        accounting_row(
+            payment_contributions=[payment_contribution(amount=contribution)],
+            total_personal_amount=contribution,
+            paid_amount=paid,
+            remaining_amount=remaining,
+            reconciliation_status=ReconciliationStatus.NOT_APPLICABLE,
+        )
+
+
+def test_paid_amount_cannot_exceed_net_amount_payable() -> None:
+    with pytest.raises(ValidationError):
+        accounting_row(
+            paid_amount="100.00",
+            discount_amount="10.00",
+            remaining_amount="-10.00",
+        )
+
+
+def test_remaining_amount_cannot_be_negative() -> None:
+    with pytest.raises(ValidationError):
+        accounting_row(paid_amount="110.00", remaining_amount="-10.00")
+
+
+def test_net_plus_tax_must_match_gross_when_both_are_known() -> None:
+    with pytest.raises(ValidationError):
+        accounting_row(
+            net_amount="80.00",
+            tax_amount="20.00",
+            gross_amount="150.00",
+            remaining_amount="150.00",
+        )
+
+
+@pytest.mark.parametrize(
+    ("net", "tax", "gross"),
+    [
+        (None, "20.00", "100.00"),
+        ("80.00", None, "100.00"),
+        (None, None, "100.00"),
+        ("80.00", "20.00", "100.01"),
+    ],
+    ids=["no-net", "no-tax", "no-net-no-tax", "within-rounding-tolerance"],
+)
+def test_incomplete_or_rounded_fiscal_amounts_stay_accepted(
+    net: str | None,
+    tax: str | None,
+    gross: str,
+) -> None:
+    row = accounting_row(
+        net_amount=net,
+        tax_amount=tax,
+        gross_amount=gross,
+        remaining_amount=gross,
+    )
+
+    assert row.gross_amount == Decimal(gross)

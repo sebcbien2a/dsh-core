@@ -868,3 +868,186 @@ def test_batch_and_lcr_record_json_roundtrip_preserves_decimal_amounts() -> None
     assert str(restored.payment_batch.total_amount) == "42500.00"
     assert restored.payment_batch.items[0].amount == Decimal("4250.00")
     assert restored.payment_batch.items[0].source_evidence_ref == "statement-row-1"
+
+
+# ---------------------------------------------------------------------------
+# Parent record / payment batch reconciliation invariants
+# ---------------------------------------------------------------------------
+
+BATCH_SCENARIOS = {
+    "lcr": (
+        PaymentBatchType.LCR_REMITTANCE,
+        BankTransactionType.TRANSFER,
+        PaymentMethod.TRANSFER,
+        ["4250.00"] * 10,
+    ),
+    "cheque-deposit": (
+        PaymentBatchType.CHEQUE_DEPOSIT,
+        BankTransactionType.CHEQUE_DEPOSIT,
+        PaymentMethod.CHEQUE,
+        ["10000.00", "12500.00", "20000.00"],
+    ),
+}
+
+
+def scenario_items(amounts: list[str], matched_count: int) -> list[PaymentBatchItem]:
+    items: list[PaymentBatchItem] = []
+    for index, amount in enumerate(amounts):
+        matched = index < matched_count
+        items.append(
+            batch_item(
+                item_id=UUID(int=500 + index),
+                amount=amount,
+                status=(
+                    PaymentItemStatus.MATCHED if matched else PaymentItemStatus.UNMATCHED
+                ),
+                allocations=(
+                    [
+                        allocation(
+                            allocation_id=UUID(int=600 + index),
+                            target_id=UUID(int=700 + index),
+                            allocated_amount=amount,
+                        )
+                    ]
+                    if matched
+                    else []
+                ),
+                unallocated_amount="0" if matched else amount,
+            )
+        )
+    return items
+
+
+def scenario_record(
+    scenario: str,
+    *,
+    matched_count: int,
+    batch_status: PaymentBatchStatus,
+    reconciliation_status: ReconciliationStatus,
+    unallocated_amount: str,
+) -> BankingRecord:
+    batch_type, transaction_type, method, amounts = BATCH_SCENARIOS[scenario]
+    total = sum((Decimal(item) for item in amounts), Decimal("0"))
+    overrides: dict[str, Any] = {}
+    if transaction_type == BankTransactionType.CHEQUE_DEPOSIT:
+        overrides["cheque"] = ChequeReference(
+            deposit_reference="REM-1",
+            cheque_count=len(amounts),
+            total_deposit_amount=total,
+        )
+    return record(
+        direction=BankTransactionDirection.CREDIT,
+        transaction_type=transaction_type,
+        payment_method=method,
+        amount=total,
+        payment_batch=payment_batch(
+            batch_type=batch_type,
+            total_amount=total,
+            expected_item_count=len(amounts),
+            items=scenario_items(amounts, matched_count),
+            status=batch_status,
+            unexplained_amount="0",
+        ),
+        reconciliation_status=reconciliation_status,
+        unallocated_amount=unallocated_amount,
+        **overrides,
+    )
+
+
+@pytest.mark.parametrize("scenario", list(BATCH_SCENARIOS))
+def test_fully_reconciled_batch_allows_a_matched_parent_without_direct_allocations(
+    scenario: str,
+) -> None:
+    amounts = BATCH_SCENARIOS[scenario][3]
+    parent = scenario_record(
+        scenario,
+        matched_count=len(amounts),
+        batch_status=PaymentBatchStatus.RECONCILED,
+        reconciliation_status=ReconciliationStatus.MATCHED,
+        unallocated_amount="0",
+    )
+
+    assert parent.allocations == []
+    assert parent.unallocated_amount == Decimal("0")
+    assert parent.reconciliation_status == ReconciliationStatus.MATCHED
+    assert all(item.allocations for item in parent.payment_batch.items)
+
+
+@pytest.mark.parametrize("scenario", list(BATCH_SCENARIOS))
+def test_partially_reconciled_batch_allows_a_partially_matched_parent(
+    scenario: str,
+) -> None:
+    amounts = BATCH_SCENARIOS[scenario][3]
+    parent = scenario_record(
+        scenario,
+        matched_count=len(amounts) - 1,
+        batch_status=PaymentBatchStatus.NEEDS_REVIEW,
+        reconciliation_status=ReconciliationStatus.PARTIALLY_MATCHED,
+        unallocated_amount=amounts[-1],
+    )
+
+    assert parent.allocations == []
+    assert parent.unallocated_amount == Decimal(amounts[-1])
+    assert parent.reconciliation_status == ReconciliationStatus.PARTIALLY_MATCHED
+
+
+@pytest.mark.parametrize("scenario", list(BATCH_SCENARIOS))
+def test_parent_unallocated_amount_must_reflect_batch_item_allocations(
+    scenario: str,
+) -> None:
+    amounts = BATCH_SCENARIOS[scenario][3]
+    total = sum((Decimal(item) for item in amounts), Decimal("0"))
+
+    with pytest.raises(ValidationError):
+        scenario_record(
+            scenario,
+            matched_count=len(amounts),
+            batch_status=PaymentBatchStatus.RECONCILED,
+            reconciliation_status=ReconciliationStatus.UNMATCHED,
+            unallocated_amount=str(total),
+        )
+
+
+@pytest.mark.parametrize("scenario", list(BATCH_SCENARIOS))
+def test_reconciled_batch_requires_a_matched_parent(scenario: str) -> None:
+    amounts = BATCH_SCENARIOS[scenario][3]
+
+    with pytest.raises(ValidationError):
+        scenario_record(
+            scenario,
+            matched_count=len(amounts),
+            batch_status=PaymentBatchStatus.RECONCILED,
+            reconciliation_status=ReconciliationStatus.UNMATCHED,
+            unallocated_amount="0",
+        )
+
+
+@pytest.mark.parametrize("scenario", list(BATCH_SCENARIOS))
+def test_matched_parent_requires_a_reconciled_batch(scenario: str) -> None:
+    amounts = BATCH_SCENARIOS[scenario][3]
+
+    with pytest.raises(ValidationError):
+        scenario_record(
+            scenario,
+            matched_count=len(amounts),
+            batch_status=PaymentBatchStatus.NEEDS_REVIEW,
+            reconciliation_status=ReconciliationStatus.MATCHED,
+            unallocated_amount="0",
+        )
+
+
+@pytest.mark.parametrize("scenario", list(BATCH_SCENARIOS))
+def test_partially_matched_parent_requires_some_matched_batch_items(
+    scenario: str,
+) -> None:
+    amounts = BATCH_SCENARIOS[scenario][3]
+    total = sum((Decimal(item) for item in amounts), Decimal("0"))
+
+    with pytest.raises(ValidationError):
+        scenario_record(
+            scenario,
+            matched_count=0,
+            batch_status=PaymentBatchStatus.NEEDS_REVIEW,
+            reconciliation_status=ReconciliationStatus.PARTIALLY_MATCHED,
+            unallocated_amount=str(total),
+        )

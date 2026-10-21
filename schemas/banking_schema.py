@@ -644,8 +644,20 @@ class BankingRecord(_StrictBankingModel):
                         "CHEQUE_DEPOSIT transaction requires a CHEQUE_DEPOSIT batch"
                     )
 
+        batch_allocations = (
+            [
+                allocation
+                for item in self.payment_batch.items
+                for allocation in item.allocations
+            ]
+            if self.payment_batch is not None
+            else []
+        )
+        # With a payment batch the item allocations are the only source of truth;
+        # direct allocations are forbidden above, so this never double counts.
+        effective_allocations = [*self.allocations, *batch_allocations]
         allocated_amount = sum(
-            (allocation.allocated_amount for allocation in self.allocations),
+            (allocation.allocated_amount for allocation in effective_allocations),
             start=Decimal("0"),
         )
         if allocated_amount > self.amount:
@@ -655,7 +667,7 @@ class BankingRecord(_StrictBankingModel):
         if abs(self.unallocated_amount - expected_unallocated) > _MONEY_TOLERANCE:
             raise ValueError("unallocated_amount does not match the allocation total")
 
-        if not self.allocations:
+        if not effective_allocations:
             allowed_without_allocations = {
                 ReconciliationStatus.UNMATCHED,
                 ReconciliationStatus.PROPOSED,
@@ -679,9 +691,17 @@ class BankingRecord(_StrictBankingModel):
                 raise ValueError("MATCHED requires allocations covering the full amount")
             if any(
                 allocation.allocation_status != ReconciliationStatus.MATCHED
-                for allocation in self.allocations
+                for allocation in effective_allocations
             ):
                 raise ValueError("MATCHED requires validated allocations")
+
+        if self.payment_batch is not None:
+            batch_reconciled = self.payment_batch.status == PaymentBatchStatus.RECONCILED
+            parent_matched = self.reconciliation_status == ReconciliationStatus.MATCHED
+            if parent_matched and not batch_reconciled:
+                raise ValueError("MATCHED parent requires a RECONCILED payment batch")
+            if batch_reconciled and not parent_matched:
+                raise ValueError("RECONCILED payment batch requires a MATCHED parent")
 
         if (
             self.reconciliation_status == ReconciliationStatus.PARTIALLY_MATCHED
