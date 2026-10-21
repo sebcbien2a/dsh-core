@@ -5,12 +5,31 @@ from pydantic import BaseModel
 import httpx
 from bs4 import BeautifulSoup
 
+from api_routes.canonical_skills import router as canonical_skills_router
 from agents.research_agent import ResearchAgent
 from agents.coder_agent import CoderAgent
 import memory_manager
 from orchestrator import dsh_graph
 
+
+def _env_flag_enabled(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
 app = FastAPI(title="DSH Core API", version="1.0")
+
+# Activation explicite uniquement jusqu'à l'ajout de l'authentification.
+if _env_flag_enabled("DSH_ENABLE_CANONICAL_SKILLS_API"):
+    app.include_router(canonical_skills_router)
 
 # Autorise Cherry Studio, AnythingLLM et n8n à communiquer avec l'API
 app.add_middleware(
