@@ -1,10 +1,15 @@
 import os
 import json
 from pathlib import Path
+from datetime import datetime
+from typing import Any
+from uuid import UUID
 import ollama
 from dotenv import load_dotenv
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, ValidationError, model_validator
 from typing import Optional
+
+from schemas.invoice_schema import InvoiceSchema, TypePiece
 
 # Force le chargement du .env
 load_dotenv()
@@ -14,6 +19,9 @@ VISION_MODEL = os.getenv("VISION_MODEL")
 # 1. CONTRAT STRICT DES FACTURES (PYDANTIC)
 # =====================================================================
 class InvoiceData(BaseModel):
+    type_piece: TypePiece | None = None
+    statut_traitement: str | None = None
+    commentaires_controle: list[str] = Field(default_factory=list)
     fournisseur: str
     date_facture: str
     montant_ht: float
@@ -29,6 +37,11 @@ class InvoiceData(BaseModel):
         if abs(attendu - self.montant_ttc) > 0.02:
             raise ValueError(f"HT ({self.montant_ht}) + TVA ({self.montant_tva}) != TTC ({self.montant_ttc})")
         return self
+
+
+class InvoiceAgentCanonicalValidationError(Exception):
+    """Raised when legacy invoice data cannot be converted to the canonical contract."""
+
 
 # =====================================================================
 # 2. PROMPT VISION POUR QWEN
@@ -62,6 +75,47 @@ class InvoiceAgent:
             raise ValueError("ERREUR CRITIQUE : VISION_MODEL n'est pas défini dans le .env !")
         self.vision_model = VISION_MODEL
         print(f"[InvoiceAgent] L'agent est VRAIMENT prêt et utilise : {self.vision_model}")
+
+    def to_canonical_invoice(
+        self,
+        invoice_data: InvoiceData,
+        *,
+        document_id: UUID,
+        created_at: datetime,
+        updated_at: datetime,
+    ) -> InvoiceSchema:
+        try:
+            return InvoiceSchema.from_invoice_data(
+                invoice_data,
+                document_id=document_id,
+                created_at=created_at,
+                updated_at=updated_at,
+            )
+        except ValidationError as exc:
+            raise InvoiceAgentCanonicalValidationError(
+                "Legacy invoice data does not satisfy the canonical contract"
+            ) from exc
+
+    def validate_canonical_invoice(
+        self,
+        payload: dict[str, Any],
+        *,
+        document_id: UUID,
+        created_at: datetime,
+        updated_at: datetime,
+    ) -> InvoiceSchema:
+        try:
+            invoice_data = InvoiceData.model_validate(payload)
+        except ValidationError as exc:
+            raise InvoiceAgentCanonicalValidationError(
+                "Legacy invoice payload is invalid"
+            ) from exc
+        return self.to_canonical_invoice(
+            invoice_data,
+            document_id=document_id,
+            created_at=created_at,
+            updated_at=updated_at,
+        )
 
     def structurer_document_en_json(self, file_path: Path) -> dict:
         """Envoie l'image binaire directement à Qwen Vision."""
@@ -108,6 +162,15 @@ class InvoiceAgent:
     def process_invoice(self, file_path_str: str) -> dict:
         try:
             validee = self.traiter_facture(Path(file_path_str))
-            return {"status": "success", "data": validee.model_dump()}
+            return {
+                "status": "success",
+                "data": validee.model_dump(
+                    exclude={
+                        "type_piece",
+                        "statut_traitement",
+                        "commentaires_controle",
+                    }
+                ),
+            }
         except Exception as e:
             return {"status": "critical_error", "message": str(e)}
