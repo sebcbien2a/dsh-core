@@ -10,6 +10,27 @@ connecteurs ou ses stockages sont déjà implémentés.
   stockages locaux est établi. Il sert de photographie de référence, et non de
   preuve que toutes les briques décrites sont raccordées.
 
+## 15 octobre 2026 — clôture technique P1-6 InvoiceSchema
+
+- P1-6 est **TECHNIQUEMENT TERMINÉ** : le contrat `InvoiceSchema` est
+  implémenté et les raccordements ciblés sont validés avec des tests.
+- Les raccordements couvrent `ExtractionManager`, `invoice_agent.py` à la
+  racine, `agents/invoice_agent.py` et `IngestionManager`, qui fournit
+  `CanonicalInvoiceIngestionResult`.
+- La compatibilité legacy est conservée. Le webhook `n8n_api.py` garde le
+  mode legacy par défaut et propose le mode canonical sur demande explicite;
+  aucun workflow n8n existant n'a été modifié.
+- Les tests ciblés ont utilisé des doubles sans appel réel à un modèle, au
+  réseau, à un webhook ou à un stockage.
+- Preuves de commit : `9a80288` (contrat canonique des factures), `5c04e98`
+  (raccordement ExtractionManager), `3a24038` (InvoiceAgent racine),
+  `e8dc69b` (InvoiceAgent ingestion), `0eb6baa` (IngestionManager) et
+  `4cac8cf` (mode canonique optionnel du webhook n8n).
+- La comptabilisation, la persistance métier, l'interface humaine et le
+  rapprochement bancaire restent hors périmètre. Le pipeline comptable
+  complet n'est pas déclaré terminé.
+- Prochain ticket : **P1-7 — décisions et contrat bancaire**.
+
 ## 19 octobre 2026 — audits et corrections
 
 - Les audits techniques sont conduits et consolidés : imports et contrats,
@@ -148,9 +169,9 @@ connecteurs ou ses stockages sont déjà implémentés.
 
 ## Décisions encore bloquées
 
-- **Contrat facture :** résoudre la forme et la compatibilité de `InvoiceSchema`
-  sans dégel prématuré; le contrat reconstruit depuis le prompt ne prouve pas
-  les types ni les validateurs du modèle absent.
+- **Contrat facture : P1-6 techniquement terminé.** Le contrat et les
+  raccordements ciblés sont validés; la clôture ne couvre pas la comptabilisation,
+  la persistance métier, l'interface humaine ni le rapprochement bancaire.
 - **Skills :** choisir la voie de stockage de travail entre les formats
   existants (registre JSON, skills `workspace/skills/` et collection Qdrant)
   et traiter les quatre variantes probablement redondantes. Le registre

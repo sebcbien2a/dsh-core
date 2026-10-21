@@ -10016,8 +10016,9 @@ roadmap à exécuter, pas la déclaration que ses cibles sont déjà livrées.
 - Trois corrections de code sont déjà appliquées : `api.py` appelle
   `route_prompt`; `ResearchAgent` utilise `SkillRouter.retrieve_skill_for_task`;
   `IngestionManager` lit le détail d'erreur dans `message`.
-- `InvoiceSchema` est gelé et bloqué : sa définition exécutable n'a pas été
-  retrouvée; il ne doit pas être remplacé par `InvoiceData` sans décision.
+- P1-6 InvoiceSchema est **TECHNIQUEMENT TERMINÉ** : le contrat canonique et
+  ses raccordements ciblés sont validés. Le pipeline comptable complet reste
+  hors périmètre; `InvoiceData` est conservé pour compatibilité legacy.
 - La branche bancaire de `IngestionManager` retourne
   `pending_implementation`.
 - Deux répertoires Qdrant sont présents : celui à la racine correspond à
@@ -10227,17 +10228,17 @@ droits de publication.
 - Données/tests : fixtures de skills candidates, versionnées, publiées,
   rejetées et retirées, sans écrire dans les stockages existants.
 
-**P1-6 — Résoudre le contrat `InvoiceSchema`**
+**P1-6 — Contrat `InvoiceSchema`**
 
-- Dépendances : P0-1; inventorier les appelants concernés.
-- Livrables : arbitrage métier/technique des champs, types, contraintes,
-  compatibilité et stratégie de migration des appelants.
-- Critères d'acceptation : contrat documenté et tests de validation du JSON
-  retenu; décision explicite sur sa relation aux deux `InvoiceData`.
-- Risques/interdictions : ne pas remplacer `InvoiceSchema` par `InvoiceData`
-  ni raccorder les appelants bloqués avant l'arbitrage.
-- Données/tests : exemples anonymisés facture, avoir, lignes multiples, devise
-  et valeurs absentes/ambiguës.
+- **Statut : TECHNIQUEMENT TERMINÉ.**
+- Résultat : **CONTRAT ET RACCORDEMENTS CIBLÉS VALIDÉS** par des tests ciblés.
+- Le contrat canonique est compatible avec les payloads de `ExtractionManager`
+  et des deux `InvoiceAgent`; les interfaces et données legacy sont conservées.
+- Le webhook n8n garde le mode legacy par défaut et expose le mode canonical
+  sur demande explicite; aucun workflow n8n existant n'a été modifié.
+- Cette clôture ne déclare pas terminé le pipeline comptable complet :
+  comptabilisation, persistance métier, interface humaine et rapprochement
+  bancaire restent hors périmètre.
 
 **P1-7 — Résoudre les décisions bancaires bloquantes**
 
@@ -10344,8 +10345,8 @@ droits de publication.
 2. `DocumentProfiler`.
 3. `RoutingEngine`.
 4. Extraction OCR/Vision adaptée au document.
-5. Validation au contrat de schéma décidé; `InvoiceSchema` demeure gelé
-   jusqu'à clôture de P1-6.
+5. Validation au contrat canonique `InvoiceSchema`, défini et raccordé dans
+   P1-6; la convergence complète de ce pipeline reste à réaliser.
 6. `InvoiceReconciliationEngine`.
 7. `TaxClassificationEngine`.
 8. Résolution locale de société et de tiers par les référentiels.
@@ -10690,10 +10691,10 @@ attesté.
 | Phase | Statut initial | Dépendances majeures | Livrables et critères d'acceptation | Risques et interdictions | Données/tests nécessaires |
 |---|---|---|---|---|---|
 | 0 — Preuve/sauvegarde | CIBLE | Aucune; accès autorisés | État Git/code/documentation et snapshots vérifiés; tests ciblés des trois corrections | Pas d'écrasement, secret exposé ou suppression; conserver Qdrant secondaire | Statut Git, empreintes, sauvegardes restaurables, fixtures non sensibles |
-| 1 — Contrats bloqués | PARTIEL/BLOQUÉ | Phase 0 | P1-1 audit Neo4j exécuté; P1-2 stockages Qdrant comparés (`DIFFÉRENTS`); P1-3 audit technique des skills exécuté; décision P1-4 du registre terminée, implémentation à faire; P1-5 schéma JSON et tests du registre à définir; InvoiceSchema et banque restent à résoudre | Aucun write, merge, suppression ou schéma métier supposé | Provenance et protections, contrat JSON canonique, exemples facture/relevé anonymisés, décisions métier |
+| 1 — Contrats bloqués | PARTIEL/BLOQUÉ | Phase 0 | P1-1 audit Neo4j exécuté; P1-2 stockages Qdrant comparés (`DIFFÉRENTS`); P1-3 audit technique des skills exécuté; décision P1-4 du registre terminée, implémentation à faire; P1-5 schéma JSON et tests du registre à définir; P1-6 InvoiceSchema techniquement terminé; décisions bancaires P1-7 à résoudre | Aucun write, merge, suppression ou schéma métier supposé | Provenance et protections, contrat JSON canonique du registre, exemples de relevés anonymisés, décisions métier bancaires |
 | 2 — MasterData | CIBLE | P1 et décisions compte/société | Référentiels, clés stables, unicité, Excel vers validation locale | Pas d'identité déduite par similarité seule | Cas alias, doublons, multi-sociétés |
 | 3 — Tableaux | CIBLE | P1, P2 | Contrats et transitions des trois tableaux, conventions de signe et audit | Pas de ventilation incertaine ni publication implicite | Parcours de validation/correction/rejet |
-| 4 — Facture | PARTIEL/NON RACCORDE/BLOQUÉ | P0, P1-6, P2, P3 | Pipeline LangGraph vérifié de l'ingestion à la persistance locale | Ne pas remplacer InvoiceSchema par InvoiceData | Factures, avoirs, frais, images et anomalies anonymisés |
+| 4 — Facture | RACCORDEMENTS CIBLÉS VALIDÉS / PIPELINE COMPLET À FAIRE | P0, P1-6, P2, P3 | Contrat InvoiceSchema et raccordements ciblés; pipeline comptable complet de l'ingestion à la persistance locale non terminé | Conserver compatibilité legacy; ne pas confondre raccordement du contrat avec achèvement comptable | Factures, avoirs, frais, images et anomalies anonymisés |
 | 5 — Banque | FUTUR/BLOQUÉ | P1-7, P2, P3 | BankingRecord, parseurs distincts, allocations N↔N, contrôles et revue locale | Pas de règle de signe/devise non décidée; pas d'invention de remises | OFX, MT940, CSV/PDF selon mapping, paiements partiels/groupés |
 | 6 — Mémoire/skills | CIBLE/PARTIEL | P1-3/P1-4/P1-5, P2/P3 | Registre local, versions, trajectoires, SkillOpt, non-régression et distribution contrôlée | Aucune promotion automatique ou fusion avant audit | Variantes sauvegardées, cas skills approuvés et régressions |
 | 7 — Synchronisation | CIBLE/FUTUR | P0, P2, P3, P6 | Manifeste, staging, statuts, transport, conflits, reprise/idempotence | Pas de copie physique, DELETE ou écriture Oracle locale directe | Lots valides/altérés/doublons, coupures et incompatibilités |
@@ -10735,10 +10736,9 @@ par une hypothèse technique.
    faire. Les quatre variantes restent inchangées.
 6. **P1-5 — Définir le schéma JSON canonique et les tests du registre.**
    Définir et valider le contrat avant toute implémentation ou migration.
-7. **Résoudre `InvoiceSchema` — P1-6.**
-   Statut : **BLOQUÉ** jusqu'à arbitrage. Livrable : contrat vérifiable et
-   exemples approuvés. Acceptation : validation de schéma testée; aucune
-   substitution par `InvoiceData` non décidée.
+7. **P1-6 — InvoiceSchema : TECHNIQUEMENT TERMINÉ.** Contrat et
+   raccordements ciblés validés; cette clôture ne signifie pas que le pipeline
+   comptable complet est terminé.
 8. **Résoudre les décisions bancaires bloquantes — P1-7.**
    Statut : **BLOQUÉ** jusqu'à arbitrage métier. Livrable : décisions sur
    propriété des comptes, objets rapprochables, allocations, devises,

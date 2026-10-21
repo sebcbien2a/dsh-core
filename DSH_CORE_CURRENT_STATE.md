@@ -238,13 +238,14 @@ correspondant soit actuellement lancé ou exposé en production.
 
 ### 4.2 Webhook n8n facture
 
-`n8n_api.py` définit `POST /api/v1/ingest`, instancie
-`agents.invoice_agent.InvoiceAgent`, reçoit un fichier, le place sous
-`workspace/invoices/input`, appelle `process_invoice` et retourne le JSON. Ce
-chemin est **EXISTANT ET ACTIF** au sens du raccordement de code rapporté par
-l’audit. L’exécution d’une requête HTTP réelle n’a pas été testée lors de cet
-inventaire. Le conteneur n8n actif ne prouve pas que l’API Python soit elle-même
-démarrée.
+`n8n_api.py` définit `POST /api/v1/ingest` et reçoit le fichier en multipart.
+`response_mode` vaut `legacy` par défaut : le webhook conserve alors l’appel
+historique à `agents.invoice_agent.InvoiceAgent.process_invoice()` et son
+enveloppe de réponse. Une demande explicite `response_mode=canonical` passe
+par `IngestionManager.ingest_canonical_invoice()` et renvoie l’InvoiceSchema
+sérialisé en JSON. Aucun workflow n8n existant n’a été modifié. Ces routes et
+leurs deux modes ont été vérifiés par tests ciblés avec doubles; aucune requête
+à un service réel n’a été exécutée.
 
 ### 4.3 Routes backend alternatives
 
@@ -261,23 +262,31 @@ une seconde voie de traitement facture réel.
 
 ```text
 n8n_api.py — POST /api/v1/ingest
-→ agents.invoice_agent.InvoiceAgent.process_invoice(...)
-→ traitement Vision via Ollama
-→ validation avec InvoiceData définie dans agents/invoice_agent.py
-→ réponse JSON à n8n
+├─ mode par défaut (legacy)
+│  → agents.invoice_agent.InvoiceAgent.process_invoice(...)
+│  → enveloppe JSON historique à n8n
+└─ mode canonical demandé explicitement
+   → IngestionManager.ingest_canonical_invoice(...)
+   → InvoiceAgent.process_invoice(...) une seule fois
+   → validation/adaptation vers InvoiceSchema
+   → réponse JSON canonique à n8n
 ```
 
-Ce chemin reçoit et extrait une pièce. Il n’appelle pas, selon le code et les
-rapports examinés, les contrôles métier et les writers de facture listés
-ci-dessous.
+Le mode legacy reste le comportement par défaut. Le mode canonical expose le
+contrat et les données legacy sans remplacer l’enveloppe historique par défaut.
+Les tests ne démontrent pas un pipeline comptable complet de bout en bout :
+comptabilisation, persistance métier, interface humaine et rapprochement
+bancaire restent hors périmètre.
 
 ### 5.2 Composants et niveaux de raccordement
 
 | Composant | Statut | Constat vérifié |
 |---|---|---|
-| `n8n_api.py` — `POST /api/v1/ingest` | **EXISTANT ET ACTIF** | Route raccordée à l’agent de facture sous `agents/`; serveur Python non vérifié comme processus en cours. |
-| `agents/invoice_agent.py::InvoiceAgent` | **EXISTANT ET ACTIF** | Extraction Ollama Vision et validation par sa classe locale `InvoiceData`; pas de persistance métier Qdrant/Neo4j dans ce flux. |
-| `services/ingestion_manager.py::IngestionManager` | **EXISTANT MAIS PARTIEL** | Code présent et exercé par `test_ingestion.py`; non appelé par le webhook actif. La correction du message d’erreur est présente. |
+| `n8n_api.py` — `POST /api/v1/ingest` | **RACCORDEMENT CIBLÉ VALIDÉ** | Le mode legacy conserve la réponse historique par défaut; le mode canonical est disponible sur demande explicite. Aucun workflow n8n n’a été modifié. |
+| `agents/invoice_agent.py::InvoiceAgent` | **RACCORDEMENT CANONIQUE VALIDÉ** | Conserve `InvoiceData` et l’interface legacy; expose l’adaptation et la validation vers `InvoiceSchema`. |
+| `invoice_agent.py::InvoiceAgent` racine | **RACCORDEMENT CANONIQUE VALIDÉ** | Convertit les données legacy avec le contrat `InvoiceSchema` sans supprimer l’interface historique. |
+| `services/ingestion_manager.py::IngestionManager` | **RACCORDEMENT CANONIQUE VALIDÉ** | Fournit `CanonicalInvoiceIngestionResult`; le chemin canonique appelle l’agent une fois et conserve l’enveloppe legacy séparément. |
+| `services/extraction_manager.py::ExtractionManager` | **RACCORDEMENT CANONIQUE VALIDÉ** | Valide les payloads d’extraction avec `InvoiceSchema`; la méthode historique conserve son enveloppe. |
 | `services/document_profiler.py::DocumentProfiler` | **EXISTANT MAIS PARTIEL** | Code et test présents; pas d’appel par le webhook facture. |
 | `services/routing_engine.py::RoutingEngine` | **EXISTANT MAIS PARTIEL** | Code et test présents; pas d’appel par le webhook facture. |
 | `services/business_extraction_manager.py::BusinessExtractionManager` | **EXISTANT MAIS PARTIEL** | Exercice dans les tests de profilage; pas de raccordement au webhook. |
@@ -285,34 +294,43 @@ ci-dessous.
 | `services/tax_classification_engine.py::TaxClassificationEngine` | **EXISTANT MAIS PARTIEL** | Code présent et appelé par un script de test; non raccordé au webhook. |
 | `services/invoice_skill_creator.py::InvoiceSkillCreator` | **EXISTANT MAIS PARTIEL** | Code présent et exercé hors webhook; ne prouve pas une création automatique depuis le pipeline HTTP. |
 | `services/invoice_skill_applier.py::InvoiceSkillApplier` | **EXISTANT MAIS PARTIEL** | Code présent et exercé hors webhook; pas d’appel depuis le chemin HTTP actif. |
-| `services/extraction_manager.py::ExtractionManager` | **EXISTANT MAIS NON RACCORDE** | Pas d’appel par le webhook; dépend du symbole `InvoiceSchema` absent. |
 | `InvoiceIndexer`, services d’embedding/similarité facture | **EXISTANT MAIS NON RACCORDE** | Code disponible; aucun appel par le webhook actif n’est établi. |
 | Writers facture Neo4j | **EXISTANT MAIS NON RACCORDE** | Repositories présents mais sans appelant applicatif établi; schéma différent des données runtime relevées. |
 | Graphe facture backend | **EXISTANT MAIS PARTIEL** | Route alternative présente; plusieurs nœuds renvoient des exemples simulés plutôt que des intégrations métier. |
 
-La présence d’un composant, son exécution par un script ou un test et son
-intégration au webhook sont trois faits distincts. Seul le premier chemin
-décrit ci-dessus est qualifié d’actif dans les audits; aucun pipeline facture
-complet de bout en bout n’a été démontré ici.
+Les raccordements canoniques ciblés sont vérifiés par tests et ne constituent
+pas une preuve de pipeline comptable complet. Aucun test n’a appelé un modèle,
+un réseau, un webhook réel ou un stockage métier.
 
 ## 6. Contrats de facture et InvoiceSchema
 
-- Aucune déclaration de `class InvoiceSchema` n’a été trouvée dans les sources
-  applicatives actuelles inspectées.
-- `schemas/invoice_schema.py` définit une classe `InvoiceData`.
-- `agents/invoice_agent.py` définit une autre classe locale `InvoiceData`.
-  Elles sont distinctes et ne doivent pas être considérées comme compatibles
-  en raison de leur nom.
-- Le fichier `invoice_agent.py` à la racine et
-  `services/extraction_manager.py` importent le symbole absent `InvoiceSchema`.
-  Ces voies sont **BLOQUÉ** par le contrat manquant; elles ne constituent pas
-  le webhook actif.
-- Les prompts, exemples et commentaires ne suffisent pas à reconstruire les
-  types, contraintes, champs requis, validateurs ou valeurs par défaut de ce
-  contrat.
-- La décision documentaire est de maintenir `InvoiceSchema` gelé jusqu’à
-  arbitrage. Aucune reconstruction ni substitution par `InvoiceData` n’est
-  effectuée dans cet état des lieux.
+`schemas/invoice_schema.py` définit le contrat Pydantic canonique
+`InvoiceSchema`, ses validateurs et ses adaptateurs legacy. Des tests ciblés
+valident sa compatibilité avec les payloads réels utilisés par
+`ExtractionManager` et les deux `InvoiceAgent`; les classes legacy
+`InvoiceData` sont conservées.
+
+Les raccordements ciblés validés sont :
+
+- `services/extraction_manager.py::ExtractionManager` ;
+- `invoice_agent.py::InvoiceAgent` à la racine ;
+- `agents/invoice_agent.py::InvoiceAgent` ;
+- `services/ingestion_manager.py::IngestionManager`, qui retourne
+  `CanonicalInvoiceIngestionResult` ;
+- `n8n_api.py`, avec réponse legacy par défaut et mode canonical uniquement
+  sur demande explicite.
+
+Les tests ciblés ont réussi avec des doubles et sans appel réel à un modèle,
+au réseau ou à un stockage. Les commits de preuve pertinents sont :
+`9a80288` (contrat canonique des factures), `5c04e98` (raccordement
+ExtractionManager), `3a24038` (InvoiceAgent racine), `e8dc69b` (InvoiceAgent
+ingestion), `0eb6baa` (IngestionManager) et `4cac8cf` (mode canonique
+optionnel du webhook n8n).
+
+Cette clôture est technique et limitée au contrat et aux raccordements ciblés.
+La comptabilisation, la persistance métier, l’interface humaine et le
+rapprochement bancaire restent hors périmètre; le pipeline comptable complet
+n’est pas déclaré terminé.
 
 ## 7. Vérification des trois corrections
 
@@ -601,7 +619,7 @@ du document racine `03_JOURNAL.md`.
 
 | Domaine | État réel | Cible validée | Écart constaté | Blocage | Prochaine preuve nécessaire |
 |---|---|---|---|---|---|
-| API et facture | Webhook raccordé à `InvoiceAgent`; contrôles facture non raccordés. | Pipeline documentaire orchestré et traçable. | Profilage, validations métier et persistance ne sont pas dans le webhook. | **BLOQUÉ** par `InvoiceSchema` pour les chemins qui l’importent. | Contrat de schéma arbitré puis test E2E contrôlé. |
+| API et facture | Contrat `InvoiceSchema` et raccordements ciblés validés; webhook legacy par défaut et mode canonical optionnel. | Pipeline documentaire orchestré et traçable. | Comptabilisation, persistance métier, interface humaine et rapprochement bancaire restent hors périmètre. | Pipeline comptable complet non terminé. | Décisions P1-7 puis étapes métier et E2E contrôlé. |
 | `InvoiceSchema` | Symbole absent; deux `InvoiceData` distincts. | Contrat facture unique validé avant intégration. | Appelants dépendent d’un schéma absent. | **BLOQUÉ** jusqu’à l’arbitrage. | Décision de contrat et tests de validation JSON approuvés. |
 | Banque | Détection de type présente; branche `pending_implementation`; schéma vide. | BankingRecord et allocations N↔N validés localement. | Aucun parseur, ledger ou rapprochement opérationnel. | **BLOQUÉ** sur les règles de comptes, allocations, devises, tolérances et remises. | Décisions métier puis relevés anonymisés et tests de parsers. |
 | Web / scraping / Tor | DDGS, Playwright, `/api/scrape` et wrapper MCP présents. | Recherche Web sûre et Tor explicitement configuré et validé. | Scraping partiel/non validé; wrapper non raccordé; Tor reconnu mais non fonctionnel; SearXNG documenté seulement. | Web **EXISTANT MAIS PARTIEL**; Tor **BLOQUÉ** jusqu'au traitement SSRF et au contrôle réseau. | Chantier reporté; sécuriser accès, destinations et redirections avant réactivation. |
@@ -641,8 +659,9 @@ aucune hypothèse ne les contourne.
    `LEGACY_CANDIDATE_UNREVIEWED`.
 6. **P1-5 — Définir le schéma JSON canonique et les tests du registre.**
    Aucun schéma ni test d'implémentation n'est créé par la décision P1-4.
-7. **P1-6 — Résoudre `InvoiceSchema` avant tout raccordement dépendant.**
-   Définir le contrat exact et sa relation aux deux `InvoiceData`.
+7. **P1-6 — InvoiceSchema : TECHNIQUEMENT TERMINÉ.** Le contrat canonique et
+   les raccordements ciblés sont validés par tests; le pipeline comptable
+   complet reste hors périmètre.
 8. **P1-7 — Résoudre les décisions bancaires bloquantes.** Propriété des comptes,
    objets rapprochables, allocations, devises, tolérances, parties et remises
    de chèques.
@@ -665,9 +684,9 @@ décisions, conformément à la Roadmap V2.
 - Les quatre points `agent_skills` sont des doublons fonctionnels probables,
   mais leurs différences de contenu excluent de les traiter comme doublons
   stricts; le choix canonique reste bloqué.
-- Les chemins applicatifs sont vérifiés statiquement; aucune requête HTTP
-  facture ni test E2E global n'a été exécuté. Les trois corrections ont passé
-  la compilation ciblée et des tests isolés avec doubles.
+- Aucun test E2E comptable n'a été exécuté. Les raccordements InvoiceSchema
+  ont passé leurs tests ciblés avec doubles; aucun modèle, réseau, webhook
+  réel ou stockage métier n'a été appelé.
 - La présence du conteneur Langfuse ne confirme pas que les traces soient
   écrites ou complètes.
 - La présence du fichier `.env` a été observée indirectement dans la liste du
