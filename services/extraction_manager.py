@@ -1,10 +1,17 @@
 # services/extraction_manager.py
 import os
 import json
+from typing import Any
+
 import ollama
 from pydantic import ValidationError
-from schemas.invoice_schema import InvoiceSchema  # <-- CORRECTION 1
-from schemas.document_result import DocumentResult # <-- NOUVEAU CONTRAT
+from schemas.invoice_schema import InvoiceSchema
+from schemas.document_result import DocumentResult
+
+
+class InvoiceExtractionValidationError(Exception):
+    """Raised when extracted invoice data violates the canonical contract."""
+
 
 class ExtractionManager:
     def __init__(self, base_model: str = None):
@@ -71,13 +78,27 @@ Format JSON attendu (réponds UNIQUEMENT le JSON, aucun texte avant ou après) :
             print(f"[ExtractionManager] ❌ ÉCHEC API Ollama : {e}")
             return {"status": "critical_error", "message": str(e)}
 
+    def validate_invoice(self, payload: dict[str, Any]) -> InvoiceSchema:
+        try:
+            return InvoiceSchema.model_validate(payload)
+        except ValidationError as exc:
+            raise InvoiceExtractionValidationError(
+                "Extracted invoice data does not satisfy the canonical contract"
+            ) from exc
+
     def _validate_data(self, data: dict) -> dict:
         print("[ExtractionManager] Validation Pydantic complète en cours...")
         try:
-            valid_invoice = InvoiceSchema(**data)  # <-- CORRECTION 2
+            valid_invoice = self.validate_invoice(data)
             print("[ExtractionManager] ✅ SUCCÈS : Données comptables validées ! L'équation mathématique est juste.")
-            return {"status": "success", "data": valid_invoice.model_dump()}
-        except ValidationError as e:
+            return {
+                "status": "success",
+                "data": valid_invoice.model_dump(mode="json"),
+            }
+        except InvoiceExtractionValidationError as exc:
+            validation_error = exc.__cause__
+            if not isinstance(validation_error, ValidationError):
+                raise
             print("[ExtractionManager] ⚠ REJET PYDANTIC : Échec de la validation métier.")
-            error_msgs = [err["msg"] for err in e.errors()]
+            error_msgs = [err["msg"] for err in validation_error.errors()]
             return {"status": "validation_failed", "extracted_data": data, "errors": error_msgs}
