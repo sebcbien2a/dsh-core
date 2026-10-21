@@ -26,6 +26,12 @@ _SHA256_PATTERN = re.compile(r"^[0-9a-fA-F]{64}$")
 _SLUG_PATTERN = re.compile(r"^[a-z0-9-]+$")
 
 
+def _validate_semver(value: str) -> str:
+    if not _SEMVER_PATTERN.fullmatch(value):
+        raise ValueError("version must be strict SemVer")
+    return value
+
+
 class SkillStatus(str, Enum):
     CANDIDATE = "CANDIDATE"
     TESTING = "TESTING"
@@ -115,6 +121,18 @@ class SkillDependency(BaseModel):
         return value
 
 
+class SkillRevisionReference(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    skill_id: UUID
+    version: str
+
+    @field_validator("version")
+    @classmethod
+    def validate_version(cls, value: str) -> str:
+        return _validate_semver(value)
+
+
 class SkillManifest(BaseModel):
     """Validated data for one skill revision; persistence rules live elsewhere."""
 
@@ -134,7 +152,7 @@ class SkillManifest(BaseModel):
     created_at: datetime
     updated_at: datetime
     published_at: datetime | None = None
-    supersedes: UUID | None = None
+    supersedes: SkillRevisionReference | None = None
     tags: list[str] = Field(default_factory=list)
     triggers: list[str] = Field(default_factory=list)
     artifacts: list[SkillArtifact] = Field(default_factory=list)
@@ -163,9 +181,7 @@ class SkillManifest(BaseModel):
     @field_validator("version")
     @classmethod
     def validate_semver(cls, value: str) -> str:
-        if not _SEMVER_PATTERN.fullmatch(value):
-            raise ValueError("version must be strict SemVer")
-        return value
+        return _validate_semver(value)
 
     @field_validator("content_hash")
     @classmethod
@@ -208,8 +224,11 @@ class SkillManifest(BaseModel):
         } and self.published_at is not None:
             raise ValueError(f"published_at is not allowed for {self.status.value} skills")
 
-        if self.supersedes == self.skill_id:
-            raise ValueError("supersedes must be different from skill_id")
+        if self.supersedes is not None:
+            if self.supersedes.skill_id != self.skill_id:
+                raise ValueError("supersedes.skill_id must match skill_id")
+            if self.supersedes.version == self.version:
+                raise ValueError("supersedes.version must differ from version")
 
         if self.status in {SkillStatus.APPROVED, SkillStatus.PUBLISHED}:
             if not self.approver:

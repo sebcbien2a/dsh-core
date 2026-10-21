@@ -14,7 +14,13 @@ from repositories.canonical_skill_repository import (
     SkillRegistryCorruptionError,
     SkillRevisionAlreadyExistsError,
 )
-from schemas.skill_manifest_schema import ArtifactType, SkillArtifact, SkillManifest, SkillStatus
+from schemas.skill_manifest_schema import (
+    ArtifactType,
+    SkillArtifact,
+    SkillManifest,
+    SkillRevisionReference,
+    SkillStatus,
+)
 
 
 NOW = datetime(2026, 10, 21, 12, 0, tzinfo=timezone.utc)
@@ -25,6 +31,7 @@ def make_manifest(
     version: str = "1.0.0",
     content: str = "skill content",
     artifacts: list[SkillArtifact] | None = None,
+    supersedes: SkillRevisionReference | None = None,
 ) -> SkillManifest:
     return SkillManifest.model_validate(
         {
@@ -41,6 +48,7 @@ def make_manifest(
             "created_at": NOW,
             "updated_at": NOW,
             "artifacts": artifacts or [],
+            "supersedes": supersedes,
         }
     )
 
@@ -94,6 +102,24 @@ def test_reads_exact_revision_and_latest_revision(tmp_path: Path) -> None:
 
     assert repository.get_revision(manifest.skill_id, manifest.version) == manifest
     assert repository.get_latest(manifest.skill_id) == manifest
+
+
+def test_saves_and_reads_revision_reference_without_loss(tmp_path: Path) -> None:
+    repository = CanonicalSkillRepository(tmp_path)
+    skill_id = uuid4()
+    previous = make_manifest(skill_id=skill_id, version="1.0.0")
+    repository.save_revision(previous)
+    supersedes = SkillRevisionReference(skill_id=skill_id, version="1.0.0")
+    current = make_manifest(
+        skill_id=skill_id,
+        version="1.1.0",
+        supersedes=supersedes,
+    )
+
+    repository.save_revision(current)
+    reloaded = repository.get_revision(skill_id, "1.1.0")
+
+    assert reloaded.supersedes == supersedes
 
 
 def test_exists_returns_true_and_false(tmp_path: Path) -> None:

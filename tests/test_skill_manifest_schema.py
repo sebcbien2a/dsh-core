@@ -9,6 +9,7 @@ from schemas.skill_manifest_schema import (
     SkillArtifact,
     SkillDomain,
     SkillManifest,
+    SkillRevisionReference,
     SkillStatus,
     SkillTestEvidence,
 )
@@ -267,9 +268,64 @@ def test_rejects_published_at_before_updated_at() -> None:
         SkillManifest.model_validate(published_data(updated_at=later_update))
 
 
-def test_rejects_supersedes_equal_to_skill_id() -> None:
+def test_accepts_supersedes_reference_to_previous_version() -> None:
+    manifest = SkillManifest.model_validate(
+        manifest_data(
+            version="1.1.0",
+            supersedes={
+                "skill_id": str(SKILL_ID),
+                "version": "1.0.0",
+            },
+        )
+    )
+
+    assert manifest.supersedes == SkillRevisionReference(
+        skill_id=SKILL_ID,
+        version="1.0.0",
+    )
+
+
+def test_rejects_supersedes_with_different_skill_id() -> None:
     with pytest.raises(ValidationError):
-        SkillManifest.model_validate(manifest_data(supersedes=SKILL_ID))
+        SkillManifest.model_validate(
+            manifest_data(
+                supersedes={
+                    "skill_id": "d5fb8c84-247f-484e-b55b-d2353f79052a",
+                    "version": "1.0.0",
+                }
+            )
+        )
+
+
+def test_rejects_supersedes_with_same_version() -> None:
+    with pytest.raises(ValidationError):
+        SkillManifest.model_validate(
+            manifest_data(
+                version="1.0.0",
+                supersedes={"skill_id": str(SKILL_ID), "version": "1.0.0"},
+            )
+        )
+
+
+def test_rejects_supersedes_with_non_semver_version() -> None:
+    with pytest.raises(ValidationError):
+        SkillRevisionReference(skill_id=SKILL_ID, version="v1.0")
+
+
+def test_json_round_trip_preserves_supersedes_reference() -> None:
+    manifest = SkillManifest.model_validate(
+        manifest_data(
+            version="1.1.0",
+            supersedes={"skill_id": str(SKILL_ID), "version": "1.0.0"},
+        )
+    )
+
+    reloaded = SkillManifest.model_validate_json(manifest.model_dump_json())
+
+    assert reloaded.supersedes == SkillRevisionReference(
+        skill_id=SKILL_ID,
+        version="1.0.0",
+    )
 
 
 def test_normalizes_manifest_hash_to_lowercase() -> None:
