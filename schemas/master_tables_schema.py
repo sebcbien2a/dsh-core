@@ -149,6 +149,52 @@ class FiscalStatus(str, Enum):
     REJECTED = "REJECTED"
 
 
+class PaymentOrigin(str, Enum):
+    COMPANY_ACCOUNT = "COMPANY_ACCOUNT"
+    PERSONAL_FUNDS = "PERSONAL_FUNDS"
+    THIRD_PARTY_FUNDS = "THIRD_PARTY_FUNDS"
+    CASH_REGISTER = "CASH_REGISTER"
+    UNKNOWN = "UNKNOWN"
+
+
+class DocumentPaymentMethod(str, Enum):
+    COMPANY_CARD = "COMPANY_CARD"
+    COMPANY_TRANSFER = "COMPANY_TRANSFER"
+    COMPANY_DIRECT_DEBIT = "COMPANY_DIRECT_DEBIT"
+    COMPANY_CHEQUE = "COMPANY_CHEQUE"
+    COMPANY_CASH = "COMPANY_CASH"
+    PERSONAL_CARD = "PERSONAL_CARD"
+    PERSONAL_CASH = "PERSONAL_CASH"
+    PERSONAL_TRANSFER = "PERSONAL_TRANSFER"
+    THIRD_PARTY_CARD = "THIRD_PARTY_CARD"
+    THIRD_PARTY_CASH = "THIRD_PARTY_CASH"
+    OTHER = "OTHER"
+    UNKNOWN = "UNKNOWN"
+
+
+class SettlementRoute(str, Enum):
+    BANK_RECONCILIATION = "BANK_RECONCILIATION"
+    DIRECTOR_CURRENT_ACCOUNT = "DIRECTOR_CURRENT_ACCOUNT"
+    SHAREHOLDER_CURRENT_ACCOUNT = "SHAREHOLDER_CURRENT_ACCOUNT"
+    EXPENSE_CLAIM = "EXPENSE_CLAIM"
+    EMPLOYEE_REIMBURSEMENT = "EMPLOYEE_REIMBURSEMENT"
+    THIRD_PARTY_REIMBURSEMENT = "THIRD_PARTY_REIMBURSEMENT"
+    NO_REIMBURSEMENT = "NO_REIMBURSEMENT"
+    ACCOUNTANT_DECISION_REQUIRED = "ACCOUNTANT_DECISION_REQUIRED"
+    UNKNOWN = "UNKNOWN"
+
+
+class SettlementStatus(str, Enum):
+    NOT_REQUIRED = "NOT_REQUIRED"
+    PENDING = "PENDING"
+    NEEDS_REVIEW = "NEEDS_REVIEW"
+    APPROVED = "APPROVED"
+    POSTED = "POSTED"
+    PARTIALLY_REIMBURSED = "PARTIALLY_REIMBURSED"
+    REIMBURSED = "REIMBURSED"
+    REJECTED = "REJECTED"
+
+
 class AuditResourceType(str, Enum):
     ACCOUNTING_DOCUMENT = "ACCOUNTING_DOCUMENT"
     BANK_TRANSACTION = "BANK_TRANSACTION"
@@ -316,6 +362,75 @@ class SourceEvidence(_MasterModel):
         return _require_utc(value)
 
 
+class PaymentContribution(_MasterModel):
+    contribution_id: UUID
+    payment_origin: PaymentOrigin
+    payment_method: DocumentPaymentMethod
+    payer_id: UUID | None = None
+    payer_name: str | None = None
+    amount: Decimal
+    company_bank_reconciliation_required: bool
+    banking_transaction_id: UUID | None = None
+    settlement_route: SettlementRoute
+    settlement_status: SettlementStatus
+    reimbursement_transaction_id: UUID | None = None
+    evidence_ids: list[UUID] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("amount", mode="before")
+    @classmethod
+    def convert_amount(cls, value: Any) -> Decimal:
+        return _decimal(value)
+
+    @field_validator("amount")
+    @classmethod
+    def validate_amount(cls, value: Decimal) -> Decimal:
+        if value <= 0:
+            raise ValueError("contribution amount must be positive")
+        return value
+
+    @field_validator("payer_name")
+    @classmethod
+    def validate_payer_name(cls, value: str | None) -> str | None:
+        return _nonblank(value, "payer_name")
+
+    @model_validator(mode="after")
+    def validate_payment_contribution(self) -> PaymentContribution:
+        if self.payment_origin == PaymentOrigin.PERSONAL_FUNDS:
+            if self.payer_id is None and self.payer_name is None:
+                raise ValueError("personal funds require an identified payer")
+            if self.company_bank_reconciliation_required:
+                raise ValueError(
+                    "personal funds cannot require company bank reconciliation"
+                )
+            if self.banking_transaction_id is not None:
+                raise ValueError(
+                    "personal funds cannot reference a company banking transaction"
+                )
+        if (
+            self.payment_origin == PaymentOrigin.COMPANY_ACCOUNT
+            and not self.company_bank_reconciliation_required
+        ):
+            raise ValueError(
+                "company account contributions require bank reconciliation"
+            )
+        if (
+            self.settlement_route == SettlementRoute.BANK_RECONCILIATION
+            and self.payment_origin != PaymentOrigin.COMPANY_ACCOUNT
+        ):
+            raise ValueError(
+                "bank reconciliation settlement requires company account origin"
+            )
+        if (
+            self.settlement_status == SettlementStatus.REIMBURSED
+            and self.reimbursement_transaction_id is None
+        ):
+            raise ValueError(
+                "reimbursed contributions require a reimbursement transaction"
+            )
+        return self
+
+
 class _VersionedRow(_MasterModel):
     row_version: StrictInt
     content_hash: str
@@ -427,6 +542,13 @@ class AccountingDocumentMasterRow(_VersionedRow):
     previous_file_uri: str | None = None
     file_move_status: FileMoveStatus
     file_move_operation_id: UUID | None = None
+    payment_contributions: list[PaymentContribution] = Field(default_factory=list)
+    business_purpose: str | None = None
+    attendees_or_beneficiaries: list[str] = Field(default_factory=list)
+    total_personal_amount: Decimal = Decimal("0")
+    total_company_paid_amount: Decimal = Decimal("0")
+    payment_origin_review_required: bool = False
+    settlement_notes: str | None = None
 
     @field_validator("company_id")
     @classmethod
@@ -510,10 +632,31 @@ class AccountingDocumentMasterRow(_VersionedRow):
         "analytic_code",
         "current_file_uri",
         "previous_file_uri",
+        "business_purpose",
+        "settlement_notes",
     )
     @classmethod
     def validate_optional_text(cls, value: str | None) -> str | None:
         return _nonblank(value, "text")
+
+    @field_validator("attendees_or_beneficiaries")
+    @classmethod
+    def validate_attendees_or_beneficiaries(cls, values: list[str]) -> list[str]:
+        if any(not value.strip() for value in values):
+            raise ValueError("attendees_or_beneficiaries cannot contain blank values")
+        return values
+
+    @field_validator("total_personal_amount", "total_company_paid_amount", mode="before")
+    @classmethod
+    def convert_payment_totals(cls, value: Any) -> Decimal:
+        return _decimal(value)
+
+    @field_validator("total_personal_amount", "total_company_paid_amount")
+    @classmethod
+    def validate_payment_totals(cls, value: Decimal) -> Decimal:
+        if value < 0:
+            raise ValueError("payment totals must be non-negative")
+        return value
 
     @model_validator(mode="after")
     def validate_document_consistency(self) -> AccountingDocumentMasterRow:
@@ -527,6 +670,54 @@ class AccountingDocumentMasterRow(_VersionedRow):
         allowed_tolerance = min(self.rounding_tolerance, _CENT)
         if abs(self.remaining_amount - expected_remaining) > allowed_tolerance:
             raise ValueError("remaining_amount is inconsistent with paid and discount amounts")
+
+        contributions_total = sum(
+            (contribution.amount for contribution in self.payment_contributions),
+            start=Decimal("0"),
+        )
+        personal_total = sum(
+            (
+                contribution.amount
+                for contribution in self.payment_contributions
+                if contribution.payment_origin == PaymentOrigin.PERSONAL_FUNDS
+            ),
+            start=Decimal("0"),
+        )
+        company_total = sum(
+            (
+                contribution.amount
+                for contribution in self.payment_contributions
+                if contribution.payment_origin == PaymentOrigin.COMPANY_ACCOUNT
+            ),
+            start=Decimal("0"),
+        )
+        if self.payment_contributions and abs(
+            contributions_total - self.gross_amount
+        ) > _CENT:
+            raise ValueError("payment contributions must equal gross_amount")
+        if abs(self.total_personal_amount - personal_total) > _CENT:
+            raise ValueError("total_personal_amount does not match contributions")
+        if abs(self.total_company_paid_amount - company_total) > _CENT:
+            raise ValueError("total_company_paid_amount does not match contributions")
+        if (
+            self.payment_contributions
+            and all(
+                contribution.payment_origin == PaymentOrigin.PERSONAL_FUNDS
+                for contribution in self.payment_contributions
+            )
+            and self.reconciliation_status != ReconciliationStatus.NOT_APPLICABLE
+        ):
+            raise ValueError(
+                "all-personal contributions require NOT_APPLICABLE reconciliation"
+            )
+        if (
+            any(
+                contribution.payment_origin == PaymentOrigin.UNKNOWN
+                for contribution in self.payment_contributions
+            )
+            and not self.payment_origin_review_required
+        ):
+            raise ValueError("unknown payment origin requires review")
         return self
 
 

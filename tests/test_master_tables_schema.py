@@ -33,6 +33,7 @@ from schemas.master_tables_schema import (
     BankTransactionMasterRow,
     DocumentDirection,
     DocumentMasterType,
+    DocumentPaymentMethod,
     DuplicateOperationError,
     EvidenceSourceType,
     ExtractionStatus,
@@ -50,9 +51,13 @@ from schemas.master_tables_schema import (
     MasterType,
     MasterValidationStatus,
     MasterVersion,
+    PaymentContribution,
+    PaymentOrigin,
     ProcessingStatus,
     ResourceLock,
     ResolutionStatus,
+    SettlementRoute,
+    SettlementStatus,
     SourceEvidence,
     StatusDomain,
     StatusHistory,
@@ -114,6 +119,27 @@ def accounting_row_data(**overrides: Any) -> dict[str, Any]:
 
 def accounting_row(**overrides: Any) -> AccountingDocumentMasterRow:
     return AccountingDocumentMasterRow(**accounting_row_data(**overrides))
+
+
+def payment_contribution(
+    *,
+    payment_origin: PaymentOrigin = PaymentOrigin.PERSONAL_FUNDS,
+    payment_method: DocumentPaymentMethod = DocumentPaymentMethod.PERSONAL_CARD,
+    amount: Decimal | str = Decimal("100.00"),
+    **overrides: Any,
+) -> PaymentContribution:
+    values: dict[str, Any] = {
+        "contribution_id": UUID("37ec1eb8-180e-490a-8b6c-4299051eecc1"),
+        "payment_origin": payment_origin,
+        "payment_method": payment_method,
+        "payer_name": "Director",
+        "amount": amount,
+        "company_bank_reconciliation_required": False,
+        "settlement_route": SettlementRoute.EXPENSE_CLAIM,
+        "settlement_status": SettlementStatus.PENDING,
+    }
+    values.update(overrides)
+    return PaymentContribution(**values)
 
 
 def banking_record(**overrides: Any) -> BankingRecord:
@@ -686,4 +712,284 @@ def test_schema_models_do_not_create_files(tmp_path: Path) -> None:
     )
 
     assert evidence.evidence_id == EVIDENCE_ID
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    ("merchant", "company", "method"),
+    [
+        (
+            "McDonald's meal",
+            "Assistance Peinture Diffusion",
+            DocumentPaymentMethod.PERSONAL_CARD,
+        ),
+        (
+            "Leroy Merlin supplies",
+            "SCI APD",
+            DocumentPaymentMethod.PERSONAL_CASH,
+        ),
+        ("Parking", "Assistance Peinture Diffusion", DocumentPaymentMethod.PERSONAL_CARD),
+        ("Toll", "SCI APD", DocumentPaymentMethod.PERSONAL_CARD),
+    ],
+)
+def test_professional_expense_paid_personally_is_not_a_company_bank_transaction(
+    merchant: str,
+    company: str,
+    method: DocumentPaymentMethod,
+) -> None:
+    row = accounting_row(
+        company_id=company,
+        document_number=merchant,
+        payment_contributions=[
+            payment_contribution(
+                payment_method=method,
+                amount="100.00",
+                payer_id=UUID("e28aa97b-82e0-43ca-b895-ef2ebeff14d2"),
+                payer_name="Director",
+                metadata={"expense_label": merchant},
+            )
+        ],
+        total_personal_amount="100.00",
+        reconciliation_status=ReconciliationStatus.NOT_APPLICABLE,
+    )
+
+    assert row.total_personal_amount == Decimal("100.00")
+    assert row.payment_contributions[0].banking_transaction_id is None
+    assert row.reconciliation_status == ReconciliationStatus.NOT_APPLICABLE
+
+
+@pytest.mark.parametrize(
+    ("method", "route"),
+    [
+        (DocumentPaymentMethod.PERSONAL_CARD, SettlementRoute.EXPENSE_CLAIM),
+        (DocumentPaymentMethod.PERSONAL_CASH, SettlementRoute.DIRECTOR_CURRENT_ACCOUNT),
+        (DocumentPaymentMethod.PERSONAL_TRANSFER, SettlementRoute.SHAREHOLDER_CURRENT_ACCOUNT),
+    ],
+)
+def test_personal_payment_methods_and_settlement_routes_are_representable(
+    method: DocumentPaymentMethod,
+    route: SettlementRoute,
+) -> None:
+    contribution = payment_contribution(
+        payment_method=method,
+        settlement_route=route,
+    )
+
+    assert contribution.payment_method == method
+    assert contribution.settlement_route == route
+
+
+def test_company_account_contribution_requires_company_bank_reconciliation() -> None:
+    contribution = payment_contribution(
+        payment_origin=PaymentOrigin.COMPANY_ACCOUNT,
+        payment_method=DocumentPaymentMethod.COMPANY_TRANSFER,
+        payer_name=None,
+        company_bank_reconciliation_required=True,
+        settlement_route=SettlementRoute.BANK_RECONCILIATION,
+    )
+
+    row = accounting_row(
+        payment_contributions=[contribution],
+        total_company_paid_amount="100.00",
+    )
+    assert row.total_company_paid_amount == Decimal("100.00")
+
+
+def test_mixed_company_and_personal_payment_keeps_origin_totals_separate() -> None:
+    company_contribution = payment_contribution(
+        payment_origin=PaymentOrigin.COMPANY_ACCOUNT,
+        payment_method=DocumentPaymentMethod.COMPANY_TRANSFER,
+        amount="300.00",
+        payer_name=None,
+        company_bank_reconciliation_required=True,
+        settlement_route=SettlementRoute.BANK_RECONCILIATION,
+    )
+    personal_contribution = payment_contribution(
+        contribution_id=UUID("74dbe918-223b-42dc-b8bf-30ac6ed284a0"),
+        payment_origin=PaymentOrigin.PERSONAL_FUNDS,
+        payment_method=DocumentPaymentMethod.PERSONAL_CARD,
+        amount="200.00",
+        payer_id=UUID("e28aa97b-82e0-43ca-b895-ef2ebeff14d2"),
+    )
+    row = accounting_row(
+        gross_amount="500.00",
+        paid_amount="0",
+        remaining_amount="500.00",
+        payment_contributions=[company_contribution, personal_contribution],
+        total_company_paid_amount="300.00",
+        total_personal_amount="200.00",
+        reconciliation_status=ReconciliationStatus.NEEDS_REVIEW,
+    )
+
+    assert row.total_company_paid_amount == Decimal("300.00")
+    assert row.total_personal_amount == Decimal("200.00")
+    assert row.reconciliation_status == ReconciliationStatus.NEEDS_REVIEW
+    assert all(
+        contribution.banking_transaction_id is None
+        for contribution in row.payment_contributions
+    )
+
+
+def test_all_personal_contributions_require_not_applicable_reconciliation() -> None:
+    row = accounting_row(
+        payment_contributions=[payment_contribution()],
+        total_personal_amount="100.00",
+        reconciliation_status=ReconciliationStatus.NOT_APPLICABLE,
+    )
+
+    assert row.reconciliation_status == ReconciliationStatus.NOT_APPLICABLE
+
+    with pytest.raises(ValidationError):
+        accounting_row(
+            payment_contributions=[payment_contribution()],
+            total_personal_amount="100.00",
+            reconciliation_status=ReconciliationStatus.UNMATCHED,
+        )
+
+
+def test_payment_person_is_required_for_personal_funds() -> None:
+    with pytest.raises(ValidationError):
+        payment_contribution(payer_id=None, payer_name=None)
+
+
+def test_personal_funds_cannot_require_company_bank_reconciliation() -> None:
+    with pytest.raises(ValidationError):
+        payment_contribution(company_bank_reconciliation_required=True)
+
+
+def test_personal_funds_cannot_reference_company_bank_transaction() -> None:
+    with pytest.raises(ValidationError):
+        payment_contribution(
+            banking_transaction_id=TRANSACTION_ID,
+        )
+
+
+def test_company_account_without_reconciliation_is_rejected() -> None:
+    with pytest.raises(ValidationError):
+        payment_contribution(
+            payment_origin=PaymentOrigin.COMPANY_ACCOUNT,
+            payment_method=DocumentPaymentMethod.COMPANY_CARD,
+            company_bank_reconciliation_required=False,
+        )
+
+
+def test_payment_contribution_amount_is_decimal_and_positive() -> None:
+    contribution = payment_contribution(amount=200)
+
+    assert contribution.amount == Decimal("200")
+    assert isinstance(contribution.amount, Decimal)
+    with pytest.raises(ValidationError):
+        payment_contribution(amount="0")
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("gross_amount", "499.00"),
+        ("total_personal_amount", "199.00"),
+        ("total_company_paid_amount", "299.00"),
+    ],
+)
+def test_inconsistent_contribution_amounts_are_rejected(
+    field: str,
+    value: str,
+) -> None:
+    company_contribution = payment_contribution(
+        payment_origin=PaymentOrigin.COMPANY_ACCOUNT,
+        payment_method=DocumentPaymentMethod.COMPANY_TRANSFER,
+        amount="300.00",
+        payer_name=None,
+        company_bank_reconciliation_required=True,
+        settlement_route=SettlementRoute.BANK_RECONCILIATION,
+    )
+    personal_contribution = payment_contribution(
+        contribution_id=UUID("74dbe918-223b-42dc-b8bf-30ac6ed284a0"),
+        amount="200.00",
+        payer_id=UUID("e28aa97b-82e0-43ca-b895-ef2ebeff14d2"),
+    )
+    values: dict[str, Any] = {
+        "gross_amount": "500.00",
+        "paid_amount": "0",
+        "remaining_amount": "500.00",
+        "payment_contributions": [company_contribution, personal_contribution],
+        "total_company_paid_amount": "300.00",
+        "total_personal_amount": "200.00",
+        "reconciliation_status": ReconciliationStatus.NEEDS_REVIEW,
+    }
+    values[field] = value
+
+    with pytest.raises(ValidationError):
+        accounting_row(**values)
+
+
+def test_reimbursed_contribution_requires_reimbursement_transaction() -> None:
+    with pytest.raises(ValidationError):
+        payment_contribution(settlement_status=SettlementStatus.REIMBURSED)
+
+
+def test_later_reimbursement_is_representable_without_invention() -> None:
+    reimbursement_id = UUID("a9aeb7c3-bcde-42b4-bbf5-983b4eea54fd")
+    contribution = payment_contribution(
+        settlement_status=SettlementStatus.REIMBURSED,
+        reimbursement_transaction_id=reimbursement_id,
+    )
+
+    assert contribution.reimbursement_transaction_id == reimbursement_id
+
+
+@pytest.mark.parametrize(
+    "route",
+    [
+        SettlementRoute.EXPENSE_CLAIM,
+        SettlementRoute.DIRECTOR_CURRENT_ACCOUNT,
+        SettlementRoute.SHAREHOLDER_CURRENT_ACCOUNT,
+        SettlementRoute.ACCOUNTANT_DECISION_REQUIRED,
+    ],
+)
+def test_personal_expense_settlement_route_is_explicitly_representable(
+    route: SettlementRoute,
+) -> None:
+    contribution = payment_contribution(settlement_route=route)
+
+    assert contribution.settlement_route == route
+
+
+def test_email_label_can_be_preserved_as_metadata() -> None:
+    contribution = payment_contribution(
+        metadata={"email_label": "Repas équipe — déplacement chantier"}
+    )
+
+    assert contribution.metadata["email_label"] == "Repas équipe — déplacement chantier"
+
+
+def test_personal_payment_contributions_json_roundtrip_preserves_decimal() -> None:
+    row = accounting_row(
+        net_amount="160.00",
+        tax_amount="40.00",
+        gross_amount="200.00",
+        remaining_amount="200.00",
+        payment_contributions=[
+            payment_contribution(
+                amount="200.00",
+                payer_id=UUID("e28aa97b-82e0-43ca-b895-ef2ebeff14d2"),
+            )
+        ],
+        total_personal_amount="200.00",
+        reconciliation_status=ReconciliationStatus.NOT_APPLICABLE,
+    )
+
+    restored = AccountingDocumentMasterRow.model_validate_json(row.model_dump_json())
+
+    assert restored == row
+    assert restored.payment_contributions[0].amount == Decimal("200.00")
+    assert restored.payment_contributions[0].banking_transaction_id is None
+
+
+def test_personal_payment_models_do_not_create_files(tmp_path: Path) -> None:
+    accounting_row(
+        payment_contributions=[payment_contribution()],
+        total_personal_amount="100.00",
+        reconciliation_status=ReconciliationStatus.NOT_APPLICABLE,
+    )
+
     assert list(tmp_path.iterdir()) == []

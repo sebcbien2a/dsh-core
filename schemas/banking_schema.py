@@ -62,6 +62,7 @@ class ReconciliationStatus(str, Enum):
     PARTIALLY_MATCHED = "PARTIALLY_MATCHED"
     MATCHED = "MATCHED"
     REJECTED = "REJECTED"
+    NOT_APPLICABLE = "NOT_APPLICABLE"
 
 
 class AllocationTargetType(str, Enum):
