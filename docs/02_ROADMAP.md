@@ -10759,3 +10759,27 @@ par une hypothèse technique.
 suppression ni écriture officielle sur la base de résultats non validés. Les
 décisions encore bloquées restent visibles; elles ne sont pas remplacées par
 des valeurs par défaut ou des hypothèses.
+
+## Mise à jour après le commit 716d23d
+
+### P1-7 — Writer local atomique
+
+- **Statut : TERMINÉ**
+- **Commit :** `716d23d`
+- **Validation :** 332 tests réussis
+- **Fonctionnalités terminées :**
+  - publication locale atomique et récupérable ;
+  - contrôle des versions et idempotence ;
+  - verrous à bail LOCAL et ORACLE ;
+  - audit et historique des statuts ;
+  - paiements personnels, mixtes et partiels ;
+  - lots LCR, chèques et allocations ;
+  - suppression logique et restauration.
+
+### P1-8 — Mémoire opérationnelle DSH-Core
+
+- **Statut : À DÉMARRER**
+- **Objectif :** préparer Hermes Agent Desktop et connecter une mémoire locale
+  Mem0, tout en conservant Git et les fichiers Markdown comme vérité
+  architecturale et Mem0 comme mémoire contextuelle uniquement. Commencer en
+  lecture seule sur le dépôt ; aucun commit ni changement de contrat autonome.
