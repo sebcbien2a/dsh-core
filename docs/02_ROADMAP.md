@@ -10778,19 +10778,45 @@ des valeurs par défaut ou des hypothèses.
 
 ### P1-8 — Mémoire opérationnelle DSH-Core
 
-- **Statut : À DÉMARRER**
+- **Statut : EN COURS** (P1-7 reste TERMINÉ)
 - **Objectif :** préparer Hermes Agent Desktop et connecter une mémoire locale
   Mem0, tout en conservant Git et les fichiers Markdown comme vérité
   architecturale et Mem0 comme mémoire contextuelle uniquement. Commencer en
   lecture seule sur le dépôt ; aucun commit ni changement de contrat autonome.
+- **Architecture cible :** [DSH_CORE_AI_ARCHITECTURE_V2.md](./DSH_CORE_AI_ARCHITECTURE_V2.md)
+
+**P1-8A à P1-8D : inventaire et sécurisation initiale Hermes — TERMINÉ**
+
+- Hermes 0.22.4 installé ; approbations manuelles activées ;
+- cron, single-query et unattended refusés ;
+- aucun MCP ni plugin ajouté ;
+- backend Docker et montages read-only identifiés ;
+- aucun accès DSH-Core encore accordé.
+
+**P1-8E : liste blanche DSH-Core pour Hermes — À FAIRE**
+
+**P1-8F : intégration de l'architecture IA v2 — EN COURS dans ce ticket**
+
+Ordre recommandé :
+
+1. finaliser la liste blanche Docker Hermes ;
+2. tester Hermes en lecture seule ;
+3. intégrer Mem0 local ;
+4. connecter Qdrant local ;
+5. créer les premiers spécialistes LangGraph ;
+6. intégrer DeepSeek Harness comme Skill isolé ;
+7. tester Skill Creator et SkillOpt ;
+8. préparer les synchronisations Oracle ;
+9. préparer le mini PC salon.
 
 ## Proposition d’architecture IA V2 — audit préalable requis
 
 - **Date de proposition :** 15 octobre 2026
-- **Statut :** architecture candidate à auditer avant développement
-- `architecture-ia-v2.md` n’est pas présent dans le dépôt ; aucun document n’a
-  été créé. Les éléments ci-dessous consignent la proposition reçue, pas une
-  validation de ses capacités ni de ses estimations.
+- **Statut :** architecture cible validée par l'utilisateur ; document officiel
+  : [DSH_CORE_AI_ARCHITECTURE_V2.md](./DSH_CORE_AI_ARCHITECTURE_V2.md)
+- `architecture-ia-v2.md` n’est pas présent dans le dépôt. Les éléments
+  ci-dessous restent une synthèse, pas une validation des capacités ni des
+  estimations (modèles, coûts, performances).
 
 ### Séparation des chemins et des responsabilités
 

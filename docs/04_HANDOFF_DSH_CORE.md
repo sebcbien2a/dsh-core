@@ -5,7 +5,8 @@
 - dépôt : `A:\dsh-core`
 - roadmap : [docs/02_ROADMAP.md](./02_ROADMAP.md)
 - journal : [docs/03_JOURNAL.md](./03_JOURNAL.md)
-- dernier commit : `d56d839`
+- architecture cible : [docs/DSH_CORE_AI_ARCHITECTURE_V2.md](./DSH_CORE_AI_ARCHITECTURE_V2.md)
+- dernier commit : `a624267`
 - branche courante : `main`
 
 ## État du socle
@@ -48,8 +49,20 @@
 
 ## Prochaine étape
 
-Audit de cohérence d’architecture-ia-v2.md avec le dépôt réel, puis définition
-des frontières Hermes, DSH, LangGraph et des trois machines.
+P1-8E : liste blanche Docker de Hermes pour DSH-Core (montages `:ro`
+individuels, sorties dans un volume séparé), après validation humaine.
+
+Architecture cible (validée, non installée) : trois machines — PC principal
+(vérité comptable, Vision local, LangGraph, Neo4j, Qdrant, Mem0, Hermes),
+Oracle (24/7, staging), mini PC salon (vocal, médias). DeepSeek Harness sera
+une Skill Hermes de développement isolée (coding, expertise, escalade).
+
+État réel de Hermes : 0.22.4 installé, approbations `manual`, cron /
+single-query / unattended en `deny`, aucun MCP ni plugin, `terminal.backend`
+`local`, aucun accès DSH-Core accordé.
+
+Ne pas relancer les audits déjà terminés (P1-8A à P1-8D, writer). Ne pas
+confondre architecture validée et composants installés.
 
 Contraintes :
 

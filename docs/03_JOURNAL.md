@@ -74,3 +74,13 @@ Niveau d’effort recommandé : Équilibré.
   correspondant n’a été créé.
 - Aucune installation DSH effectuée ; aucune décision sur les modèles n’est
   considérée comme vérifiée.
+
+## 2026-10-22 — Architecture IA v2 validée
+
+- Passage à une architecture trois machines (PC principal, Oracle VM, mini PC salon) ; document officiel : `docs/DSH_CORE_AI_ARCHITECTURE_V2.md`.
+- DeepSeek Harness prévu comme Skill Hermes de développement (non installé).
+- Pipeline Vision local actuel maintenu.
+- Vérités séparées : comptable (PC principal), médias (mini PC), services 24/7 (Oracle) ; Skills et index synchronisés de façon contrôlée, Git canonique.
+- Hermes 0.22.4 installé et sécurisé côté approbations ; accès DSH-Core toujours non accordé.
+- Aucune fonctionnalité du document n'est déclarée installée sans preuve.
+- Prochaine étape : P1-8E, liste blanche Docker.
