@@ -8,7 +8,7 @@
 19/10 : architecture Hermes local/Oracle validée
 19/10 : synchronisation logique retenue
 
-## 2026-10-21 — Writer local atomique des tableaux maîtres
+## 2026-10-15 — Writer local atomique des tableaux maîtres
 
 ### Commit
 
@@ -67,7 +67,7 @@ Niveau d’effort recommandé : Équilibré.
 ## 2026-10-15 — Proposition d’architecture IA V2
 
 - Réception de la proposition : ajout d’une architecture à trois machines,
-  de DeepSeek Harness comme future Skill Hermes et du vocal sur le PC principal.
+  de DeepSeek Harness comme future Skill Hermes et du mini PC salon dédié au vocal, aux médias et au pilotage.
 - Séparation des chemins DSH-Core, Hermes, DSH_HOME et workspaces documentée ;
   conflit potentiel de chemins identifié.
 - `architecture-ia-v2.md` est absent du dépôt ; aucun fichier ni dossier

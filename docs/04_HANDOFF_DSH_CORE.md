@@ -5,7 +5,7 @@
 - dépôt : `A:\dsh-core`
 - roadmap : [docs/02_ROADMAP.md](./02_ROADMAP.md)
 - journal : [docs/03_JOURNAL.md](./03_JOURNAL.md)
-- dernier commit : `a915d15`
+- dernier commit : `d56d839`
 - branche courante : `main`
 
 ## État du socle
