@@ -63,3 +63,14 @@ préparer l’adaptateur de stockage sans connecter immédiatement OneDrive ou
 Oracle.
 
 Niveau d’effort recommandé : Équilibré.
+
+## 2026-10-15 — Proposition d’architecture IA V2
+
+- Réception de la proposition : ajout d’une architecture à trois machines,
+  de DeepSeek Harness comme future Skill Hermes et du vocal sur le PC principal.
+- Séparation des chemins DSH-Core, Hermes, DSH_HOME et workspaces documentée ;
+  conflit potentiel de chemins identifié.
+- `architecture-ia-v2.md` est absent du dépôt ; aucun fichier ni dossier
+  correspondant n’a été créé.
+- Aucune installation DSH effectuée ; aucune décision sur les modèles n’est
+  considérée comme vérifiée.

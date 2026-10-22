@@ -5,7 +5,7 @@
 - dépôt : `A:\dsh-core`
 - roadmap : [docs/02_ROADMAP.md](./02_ROADMAP.md)
 - journal : [docs/03_JOURNAL.md](./03_JOURNAL.md)
-- dernier commit : `716d23d`
+- dernier commit : `a915d15`
 - branche courante : `main`
 
 ## État du socle
@@ -37,6 +37,8 @@
 - Aucune interface humaine.
 - Aucune garantie ACID multi-fichiers.
 - Hermes et Mem0 non encore connectés.
+- `architecture-ia-v2.md` est une source externe reçue, absente du dépôt ; la
+  roadmap n’en conserve qu’une synthèse candidate, à auditer avant développement.
 
 ## Oracle
 
@@ -46,8 +48,8 @@
 
 ## Prochaine étape
 
-P1-8 — Installer et connecter Hermes Agent Desktop avec une mémoire Mem0 locale,
-initialement en lecture seule sur le dépôt.
+Audit de cohérence d’architecture-ia-v2.md avec le dépôt réel, puis définition
+des frontières Hermes, DSH, LangGraph et des trois machines.
 
 Contraintes :
 

@@ -10783,3 +10783,64 @@ des valeurs par défaut ou des hypothèses.
   Mem0, tout en conservant Git et les fichiers Markdown comme vérité
   architecturale et Mem0 comme mémoire contextuelle uniquement. Commencer en
   lecture seule sur le dépôt ; aucun commit ni changement de contrat autonome.
+
+## Proposition d’architecture IA V2 — audit préalable requis
+
+- **Date de proposition :** 15 octobre 2026
+- **Statut :** architecture candidate à auditer avant développement
+- `architecture-ia-v2.md` n’est pas présent dans le dépôt ; aucun document n’a
+  été créé. Les éléments ci-dessous consignent la proposition reçue, pas une
+  validation de ses capacités ni de ses estimations.
+
+### Séparation des chemins et des responsabilités
+
+- Dépôt canonique DSH-Core : `A:\dsh-core`.
+- Répertoire interne DeepSeek Harness : `%USERPROFILE%\.dsh` ou autre
+  `DSH_HOME` dédié, à confirmer après vérification. Ne jamais utiliser le
+  dépôt comme `DSH_HOME`, ni y stocker credentials ou sessions DSH.
+- Workspaces de développement DSH : `A:\dsh-workspaces`
+  (**PROPOSÉ, NON CRÉÉ**).
+- Sorties temporaires Hermes : `A:\dsh-hermes-output`
+  (**PROPOSÉ, NON CRÉÉ**).
+- Répertoire interne Hermes : `%LOCALAPPDATA%\hermes`.
+- DSH-Core ne pourra être exposé à Hermes que comme workspace contrôlé, après
+  définition et validation de ses permissions. Les futurs développements
+  utiliseront un worktree ou workspace isolé ; aucune écriture autonome dans
+  `main`, aucun accès direct aux données comptables réelles.
+- Rôles cibles : Hermes comme interface/superviseur ; DeepSeek Harness comme
+  future Skill Hermes ; LangGraph comme orchestrateur métier interne. Git
+  reste la source canonique des `SKILL.md`.
+- PC principal : vérité comptable, pipeline Vision local, LangGraph, Neo4j,
+  Qdrant, Mem0, SkillOpt, Hermes, futur DSH et commande vocale.
+- Oracle : disponibilité 24/7, staging, recherche, traitements massifs et
+  répliques contrôlées.
+- Mini PC : médias, pilotage vocal, Qdrant/Memory médias, mpv et scripts
+  spécialisés. Les synchronisations sont sélectives et directionnelles ;
+  elles ne constituent pas une copie générale de toutes les mémoires.
+
+### Commande vocale cible
+
+- Entrée vocale par faster-whisper ; sortie vocale par Piper ; activation
+  vocale de Hermes et commandes limitées à une liste blanche.
+- Une confirmation humaine est obligatoire avant toute suppression,
+  déplacement massif, paiement, publication, commit, push ou écriture
+  comptable.
+- Aucune écoute ni automatisation permanente avant définition et validation
+  de la politique de sécurité. La réutilisation future des mêmes Skills
+  vocales sur le mini PC reste une cible, pas une implémentation.
+
+### Statuts et vérifications préalables
+
+- **VALIDÉ :** writer local atomique (`716d23d`) ; 332 tests réussis ;
+  installation de Hermes ; sécurité Hermes minimale en mode `manual`, avec
+  `cron`, `single-query` et `unattended` en `deny`.
+- **CIBLE À CONSTRUIRE :** sous-agents LangGraph et spécialistes métier ;
+  DeepSeek Harness comme Skill Hermes ; synchronisation contrôlée des Skills
+  PC/Oracle ; troisième PC ; commande vocale ; profil Docker Hermes en lecture
+  seule.
+- **À VÉRIFIER avant tout développement :** disponibilité et identifiants
+  exacts des modèles ; coûts et performances annoncés ; modèles gratuits
+  OpenRouter ; seuil de confiance `0,85` ; chemin effectif `DSH_HOME` après
+  installation ; intérêt de DSH sur Oracle ; dimensionnement du mini PC ;
+  modèle Vision cloud ; modèle vocal local définitif.
+- Aucune estimation de coût, performance ou qualité n’est une garantie.
