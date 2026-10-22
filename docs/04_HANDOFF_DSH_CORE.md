@@ -6,7 +6,7 @@
 - roadmap : [docs/02_ROADMAP.md](./02_ROADMAP.md)
 - journal : [docs/03_JOURNAL.md](./03_JOURNAL.md)
 - architecture cible : [docs/DSH_CORE_AI_ARCHITECTURE_V2.md](./DSH_CORE_AI_ARCHITECTURE_V2.md)
-- dernier commit : `a624267`
+- dernier commit : `81a3a89`
 - branche courante : `main`
 
 ## État du socle

@@ -5,7 +5,7 @@ Statut : ARCHITECTURE CIBLE VALIDÉE
 Source de vérité actuelle : PC principal et Git
 Dernier socle validé : commit 716d23d
 Documentation consolidée : commits 2dad618 et a915d15
-Date du document : 2026-10-22 (horloge système)
+Date du document : 2026-10-15 (date réelle de consolidation)
 
 > Ce document décrit une **cible**. Seuls le writer local atomique (332 tests),
 > l'installation de Hermes 0.22.4 et ses approbations manuelles sont vérifiés.

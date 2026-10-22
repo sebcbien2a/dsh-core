@@ -75,7 +75,7 @@ Niveau d’effort recommandé : Équilibré.
 - Aucune installation DSH effectuée ; aucune décision sur les modèles n’est
   considérée comme vérifiée.
 
-## 2026-10-22 — Architecture IA v2 validée
+## 2026-10-15 — Architecture IA v2 validée
 
 - Passage à une architecture trois machines (PC principal, Oracle VM, mini PC salon) ; document officiel : `docs/DSH_CORE_AI_ARCHITECTURE_V2.md`.
 - DeepSeek Harness prévu comme Skill Hermes de développement (non installé).
