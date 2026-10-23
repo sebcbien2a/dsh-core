@@ -47,3 +47,12 @@ Ces variantes sont décrites pour une étape ultérieure et ne sont pas exécut�
 - Ne modifier aucun pipeline dans cette étape.
 - Ne jamais appliquer de correction permanente aux documents sources.
 - Réaliser le benchmark local uniquement lors de l’étape suivante.
+
+## Prérequis de la variante B
+
+- `pypdfium2` est disponible dans `.venv-v3` ; PyMuPDF est également disponible.
+- Décision de rendu : `READY_PYPDFIUM2`, sans installation requise.
+- Le rendu PDF et les rotations doivent rester en mémoire.
+- Les quatre rotations doivent utiliser la même résolution.
+- LightOnOCR n’est ni installé ni lancé à cette étape.
+- Le moteur OCR sera choisi après validation du rendu PDF.

@@ -14,3 +14,7 @@ models/
 
 # Fichiers sensibles (Clés API OpenRouter, Mem0, etc.)
 .env
+
+# Résultats locaux du benchmark OCR
+benchmarks/results/*.json
+!benchmarks/results/.gitkeep
