@@ -181,6 +181,33 @@ def test_hybrid_validation_accepts_complete_configuration():
     assert validate_model_config("hybrid", environ) == []
 
 
+def test_cloud_validation_accepts_complete_configuration_without_unsupported_roles():
+    environ = config_for(CLOUD_VARIABLES)
+    environ["OPENROUTER_API_KEY"] = "configured"
+    assert validate_model_config("cloud", environ) == []
+
+
+def test_cloud_validation_reports_missing_vision_model():
+    environ = config_for(CLOUD_VARIABLES)
+    environ.pop("CLOUD_VISION_MODEL")
+    environ["OPENROUTER_API_KEY"] = "configured"
+    issues = validate_model_config("cloud", environ)
+    assert [issue.variable for issue in issues] == ["CLOUD_VISION_MODEL"]
+
+
+def test_cloud_validation_does_not_report_unsupported_roles():
+    environ = config_for(CLOUD_VARIABLES)
+    environ["OPENROUTER_API_KEY"] = "configured"
+    issues = validate_model_config("cloud", environ)
+    unsupported = {
+        ModelRole.FAST,
+        ModelRole.BASE,
+        ModelRole.EXTRACTION,
+        ModelRole.EMBEDDING,
+    }
+    assert not any(issue.role in unsupported for issue in issues)
+
+
 @pytest.mark.parametrize(
     "environ",
     [{}, {"AI_MODE": ""}, {"AI_MODE": "invalid"}],

@@ -177,18 +177,8 @@ def validate_model_config(
     issues = []
     role_variables = _ROLE_VARIABLES[mode_value]
     checked_variables = set()
-    for role_value in ModelRole:
-        variable = role_variables.get(role_value)
-        if variable is None:
-            issues.append(
-                ConfigIssue(
-                    variable="",
-                    role=role_value,
-                    mode=mode_value,
-                    message=f"Role {role_value.value!r} is unsupported in this mode",
-                )
-            )
-        elif variable not in checked_variables and (
+    for role_value, variable in role_variables.items():
+        if variable not in checked_variables and (
             variable not in env or not env[variable].strip()
         ):
             issues.append(
