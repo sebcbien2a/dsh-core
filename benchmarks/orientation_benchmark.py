@@ -7,6 +7,7 @@ import hashlib
 import importlib
 import json
 import re
+from contextlib import ExitStack
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -102,18 +103,23 @@ def generate_rotation_candidates(image: Image.Image) -> tuple[OrientationCandida
     )
 
 
-def render_pdf_first_page(path: str | Path) -> Image.Image:
+def render_pdf_first_page(path: str | Path, dpi: int = 170) -> Image.Image:
+    if type(dpi) is not int or dpi <= 0:
+        raise ValueError("dpi must be a positive integer")
     try:
         pdfium = importlib.import_module("pypdfium2")
     except ImportError as exc:
         raise RuntimeError("PDF_RENDERER_UNAVAILABLE") from exc
-    document = pdfium.PdfDocument(str(path))
-    page = document[0]
-    bitmap = page.render()
-    image = bitmap.to_pil()
-    page.close()
-    document.close()
-    return image
+    with ExitStack() as stack:
+        document = pdfium.PdfDocument(str(path))
+        stack.callback(document.close)
+        if len(document) == 0:
+            raise ValueError("PDF_HAS_NO_PAGES")
+        page = document[0]
+        stack.callback(page.close)
+        bitmap = page.render(scale=dpi / 72)
+        stack.callback(bitmap.close)
+        return bitmap.to_pil().copy()
 
 
 def score_metadata_baseline(entry: dict[str, Any]) -> OrientationPrediction:
