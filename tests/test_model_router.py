@@ -97,6 +97,34 @@ def test_string_role_and_mode_are_accepted():
     ) == "vision-model"
 
 
+@pytest.mark.parametrize("retired_model", ["qwen2.5vl:7b", "qwen3.5:2b"])
+def test_retired_vision_models_are_rejected(retired_model):
+    with pytest.raises(ValueError, match="VISION_MODEL_NOT_CONFIGURED"):
+        resolve_model(
+            "vision",
+            "local",
+            {"LOCAL_VISION_MODEL": retired_model},
+        )
+
+
+@pytest.mark.parametrize("role", list(ModelRole))
+def test_retired_qwen35_is_rejected_for_every_local_role(role):
+    variable = LOCAL_VARIABLES[role]
+    error_code = (
+        "VISION_MODEL_NOT_CONFIGURED"
+        if role is ModelRole.VISION
+        else "MODEL_RETIRED"
+    )
+    with pytest.raises(ValueError, match=error_code):
+        resolve_model(role, "local", {variable: "qwen3.5:2b"})
+
+
+@pytest.mark.parametrize("environment", [{}, {"LOCAL_VISION_MODEL": ""}])
+def test_missing_or_empty_vision_model_has_explicit_error(environment):
+    with pytest.raises(ValueError, match="VISION_MODEL_NOT_CONFIGURED"):
+        resolve_model("vision", "local", environment)
+
+
 @pytest.mark.parametrize("role", ["unknown", None])
 def test_unknown_role_is_rejected(role):
     with pytest.raises(ValueError, match="Unknown model role"):
@@ -113,6 +141,30 @@ def test_missing_or_empty_model_variable_is_rejected(value):
     environ = {} if value is None else {"LOCAL_FAST_MODEL": value}
     with pytest.raises(ValueError, match="LOCAL_FAST_MODEL"):
         resolve_model("fast", "local", environ)
+
+
+def test_empty_fast_model_fails_explicitly():
+    with pytest.raises(ValueError, match="LOCAL_FAST_MODEL"):
+        resolve_model("fast", "local", {"LOCAL_FAST_MODEL": ""})
+
+
+def test_image_agent_route_uses_central_vision_model(monkeypatch):
+    from router import analyze_prompt_complexity
+
+    monkeypatch.setenv("LOCAL_VISION_MODEL", "synthetic-vision-model")
+
+    route = analyze_prompt_complexity("analyse cette image", image_provided=True)
+
+    assert route["model"] == "synthetic-vision-model"
+
+
+def test_image_agent_route_fails_without_vision_model(monkeypatch):
+    from router import analyze_prompt_complexity
+
+    monkeypatch.delenv("LOCAL_VISION_MODEL", raising=False)
+
+    with pytest.raises(ValueError, match="VISION_MODEL_NOT_CONFIGURED"):
+        analyze_prompt_complexity("analyse cette image", image_provided=True)
 
 
 def test_providers_follow_role_mode_table():

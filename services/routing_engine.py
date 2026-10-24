@@ -1,15 +1,17 @@
 # services/routing_engine.py
-import os
 import pandas as pd
 import pymupdf
 import ollama
 from pathlib import Path
+from model_router import ExecutionMode, ModelRole, resolve_model, validate_vision_model
 from schemas.profile_schema import DocumentProfile
 from schemas.document_result import DocumentResult
 
 class RoutingEngine:
-    def __init__(self, vision_model: str = None):
-        self.vision_model = vision_model or os.getenv("VISION_FAST", "qwen3.5:2b")
+    def __init__(self, vision_model: str | None = None):
+        self.vision_model = (
+            validate_vision_model(vision_model) if vision_model is not None else None
+        )
 
     def extract(self, file_path: str | Path, profile: DocumentProfile) -> DocumentResult:
         """Route le document vers le bon outil et retourne l'enveloppe DocumentResult."""
@@ -30,15 +32,18 @@ class RoutingEngine:
             notes.append("spreadsheet_to_markdown")
             raw_text = self._extract_spreadsheet(path)
         elif ptype in ["scanned_pdf", "image"]:
-            tool_used = f"Qwen Vision ({self.vision_model})"
+            vision_model = self._require_vision_model()
+            tool_used = f"Local Vision ({vision_model})"
             notes.append("vision_png_standardized")
             notes.append("autorotate_applied") # Traçabilité de l'action géométrique
-            notes.append(f"ocr_{self.vision_model.replace(':', '_')}")
-            raw_text = self._extract_vision(path)
+            notes.append(f"ocr_{vision_model.replace(':', '_')}")
+            raw_text = self._extract_vision(path, vision_model)
         elif ptype == "complex_pdf":
             tool_used = "Docling (Fallback PyMuPDF)"
             notes.append("fallback_pymupdf_used")
             raw_text = self._extract_docling(path)
+        elif ptype in ("handwritten", "handwriting", "manuscrit"):
+            raise ValueError("HANDWRITING_PATH_MISSING")
         else:
             raise ValueError(f"Profil physique inconnu : {ptype}")
 
@@ -73,8 +78,13 @@ class RoutingEngine:
             df = pd.read_excel(path)
         return df.to_markdown()
 
-    def _extract_vision(self, path: Path) -> str:
-        print(f"-> Outil engagé : Qwen Vision ({self.vision_model}) avec AutoRotate")
+    def _require_vision_model(self) -> str:
+        if self.vision_model is not None:
+            return validate_vision_model(self.vision_model)
+        return resolve_model(ModelRole.VISION, ExecutionMode.LOCAL)
+
+    def _extract_vision(self, path: Path, vision_model: str) -> str:
+        print(f"-> Outil engagé : Local Vision ({vision_model}) avec AutoRotate")
         doc = pymupdf.open(path)
         
         best_text = ""
@@ -101,7 +111,7 @@ class RoutingEngine:
             
             try:
                 reponse = ollama.chat(
-                    model=self.vision_model,
+                    model=vision_model,
                     messages=[{"role": "user", "content": prompt, "images": [img_bytes]}],
                     options={"temperature": 0.0}
                 )

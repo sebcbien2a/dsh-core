@@ -88,3 +88,9 @@ Construire un pipeline local de traitement documentaire qui oriente les pages, e
 - 42 tests ciblés ont réussi. Aucun LLM, Ollama, OCR ni benchmark réel n'a été lancé.
 - Prochain blocage pour exécuter une comparaison réelle : préparer ultérieurement un dataset versionné de textes OCR figés avec vérité terrain vérifiée pour fournisseur, date, HT, TVA, TTC et SIRET. Ne pas créer ce dataset dans le lot actuel.
 - Le runner reste un squelette de benchmark : aucun résultat comparatif réel n'est disponible.
+
+## 14. Sélection du modèle Vision
+- `qwen2.5vl:7b` est retiré ; `qwen3.5:2b` est retiré de Vision et de tous les rôles locaux actifs, y compris FAST et BASE. Ces identifiants restent uniquement dans les tests explicites de rejet.
+- Aucun remplaçant local n'est choisi. `LOCAL_FAST_MODEL` et `LOCAL_VISION_MODEL` sont volontairement vides dans `.env.example` ; aucun fallback implicite n'est autorisé. Le nouveau choix local est reporté à un benchmark séparé.
+- `A:\dsh-core` reste la cible canonique ; la copie `A:\dsh-hermes-context` est inchangée.
+- `RoutingEngine` résout la configuration via `model_router` lors du routage Vision ; les PDF natifs n'exigent pas de configuration Vision. Le profil manuscrit reste `HANDWRITING_PATH_MISSING`.

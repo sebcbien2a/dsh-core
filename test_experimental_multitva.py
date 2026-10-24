@@ -9,10 +9,11 @@ from typing import Optional
 
 from services.document_profiler import DocumentProfiler
 from services.routing_engine import RoutingEngine
+from model_router import ExecutionMode, ModelRole, resolve_model
 
 load_dotenv()
 
-VISION_MODEL = os.getenv("VISION_FAST", "qwen3.5:2b")
+VISION_MODEL = resolve_model(ModelRole.VISION, ExecutionMode.LOCAL)
 NUEXTRACT_MODEL = os.getenv("NUEXTRACT_MODEL", "numind/nuextract3:q4_k_m") 
 
 # ==========================================

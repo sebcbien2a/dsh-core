@@ -1,14 +1,18 @@
 # services/business_extraction_manager.py
-import os
 import json
 import ollama
 from pydantic import ValidationError
+from model_router import ExecutionMode, ModelRole, resolve_model, validate_model_identifier
 from schemas.document_result import DocumentResult
 from schemas.invoice_schema import InvoiceData
 
 class BusinessExtractionManager:
     def __init__(self, base_model: str = None):
-        self.base_model = base_model or os.getenv("BASE_MODEL", "qwen3.5:2b")
+        self.base_model = (
+            validate_model_identifier(base_model)
+            if base_model is not None
+            else resolve_model(ModelRole.BASE, ExecutionMode.LOCAL)
+        )
 
     def extract_to_json(self, document: DocumentResult) -> dict:
         print(f"\n[BusinessExtractionManager] Analyse métier via {self.base_model}...")

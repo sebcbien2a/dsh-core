@@ -10,10 +10,11 @@ from services.routing_engine import RoutingEngine
 from services.invoice_reconciliation_engine import InvoiceReconciliationEngine
 from services.tax_classification_engine import TaxClassificationEngine
 from services.invoice_skill_applier import InvoiceSkillApplier
+from model_router import ExecutionMode, ModelRole, resolve_model
 
 load_dotenv()
 
-VISION_MODEL = os.getenv("VISION_FAST", "qwen3.5:2b")
+VISION_MODEL = resolve_model(ModelRole.VISION, ExecutionMode.LOCAL)
 NUEXTRACT_MODEL = os.getenv("NUEXTRACT_MODEL", "numind/nuextract3:q4_k_m") 
 
 profiler = DocumentProfiler()

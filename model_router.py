@@ -78,6 +78,26 @@ _CLOUD_VARIABLES = frozenset(
     for variable in variables.values()
     if variable.startswith("CLOUD_")
 )
+_RETIRED_MODELS = frozenset({"qwen2.5vl:7b", "qwen3.5:2b"})
+
+
+def validate_model_identifier(model: str) -> str:
+    """Reject retired model identifiers without loading a model."""
+    if not model or not model.strip():
+        raise ValueError("MODEL_NOT_CONFIGURED")
+    if model.strip().casefold() in _RETIRED_MODELS:
+        raise ValueError(f"MODEL_RETIRED: {model.strip()}")
+    return model.strip()
+
+
+def validate_vision_model(model: str) -> str:
+    """Reject missing or retired Vision selections without loading a model."""
+    try:
+        return validate_model_identifier(model)
+    except ValueError as exc:
+        if str(exc).startswith("MODEL_RETIRED") or str(exc) == "MODEL_NOT_CONFIGURED":
+            raise ValueError("VISION_MODEL_NOT_CONFIGURED") from None
+        raise
 
 
 def _parse_role(role: RoleInput) -> ModelRole:
@@ -128,11 +148,15 @@ def resolve_model(
     variable = _variable_for(role_value, mode_value)
     model = env.get(variable)
     if model is None or not model.strip():
+        if role_value is ModelRole.VISION:
+            raise ValueError("VISION_MODEL_NOT_CONFIGURED")
         raise ValueError(
             f"Missing or empty {variable} for role {role_value.value!r} "
             f"in mode {mode_value.value!r}"
         )
-    return model.strip()
+    if role_value is ModelRole.VISION:
+        return validate_vision_model(model)
+    return validate_model_identifier(model)
 
 
 def resolve_provider(role: RoleInput, mode: Optional[ModeInput] = None) -> Provider:

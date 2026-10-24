@@ -6,11 +6,12 @@ from pathlib import Path
 from services.document_profiler import DocumentProfiler
 from services.routing_engine import RoutingEngine
 from services.business_extraction_manager import BusinessExtractionManager
+from model_router import ExecutionMode, ModelRole, resolve_model
 
 load_dotenv()
 # On utilise le modèle rapide pour tout le monde
-VISION_MODEL = os.getenv("VISION_FAST", "qwen3.5:2b")
-BASE_MODEL = os.getenv("BASE_MODEL", "qwen3.5:2b")
+VISION_MODEL = resolve_model(ModelRole.VISION, ExecutionMode.LOCAL)
+BASE_MODEL = resolve_model(ModelRole.BASE, ExecutionMode.LOCAL)
 
 profiler = DocumentProfiler()
 router = RoutingEngine(vision_model=VISION_MODEL)

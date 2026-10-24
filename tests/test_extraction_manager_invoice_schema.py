@@ -6,10 +6,46 @@ import pytest
 from pydantic import ValidationError
 
 from schemas.invoice_schema import InvoiceSchema
+from services.business_extraction_manager import BusinessExtractionManager
 from services.extraction_manager import (
     ExtractionManager,
     InvoiceExtractionValidationError,
 )
+
+@pytest.mark.parametrize(
+    "manager_type",
+    [BusinessExtractionManager, ExtractionManager],
+)
+def test_manager_uses_central_local_base_model_without_loading_it(
+    manager_type: type,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LOCAL_BASE_MODEL", "synthetic-base-model")
+
+    assert manager_type().base_model == "synthetic-base-model"
+
+
+@pytest.mark.parametrize(
+    "manager_type",
+    [BusinessExtractionManager, ExtractionManager],
+)
+def test_manager_rejects_missing_local_base_model(
+    manager_type: type,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("LOCAL_BASE_MODEL", raising=False)
+
+    with pytest.raises(ValueError, match="LOCAL_BASE_MODEL"):
+        manager_type()
+
+
+@pytest.mark.parametrize(
+    "manager_type",
+    [BusinessExtractionManager, ExtractionManager],
+)
+def test_manager_rejects_retired_injected_model(manager_type: type) -> None:
+    with pytest.raises(ValueError, match="MODEL_RETIRED"):
+        manager_type(base_model="qwen3.5:2b")
 
 
 @pytest.fixture
@@ -38,7 +74,7 @@ def extraction_payload() -> dict[str, object]:
 def test_validate_invoice_returns_canonical_model_and_preserves_payload(
     extraction_payload: dict[str, object],
 ) -> None:
-    manager = ExtractionManager()
+    manager = ExtractionManager(base_model="synthetic-base-model")
 
     invoice = manager.validate_invoice(extraction_payload)
 
@@ -60,7 +96,7 @@ def test_validate_invoice_returns_canonical_model_and_preserves_payload(
 def test_historical_validation_interface_returns_json_serializable_dict(
     extraction_payload: dict[str, object],
 ) -> None:
-    manager = ExtractionManager()
+    manager = ExtractionManager(base_model="synthetic-base-model")
 
     result = manager._validate_data(extraction_payload)
 
@@ -84,7 +120,7 @@ def test_invalid_payload_raises_domain_error_with_validation_cause(
 ) -> None:
     payload = dict(extraction_payload)
     payload.update(invalid_update)
-    manager = ExtractionManager()
+    manager = ExtractionManager(base_model="synthetic-base-model")
 
     with pytest.raises(InvoiceExtractionValidationError) as error:
         manager.validate_invoice(payload)
@@ -98,7 +134,7 @@ def test_historical_interface_keeps_validation_failure_shape(
     payload = dict(extraction_payload)
     payload["total_ttc"] = 121.0
 
-    result = ExtractionManager()._validate_data(payload)
+    result = ExtractionManager(base_model="synthetic-base-model")._validate_data(payload)
 
     assert result["status"] == "validation_failed"
     assert result["extracted_data"] is payload
@@ -115,7 +151,7 @@ def test_validation_does_not_call_external_services_or_write_files(
 
     monkeypatch.setattr("services.extraction_manager.ollama.chat", fail_if_called)
 
-    result = ExtractionManager()._validate_data(extraction_payload)
+    result = ExtractionManager(base_model="synthetic-base-model")._validate_data(extraction_payload)
 
     assert result["status"] == "success"
     assert list(tmp_path.iterdir()) == []

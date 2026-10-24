@@ -1,10 +1,10 @@
 # services/extraction_manager.py
-import os
 import json
 from typing import Any
 
 import ollama
 from pydantic import ValidationError
+from model_router import ExecutionMode, ModelRole, resolve_model, validate_model_identifier
 from schemas.invoice_schema import InvoiceSchema
 from schemas.document_result import DocumentResult
 
@@ -15,8 +15,11 @@ class InvoiceExtractionValidationError(Exception):
 
 class ExtractionManager:
     def __init__(self, base_model: str = None):
-        # On utilise le modèle de base défini dans ta roadmap
-        self.base_model = base_model or os.getenv("BASE_MODEL", "qwen3.5:2b")
+        self.base_model = (
+            validate_model_identifier(base_model)
+            if base_model is not None
+            else resolve_model(ModelRole.BASE, ExecutionMode.LOCAL)
+        )
 
     def extract_to_json(self, document: DocumentResult) -> dict:
         print(f"\n[ExtractionManager] Structuration du texte brut via {self.base_model}...")

@@ -1,12 +1,13 @@
-# router.py - Routeur d'agents V2 (Cascade locale, Qwen2.5-VL & Superviseur Claude)
+# router.py - Routeur d'agents V2 (Cascade locale et superviseur cloud)
 import re
 from typing import Any, Dict
+from model_router import ExecutionMode, ModelRole, resolve_model
 
 # ==========================================
 # 1. REGISTRE DES MODÈLES (FACILE À MODIFIER)
 # ==========================================
 MODELS_REGISTRY = {
-    "vision_general": "qwen2.5vl:7b",       # Capteur visuel / OCR rapide
+    "vision_general": "",                  # Résolu par model_router ; aucun fallback
     "executor_fast": "qwen3.5:9b",          # Tâches courantes, scripts rapides, MCP
     "reasoning_expert": "qwen3.6:27b",      # Raisonnement lourd, refactoring complexe
     "supervisor_cloud": "anthropic/claude-3-5-sonnet" # Audit, architecture, validation de SKILL
@@ -41,7 +42,7 @@ def analyze_prompt_complexity(prompt: str, image_provided: bool = False) -> Dict
     if image_provided or any(re.search(p, prompt_lower) for p in vision_patterns):
         return {
             "agent": "vision-sensor-local",
-            "model": MODELS_REGISTRY["vision_general"],
+            "model": resolve_model(ModelRole.VISION, ExecutionMode.LOCAL),
             "role": "Capteur Visuel (Multimodal)",
             "tier": "vision",
             "reasoning": "Présence d'une image ou requête d'observation visuelle générale."
