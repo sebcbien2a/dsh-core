@@ -1,0 +1,50 @@
+{
+  "dataset_version": "synthetic-example-v1",
+  "description": "Exemple de contrat avec deux cas entièrement synthétiques ; aucun OCR réel.",
+  "fields": [
+    "fournisseur",
+    "date",
+    "ht",
+    "tva",
+    "ttc",
+    "siret"
+  ],
+  "cases": [
+    {
+      "id": "synthetic-invoice-a",
+      "ocr_text": "FACTURE FICTIVE ALPHA\nDate: 14/03/2026\nTotal HT: 10,00 EUR\nTVA: 2,00 EUR\nTotal TTC: 12,00 EUR\nSIRET: 11111111111111",
+      "ground_truth": {
+        "fournisseur": "Fournisseur Fictif Alpha",
+        "date": "14/03/2026",
+        "ht": "10,00",
+        "tva": "2,00",
+        "ttc": "12,00",
+        "siret": "11111111111111"
+      },
+      "metadata": {
+        "source_type": "synthetic_text",
+        "language": "fr",
+        "reviewed_by_human": false,
+        "notes": "Valeurs inventées pour tester le format uniquement."
+      }
+    },
+    {
+      "id": "synthetic-invoice-b",
+      "ocr_text": "DOCUMENT DE TEST FICTIF BETA\nDate: 2026-04-05\nMontant hors taxe: 25.50 EUR\nTaxe: inconnue\nMontant total: 25.50 EUR",
+      "ground_truth": {
+        "fournisseur": "Entreprise Fictive Beta",
+        "date": "2026-04-05",
+        "ht": "25.50",
+        "tva": null,
+        "ttc": "25.50",
+        "siret": null
+      },
+      "metadata": {
+        "source_type": "synthetic_text",
+        "language": "fr",
+        "reviewed_by_human": false,
+        "notes": "TVA et SIRET volontairement inconnus dans cet exemple."
+      }
+    }
+  ]
+}
