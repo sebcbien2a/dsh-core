@@ -43,13 +43,19 @@ la comparaison exacte effectuée.
 | Fournisseur | Identifiant exact | Rôle | Variable associée | Statut |
 |---|---|---|---|---|
 | OpenRouter (sélection Hermes) | `anthropic/claude-opus-4.6` | général, raisonnement | `OPENROUTER_API_KEY` | modèle sélectionné ; fournisseur non configuré selon `hermes doctor` |
-| NVIDIA via OpenRouter | `nvidia/nemotron-3-ultra-550b-a55b:free` | préparation, décomposition, RAG courant, review | `OPENROUTER_API_KEY` | cible sélectionnée, intégration non réalisée |
-| DeepSeek via OpenRouter | `deepseek/deepseek-v4.1-flash` | expertise, vision cloud, exécution, coding | `OPENROUTER_API_KEY` | cible sélectionnée, intégration non réalisée |
+| NVIDIA via OpenRouter | `nvidia/nemotron-3-ultra-550b-a55b:free` | préparation, orchestration RAG, review | `CLOUD_PREPARATION_MODEL`, `CLOUD_REVIEW_MODEL` | cible sélectionnée, intégration non validée |
+| Xiaomi via OpenRouter | `xiaomi/mimo-v2.6-pro` | expert principal, vision, coding, missions agentiques longues ; entrées texte, image, audio et vidéo ; sortie texte | `CLOUD_EXPERT_MODEL`, `CLOUD_VISION_MODEL`, `CLOUD_CODING_MODEL` | **CIBLE SÉLECTIONNÉE, INTÉGRATION NON VALIDÉE** |
+| DeepSeek via OpenRouter | `deepseek/deepseek-v4.1-flash` | premier fallback agentique | `CLOUD_AGENTIC_FALLBACK_MODEL` | fallback cible, intégration non validée |
+| Google via OpenRouter | `google/gemini-3.8-flash` | second fallback multimodal, PDF et catalogues complexes, images multiples | `CLOUD_MULTIMODAL_FALLBACK_MODEL` | fallback cible, intégration non validée |
 
-Les identifiants externes et leurs tarifs restent à vérifier avant utilisation.
-Les variables de rôle locales et cloud sont définies dans `.env.example`.
+Cette sélection reste réversible et ne signifie pas que MiMo est toujours
+supérieur à DeepSeek. Réaliser un benchmark comparatif sur 5 à 10 missions
+réelles avant validation de l’intégration. Ne pas figer les tarifs : les
+conditions tarifaires doivent être revérifiées avant utilisation.
+Les variables locales, rôles cloud et fallbacks sont définis dans `.env.example`.
 Le mode prévu est `AI_MODE=hybrid`. Les identifiants de modèles ne doivent
 pas être codés en dur : le code devra les lire depuis les variables de rôle.
+Les calculs tarifaires et les écritures comptables restent hors LLM.
 Migration future de Nomic vers BGE-M3 : À BENCHMARKER avant toute adoption.
 
 ### Identifiants encore codés en dur, migration ultérieure vers model_router.py
