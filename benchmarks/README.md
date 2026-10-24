@@ -54,5 +54,12 @@ Ces variantes sont décrites pour une étape ultérieure et ne sont pas exécut�
 - Décision de rendu : `READY_PYPDFIUM2`, sans installation requise.
 - Le rendu PDF et les rotations doivent rester en mémoire.
 - Les quatre rotations doivent utiliser la même résolution.
-- LightOnOCR n’est ni installé ni lancé à cette étape.
+- Le benchmark LightOnOCR est documenté ci-dessous.
 - Le moteur OCR sera choisi après validation du rendu PDF.
+
+## Résultat du benchmark LightOnOCR
+
+- OCR validé : 40 inférences sans erreur ; VRAM max ≈ 2,32 Gio.
+- Benchmark réalisé sur 10 documents : Top-1 = 40 %, Top-3 = 90 %.
+- La sélection par score OCR est insuffisante : LightOnOCR est conservé pour
+  l’OCR, mais cette méthode n’est pas retenue pour l’orientation automatique.
