@@ -14,7 +14,7 @@ Construire un pipeline local de traitement documentaire qui oriente les pages, e
 - Les modèles cloud sont des secours explicites pour les cas complexes, jamais le chemin par défaut des tâches locales simples.
 
 ## 3. État exact des environnements
-- **DSH-Core :** dépôt applicatif et pipeline cible. Les documents consultés ne consignent ni environnement d'exécution, ni versions de runtime/dépendances ; ne pas les supposer.
+- **DSH-Core :** dépôt applicatif et pipeline cible. Utiliser explicitement `A:\dsh-core\.venv-v3\Scripts\python.exe` pour toute commande Python DSH-Core.
 - **DeepSeek Harness :** DeepSeek Harness est validé et conservé comme composant stratégique du projet. Les documents consultés ne précisent ni chemin, ni versions, ni périmètre/critères de validation ; ne pas installer ou revalider sans besoin précis.
 - **Paddle Orientation :** environnement isolé `A:\dsh-paddle-orientation` ; Python 3.11.9, PaddlePaddle GPU 3.0.0, PaddleOCR 3.0.3, PaddleX 3.0.3, CUDA 12.6, RTX 4070 Laptop. Hors dépôt DSH-Core.
 - **LightOnOCR Bench :** environnement isolé `A:\dsh-lightonocr-bench` ; Python 3.11.9, Torch 2.14.1+cu126, cache local du modèle d'environ 2,33 Go. Hors dépôt DSH-Core.
@@ -51,6 +51,7 @@ Construire un pipeline local de traitement documentaire qui oriente les pages, e
 - Gemini est un secours envisagé pour PDF/catalogues complexes, images multiples ou échec DeepSeek ; ne pas l'appeler par défaut.
 - Nemotron n'est pas adopté ; rôle et validation ne sont pas établis.
 - Ne jamais afficher ni recopier les valeurs du vrai `.env`.
+- Toute commande Python DSH-Core doit utiliser explicitement `A:\dsh-core\.venv-v3\Scripts\python.exe`.
 
 ## 9. Ce qui est définitivement abandonné
 - LightOnOCR comme classifieur d'orientation selon le score de quantité de texte mesuré à 20 % : rejeté pour intégration.
@@ -86,7 +87,9 @@ Construire un pipeline local de traitement documentaire qui oriente les pages, e
 - NuExtract3 est adapté vers les structures canoniques `supplier`, `reference` et `amount`. Le vrai `InvoiceSchema` confirme le chemin du SIRET `supplier.siret` ; cette validation est testée avec des données synthétiques.
 - Le runner calcule les métriques par champ et l'exactitude complète sur les six champs. Sa méthode `run` est testée avec deux extracteurs factices, sans client de modèle.
 - 42 tests ciblés ont réussi. Aucun LLM, Ollama, OCR ni benchmark réel n'a été lancé.
-- Prochain blocage pour exécuter une comparaison réelle : préparer ultérieurement un dataset versionné de textes OCR figés avec vérité terrain vérifiée pour fournisseur, date, HT, TVA, TTC et SIRET. Ne pas créer ce dataset dans le lot actuel.
+- Le dataset OCR réel local est maintenant gelé dans `benchmarks/data/ocr_baseline_texts.json`, strictement ignoré par Git : 10 cas non vides, 5 acquisitions `pymupdf_native_text` et 5 `glm_ocr_q8_0`. Les hashes source sont conformes et les sources inchangées ; aucune transcription n'a été affichée.
+- Les 60 champs de vérité terrain sont encore nuls ; aucun manuscrit n'est validé. GLM-OCR est choisi comme source OCR neutre des scans/images ; NuExtract3 reste l'extracteur structuré principal.
+- Avant tout benchmark ExtractionManager vs NuExtract3, faire valider humainement les 60 champs. Exclure les cas manuscrits tant qu'un protocole spécifique n'est pas validé.
 - Le runner reste un squelette de benchmark : aucun résultat comparatif réel n'est disponible.
 
 ## 14. Sélection du modèle Vision
@@ -94,3 +97,11 @@ Construire un pipeline local de traitement documentaire qui oriente les pages, e
 - Aucun remplaçant local n'est choisi. `LOCAL_FAST_MODEL` et `LOCAL_VISION_MODEL` sont volontairement vides dans `.env.example` ; aucun fallback implicite n'est autorisé. Le nouveau choix local est reporté à un benchmark séparé.
 - `A:\dsh-core` reste la cible canonique ; la copie `A:\dsh-hermes-context` est inchangée.
 - `RoutingEngine` résout la configuration via `model_router` lors du routage Vision ; les PDF natifs n'exigent pas de configuration Vision. Le profil manuscrit reste `HANDWRITING_PATH_MISSING`.
+
+## État du dataset OCR figé
+- Le dataset réel est local et non versionné : `benchmarks/data/ocr_baseline_texts.json`. La règle `.gitignore` exclut uniquement ce fichier, pas l'exemple synthétique.
+- Il contient 10 textes OCR non vides : 5 extractions natives PyMuPDF et 5 acquisitions GLM-OCR `q8_0` pour scans/images.
+- Les 60 champs de vérité terrain restent nuls et à valider humainement ; aucune transcription OCR n'a été affichée. Les hashes du manifeste concordent et les sources sont inchangées.
+- GLM-OCR est la source OCR neutre retenue pour scans/images ; NuExtract3 reste l'extracteur structuré principal. Le manuscrit n'est pas validé.
+- Prochaine étape : validation humaine des 60 champs. Ne pas exécuter le benchmark ExtractionManager vs NuExtract3 avant cette validation ; exclure les cas manuscrits jusqu'à validation d'un protocole spécifique.
+- Toute commande Python DSH-Core doit utiliser explicitement `A:\dsh-core\.venv-v3\Scripts\python.exe`. L'installation globale supplémentaire de PyMuPDF est connue ; aucun nettoyage urgent n'est nécessaire.

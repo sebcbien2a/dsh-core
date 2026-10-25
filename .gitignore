@@ -18,3 +18,5 @@ models/
 # Résultats locaux du benchmark OCR
 benchmarks/results/*.json
 !benchmarks/results/.gitkeep
+
+benchmarks/data/ocr_baseline_texts.json
