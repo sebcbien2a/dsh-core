@@ -127,4 +127,12 @@ Construire un pipeline local de traitement documentaire qui oriente les pages, e
 - Les identifiants SIRET et VAT sont créés seulement s'ils existent ; les valeurs brutes sont conservées, aucun SIREN ni pays n'est déduit, et les identifiants restent non primaires et non confirmés humainement.
 - L'adresse est conservée comme ligne brute, sans parsing inventé. Le pont n'accède pas à `SupplierRepository` et n'effectue aucun rapprochement automatique.
 - Les 17 tests ciblés du pont réussissent.
-- Prochaine étape : définir un repository canonique fondé sur `supplier_id`, sans modifier immédiatement l'ancien repository indexé par SIRET.
+- Repository canonique isolé créé dans `repositories/supplier_identity_repository.py`, sans intégration au pipeline métier.
+- Clé primaire `supplier_id` de type UUID ; stockage JSON local configurable.
+- L'index secondaire utilise uniquement les identifiants confirmés et non vides, avec la clé `country + identifier_type + normalized_value`.
+- Les collisions d'identifiants confirmés sont bloquées entre fournisseurs actifs ; un fournisseur désactivé est exclu de la résolution active.
+- La recherche par nom légal, nom imprimé ou alias est limitée aux suggestions ; aucune fusion automatique n'est effectuée.
+- Sauvegarde atomique par fichier temporaire et sauvegarde `.bak` ; aucun accès réseau.
+- Le repository n'a aucune dépendance envers l'ancien `SupplierRepository` indexé par SIRET.
+- Les 33 tests ciblés du repository réussissent.
+- Prochaine étape : concevoir un service d'enregistrement explicite avec confirmation humaine, sans modifier l'ancien repository.
