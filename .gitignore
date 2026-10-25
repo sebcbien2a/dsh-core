@@ -20,3 +20,7 @@ benchmarks/results/*.json
 !benchmarks/results/.gitkeep
 
 benchmarks/data/ocr_baseline_texts.json
+
+# Client exports and their aggregate structure reports
+workspace/imports/clients/*.xml
+workspace/imports/clients/*_report.json
