@@ -112,3 +112,14 @@ Construire un pipeline local de traitement documentaire qui oriente les pages, e
 - SIRET absent = ABSENT ; le numéro de TVA intracommunautaire est distinct du SIRET et ne doit jamais y être copié.
 - Cas 4 à 6 : ambigus dans le texte OCR linéaire (tableaux). Cas 7 à 10 : jugés visuellement corrects, non encore confirmés.
 - Aucun texte OCR ne doit être transmis à Gemini, Copilot ou au cloud.
+
+## Contrat fournisseur international extensible
+- Contrat isolé créé dans `schemas/supplier_identity_schema.py`, non encore intégré au pipeline métier.
+- `SupplierIdentity` porte un `supplier_id` interne ; les identifiants sont extensibles par type, scope et pays. SIREN et SIRET ne sont pas obligatoires.
+- Les valeurs brutes, normalisées et corrigées restent séparées.
+- Plusieurs alias, noms imprimés, adresses et profils de paiement sont pris en charge.
+- `custom_fields` accepte des champs dynamiques sans modification du schéma Python.
+- Les règles de disposition sont versionnées et ne peuvent être actives qu'après confirmation humaine et preuve source.
+- La fusion est interdite sur le seul nom ou alias ; elle n'est possible que pour un `supplier_id` identique ou un identifiant partagé confirmé humainement des deux côtés.
+- Aucun calcul TVA, HT ou TTC n'a été ajouté ; les 22 tests ciblés réussissent.
+- Prochaine étape : auditer le pont avec `InvoiceParty` et `SupplierRepository`, sans intégration immédiate.
