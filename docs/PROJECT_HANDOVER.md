@@ -148,4 +148,11 @@ Construire un pipeline local de traitement documentaire qui oriente les pages, e
 - Sauvegarde atomique avec fichier `.tmp`, sauvegarde `.bak` et `os.replace` ; les 21 tests ciblés réussissent.
 - Aucune intégration au pipeline métier.
 - Limite connue : `SupplierIdentityRepository` et `SupplierRegistrationRepository` utilisent deux fichiers JSON distincts ; aucune atomicité globale entre eux n'est assurée à ce stade.
-- Prochain chantier : concevoir un coordinateur transactionnel avec reprise après interruption, sans modifier les repositories validés.
+- Coordinateur local de type saga créé dans `services/supplier_registration_coordinator.py`, avec un journal transactionnel séparé des données fournisseur.
+- Les statuts sont `PREPARED`, `SUPPLIER_APPLIED`, `COMPLETED` et `RECOVERY_REQUIRED` ; `transaction_id` est déterministe et égal à `proposal_id`.
+- Les états fournisseur sont identifiés par des empreintes SHA-256 déterministes ; le journal `PREPARED` est écrit avant toute modification fournisseur.
+- `CREATE` et `UPDATE` sont reprenables sans double écriture ; `CANCEL` ne modifie jamais le repository fournisseur.
+- Une divergence est classée `RECOVERY_REQUIRED` sans rollback automatique ; aucune métadonnée transactionnelle n'est placée dans `custom_fields`.
+- Les repositories existants sont inchangés ; les 23 tests de fonctionnement et de panne réussissent.
+- Aucune intégration au pipeline métier.
+- Prochaine étape : auditer une première intégration bornée avec le flux de validation humaine, sans lancer de traitement réel.
