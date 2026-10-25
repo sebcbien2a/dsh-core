@@ -105,3 +105,6 @@ Construire un pipeline local de traitement documentaire qui oriente les pages, e
 - GLM-OCR est la source OCR neutre retenue pour scans/images ; NuExtract3 reste l'extracteur structuré principal. Le manuscrit n'est pas validé.
 - Prochaine étape : validation humaine des 60 champs. Ne pas exécuter le benchmark ExtractionManager vs NuExtract3 avant cette validation ; exclure les cas manuscrits jusqu'à validation d'un protocole spécifique.
 - Toute commande Python DSH-Core doit utiliser explicitement `A:\dsh-core\.venv-v3\Scripts\python.exe`. L'installation globale supplémentaire de PyMuPDF est connue ; aucun nettoyage urgent n'est nécessaire.
+- Interface locale de validation créée : `benchmarks/validate_ocr_ground_truth.py` (Tkinter, bibliothèque standard, hors ligne). Le dataset réel reste hors Git ; aucun champ n'est réputé validé avant utilisation humaine.
+- Commande future : `A:\dsh-core\.venv-v3\Scripts\python.exe -m benchmarks.validate_ocr_ground_truth benchmarks\data\ocr_baseline_texts.json`.
+- Aucun texte OCR ne doit être transmis à Gemini, Copilot ou au cloud.
