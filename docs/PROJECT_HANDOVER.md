@@ -135,4 +135,11 @@ Construire un pipeline local de traitement documentaire qui oriente les pages, e
 - Sauvegarde atomique par fichier temporaire et sauvegarde `.bak` ; aucun accès réseau.
 - Le repository n'a aucune dépendance envers l'ancien `SupplierRepository` indexé par SIRET.
 - Les 33 tests ciblés du repository réussissent.
-- Prochaine étape : concevoir un service d'enregistrement explicite avec confirmation humaine, sans modifier l'ancien repository.
+- Service d'enregistrement explicite créé dans `services/supplier_registration_service.py`, séparant proposition, confirmation humaine et persistance, sans intégration au pipeline métier.
+- Les opérations `CREATE`, `UPDATE` et `CANCEL` utilisent les statuts `PENDING`, `PERSISTED` et `CANCELLED`.
+- Le rejeu d'une proposition terminée est refusé, y compris après sérialisation ; seuls les identifiants explicitement sélectionnés sont confirmés et seuls les alias explicitement acceptés sont enregistrés.
+- Aucune fusion automatique n'est effectuée ; un échec du repository laisse la proposition `PENDING`.
+- Le journal de décision complet est embarqué dans la proposition et sérialisable, mais n'est pas encore persisté automatiquement dans un stockage dédié.
+- L'atomicité globale entre fournisseur et journal reste à traiter lors de l'intégration.
+- Les 33 tests ciblés du service réussissent.
+- Prochaine étape : définir la persistance locale des propositions et décisions avant de raccorder une interface humaine.
