@@ -3,12 +3,15 @@
 Run with the DSH-Core interpreter, for example:
     A:\\dsh-core\\.venv-v3\\Scripts\\python.exe -m benchmarks.validate_ocr_ground_truth <dataset.json>
 
-The tool is offline, never invokes a model and never prints OCR text.
+The first source page is shown next to the frozen OCR text, rendered in memory
+only. The tool is offline, never invokes a model and never prints OCR text.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
+import io
 import json
 import os
 import re
@@ -189,12 +192,134 @@ def save_dataset_atomic(path: str | Path, dataset: Mapping[str, Any]) -> None:
         raise
 
 
-def run_gui(path: Path, dataset: dict[str, Any]) -> None:
+class SourceError(DatasetError):
+    """Source missing, unsafe or altered; messages never contain paths."""
+
+
+PREVIEW_DPI = 170
+MIN_ZOOM = 0.1
+MAX_ZOOM = 3.0
+ZOOM_STEP = 1.25
+
+HELP_STATES = (
+    "KNOWN = champ présent, valeur lisible et attribution certaine\n"
+    "ABSENT = champ absent du document\n"
+    "UNREADABLE = champ présent mais illisible ou impossible à attribuer avec certitude"
+)
+HELP_WARNINGS = (
+    "Numéro TVA ≠ SIRET  |  Ne pas déduire HT, TVA ou TTC\n"
+    "Pour un tableau, utiliser les colonnes de la page source\n"
+    "Si plusieurs nombres ne peuvent pas être rattachés avec certitude, "
+    "choisir UNREADABLE pour le champ concerné"
+)
+
+
+def load_manifest(path: str | Path) -> list[dict[str, Any]]:
+    try:
+        manifest = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SourceError("Manifeste illisible.") from exc
+    entries = manifest.get("entries") if isinstance(manifest, dict) else None
+    if not isinstance(entries, list):
+        raise SourceError("Manifeste invalide : 'entries' manquant.")
+    return [entry for entry in entries if isinstance(entry, dict)]
+
+
+def resolve_source(
+    sha256: Any, entries: Sequence[Mapping[str, Any]], repo_root: str | Path
+) -> tuple[bytes, Mapping[str, Any]]:
+    """Find the manifest entry by exact hash and return its verified bytes."""
+    if not isinstance(sha256, str) or not sha256:
+        raise SourceError("Hash source absent du cas.")
+    entry = next((item for item in entries if item.get("sha256") == sha256), None)
+    if entry is None:
+        raise SourceError("Aucune source du manifeste ne correspond au hash.")
+    relative = entry.get("relative_path")
+    if not isinstance(relative, str) or not relative:
+        raise SourceError("Entrée du manifeste sans chemin.")
+    root = Path(repo_root).resolve()
+    candidate = (root / relative).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError as exc:
+        raise SourceError("Chemin source hors du dépôt.") from exc
+    try:
+        data = candidate.read_bytes()
+    except OSError as exc:
+        raise SourceError("Fichier source introuvable ou illisible.") from exc
+    if hashlib.sha256(data).hexdigest() != sha256:
+        raise SourceError("Le hash de la source ne correspond plus.")
+    return data, entry
+
+
+def load_source_image(data: bytes, entry: Mapping[str, Any]) -> Any:
+    """Render page 1 (PDF) or load the image in memory, with manifest rotation."""
+    try:
+        from PIL import Image
+
+        if entry.get("media_type") == "application/pdf":
+            import pymupdf
+
+            document = pymupdf.open(stream=data, filetype="pdf")
+            try:
+                scale = PREVIEW_DPI / 72.0
+                pixmap = document.load_page(0).get_pixmap(
+                    matrix=pymupdf.Matrix(scale, scale), alpha=False
+                )
+                image = Image.frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
+            finally:
+                document.close()
+        else:
+            with Image.open(io.BytesIO(data)) as opened:
+                image = opened.convert("RGB")
+        rotation = int(entry.get("expected_orientation_degrees") or 0)
+        if rotation % 360:
+            image = image.rotate(
+                rotation, resample=Image.Resampling.BICUBIC, expand=True, fillcolor="white"
+            )
+        return image
+    except Exception as exc:
+        raise SourceError("Aperçu de la source impossible.") from exc
+
+
+def clamp_zoom(zoom: float) -> float:
+    return max(MIN_ZOOM, min(MAX_ZOOM, zoom))
+
+
+def fit_zoom(size: tuple[int, int], box: tuple[int, int]) -> float:
+    width, height = size
+    return clamp_zoom(min(box[0] / max(width, 1), box[1] / max(height, 1)))
+
+
+def render_preview_png(image: Any, zoom: float) -> bytes:
+    from PIL import Image
+
+    zoom = clamp_zoom(zoom)
+    size = (max(1, round(image.width * zoom)), max(1, round(image.height * zoom)))
+    scaled = image if size == image.size else image.resize(size, Image.Resampling.LANCZOS)
+    buffer = io.BytesIO()
+    scaled.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def require_verified_source(verified: bool) -> None:
+    if not verified:
+        raise SourceError("Confirmation bloquée : source ou hash non vérifié.")
+
+
+def run_gui(
+    path: Path,
+    dataset: dict[str, Any],
+    entries: Sequence[Mapping[str, Any]],
+    repo_root: Path,
+) -> None:
+    import base64
     import tkinter as tk
     from tkinter import messagebox
 
     root = tk.Tk()
     root.title("Validation humaine - vérité terrain OCR")
+    root.geometry("1500x900")
     labels = {
         "fournisseur": "Fournisseur",
         "date": "Date",
@@ -206,12 +331,30 @@ def run_gui(path: Path, dataset: dict[str, Any]) -> None:
     index = {"value": first_unconfirmed_index(dataset)}
     drafts: dict[int, dict[str, tuple[str | None, str | None]]] = {}
     state_vars = {field: tk.StringVar(value="") for field in FIELDS}
-    entries: dict[str, Any] = {}
+    field_entries: dict[str, Any] = {}
+    view: dict[str, Any] = {"image": None, "zoom": 1.0, "photo": None, "verified": False}
 
     header = tk.Label(root, anchor="w")
     header.pack(fill="x", padx=8, pady=(8, 0))
-    text = tk.Text(root, height=18, width=100, wrap="word")
-    text.pack(fill="both", expand=True, padx=8, pady=8)
+    help_label = tk.Label(
+        root, text=HELP_STATES + "\n" + HELP_WARNINGS, justify="left", anchor="w", fg="#8a1c1c"
+    )
+    help_label.pack(fill="x", padx=8)
+    status = tk.Label(root, anchor="w")
+    status.pack(fill="x", padx=8)
+    panes = tk.PanedWindow(root, orient="horizontal", sashrelief="raised")
+    panes.pack(fill="both", expand=True, padx=8, pady=4)
+    left = tk.Frame(panes)
+    canvas = tk.Canvas(left, bg="#dddddd", width=760, height=520)
+    vbar = tk.Scrollbar(left, orient="vertical", command=canvas.yview)
+    hbar = tk.Scrollbar(left, orient="horizontal", command=canvas.xview)
+    canvas.configure(yscrollcommand=vbar.set, xscrollcommand=hbar.set)
+    hbar.pack(side="bottom", fill="x")
+    vbar.pack(side="right", fill="y")
+    canvas.pack(side="left", fill="both", expand=True)
+    panes.add(left)
+    text = tk.Text(panes, height=18, width=60, wrap="word")
+    panes.add(text)
     form = tk.Frame(root)
     form.pack(fill="x", padx=8)
     for row, field in enumerate(FIELDS):
@@ -222,13 +365,32 @@ def run_gui(path: Path, dataset: dict[str, Any]) -> None:
             ).grid(row=row, column=column)
         entry = tk.Entry(form, width=40)
         entry.grid(row=row, column=4, padx=4, pady=1)
-        entries[field] = entry
+        field_entries[field] = entry
 
     def collect() -> dict[str, tuple[str | None, str | None]]:
         return {
-            field: (state_vars[field].get() or None, entries[field].get())
+            field: (state_vars[field].get() or None, field_entries[field].get())
             for field in FIELDS
         }
+
+    def draw() -> None:
+        canvas.delete("all")
+        if view["image"] is None:
+            return
+        png = render_preview_png(view["image"], view["zoom"])
+        view["photo"] = tk.PhotoImage(data=base64.b64encode(png))
+        canvas.create_image(0, 0, anchor="nw", image=view["photo"])
+        canvas.configure(scrollregion=canvas.bbox("all"))
+
+    def fit() -> None:
+        if view["image"] is not None:
+            box = (max(canvas.winfo_width(), 200), max(canvas.winfo_height(), 200))
+            view["zoom"] = fit_zoom(view["image"].size, box)
+            draw()
+
+    def zoom_by(factor: float) -> None:
+        view["zoom"] = clamp_zoom(view["zoom"] * factor)
+        draw()
 
     def render() -> None:
         case = dataset["cases"][index["value"]]
@@ -242,13 +404,26 @@ def run_gui(path: Path, dataset: dict[str, Any]) -> None:
         text.delete("1.0", "end")
         text.insert("1.0", case["ocr_text"])
         text.config(state="disabled")
+        try:
+            data, entry = resolve_source(
+                case.get("metadata", {}).get("source_sha256"), entries, repo_root
+            )
+            view["image"] = load_source_image(data, entry)
+            view["verified"] = True
+            status.config(text="Source vérifiée (SHA-256).", fg="#1c6b1c")
+        except SourceError as exc:
+            view["image"] = None
+            view["verified"] = False
+            status.config(text=f"Source non vérifiée : {exc}", fg="#8a1c1c")
+        root.update_idletasks()
+        fit()
         decisions = drafts.get(index["value"]) or case_decisions(case)
         for field in FIELDS:
             state, value = decisions[field]
             state_vars[field].set(state or "")
-            entries[field].delete(0, "end")
+            field_entries[field].delete(0, "end")
             if value:
-                entries[field].insert(0, value)
+                field_entries[field].insert(0, value)
 
     def move(step: int) -> None:
         drafts[index["value"]] = collect()
@@ -256,6 +431,11 @@ def run_gui(path: Path, dataset: dict[str, Any]) -> None:
         render()
 
     def confirm() -> None:
+        try:
+            require_verified_source(view["verified"])
+        except SourceError as exc:
+            messagebox.showerror("Confirmation bloquée", str(exc))
+            return
         decisions = collect()
         errors = validate_decisions(decisions)
         if errors:
@@ -283,6 +463,9 @@ def run_gui(path: Path, dataset: dict[str, Any]) -> None:
     tk.Button(buttons, text="Précédent", command=lambda: move(-1)).pack(side="left", padx=4)
     tk.Button(buttons, text="Confirmer ce cas", command=confirm).pack(side="left", padx=4)
     tk.Button(buttons, text="Suivant", command=lambda: move(1)).pack(side="left", padx=4)
+    tk.Button(buttons, text="Zoom +", command=lambda: zoom_by(ZOOM_STEP)).pack(side="left", padx=12)
+    tk.Button(buttons, text="Zoom -", command=lambda: zoom_by(1 / ZOOM_STEP)).pack(side="left", padx=4)
+    tk.Button(buttons, text="Ajuster", command=fit).pack(side="left", padx=4)
     render()
     root.mainloop()
 
@@ -290,14 +473,21 @@ def run_gui(path: Path, dataset: dict[str, Any]) -> None:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Validation humaine locale du dataset OCR.")
     parser.add_argument("dataset", help="Chemin du dataset JSON local.")
+    parser.add_argument(
+        "--manifest",
+        default="tests/fixtures/orientation_corpus_manifest.json",
+        help="Manifeste des sources (hash -> chemin relatif, orientation).",
+    )
+    parser.add_argument("--repo-root", default=".", help="Racine du dépôt des sources.")
     args = parser.parse_args(argv)
     try:
         path = check_dataset_path(args.dataset)
         dataset = load_dataset(path)
+        manifest_entries = load_manifest(args.manifest)
     except DatasetError as exc:
         print(f"Erreur : {exc}", file=sys.stderr)
         return 2
-    run_gui(path, dataset)
+    run_gui(path, dataset, manifest_entries, Path(args.repo_root))
     return 0
 
 

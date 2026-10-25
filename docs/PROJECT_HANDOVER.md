@@ -106,5 +106,9 @@ Construire un pipeline local de traitement documentaire qui oriente les pages, e
 - Prochaine étape : validation humaine des 60 champs. Ne pas exécuter le benchmark ExtractionManager vs NuExtract3 avant cette validation ; exclure les cas manuscrits jusqu'à validation d'un protocole spécifique.
 - Toute commande Python DSH-Core doit utiliser explicitement `A:\dsh-core\.venv-v3\Scripts\python.exe`. L'installation globale supplémentaire de PyMuPDF est connue ; aucun nettoyage urgent n'est nécessaire.
 - Interface locale de validation créée : `benchmarks/validate_ocr_ground_truth.py` (Tkinter, bibliothèque standard, hors ligne). Le dataset réel reste hors Git ; aucun champ n'est réputé validé avant utilisation humaine.
-- Commande future : `A:\dsh-core\.venv-v3\Scripts\python.exe -m benchmarks.validate_ocr_ground_truth benchmarks\data\ocr_baseline_texts.json`.
+- Commande : `A:\dsh-core\.venv-v3\Scripts\python.exe -m benchmarks.validate_ocr_ground_truth benchmarks\data\ocr_baseline_texts.json --manifest tests/fixtures/orientation_corpus_manifest.json --repo-root A:\dsh-core`.
+- Première saisie fermée sans sauvegarde : 0/10 cas et 0/60 champs.
+- Aperçu source (résolu par SHA-256 via le manifeste, rendu en mémoire) désormais obligatoire pour les tableaux ; confirmation bloquée si la source n'est pas vérifiée.
+- SIRET absent = ABSENT ; le numéro de TVA intracommunautaire est distinct du SIRET et ne doit jamais y être copié.
+- Cas 4 à 6 : ambigus dans le texte OCR linéaire (tableaux). Cas 7 à 10 : jugés visuellement corrects, non encore confirmés.
 - Aucun texte OCR ne doit être transmis à Gemini, Copilot ou au cloud.

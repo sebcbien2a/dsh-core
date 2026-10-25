@@ -193,3 +193,142 @@ def test_cli_errors_and_functions_never_print_ocr_text(tmp_path, capsys):
     captured = capsys.readouterr()
     assert SECRET_OCR not in captured.out + captured.err
     assert "0" * 64 not in captured.out + captured.err
+
+
+# --- source preview ---------------------------------------------------------
+
+import hashlib
+import io
+
+
+def _make_pdf(path: Path) -> bytes:
+    import pymupdf
+
+    doc = pymupdf.open()
+    page = doc.new_page(width=200, height=100)
+    page.insert_text((20, 50), "synthetic")
+    data = doc.tobytes()
+    doc.close()
+    path.write_bytes(data)
+    return data
+
+
+def _make_png(path: Path, size=(40, 20)) -> bytes:
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new("RGB", size, "red").save(buffer, format="PNG")
+    path.write_bytes(buffer.getvalue())
+    return buffer.getvalue()
+
+
+def _setup_sources(tmp_path: Path):
+    (tmp_path / "src").mkdir()
+    pdf = _make_pdf(tmp_path / "src" / "a.pdf")
+    png = _make_png(tmp_path / "src" / "b.png")
+    entries = [
+        {"relative_path": "src/a.pdf", "media_type": "application/pdf",
+         "sha256": hashlib.sha256(pdf).hexdigest(), "expected_orientation_degrees": 0},
+        {"relative_path": "src/b.png", "media_type": "image/png",
+         "sha256": hashlib.sha256(png).hexdigest(), "expected_orientation_degrees": 90},
+    ]
+    return entries
+
+
+def test_resolves_source_by_sha256(tmp_path):
+    entries = _setup_sources(tmp_path)
+    data, entry = tool.resolve_source(entries[1]["sha256"], entries, tmp_path)
+    assert entry["relative_path"] == "src/b.png" and data
+
+
+def test_missing_or_wrong_hash_refused(tmp_path):
+    entries = _setup_sources(tmp_path)
+    with pytest.raises(tool.SourceError):
+        tool.resolve_source("f" * 64, entries, tmp_path)
+    with pytest.raises(tool.SourceError):
+        tool.resolve_source(None, entries, tmp_path)
+    (tmp_path / "src" / "b.png").write_bytes(b"altered")
+    with pytest.raises(tool.SourceError):
+        tool.resolve_source(entries[1]["sha256"], entries, tmp_path)
+
+
+def test_path_escaping_repo_root_refused(tmp_path):
+    root = tmp_path / "repo"
+    root.mkdir()
+    outside = tmp_path / "outside.bin"
+    outside.write_bytes(b"x")
+    entries = [{"relative_path": "../outside.bin", "sha256": hashlib.sha256(b"x").hexdigest()}]
+    with pytest.raises(tool.SourceError):
+        tool.resolve_source(entries[0]["sha256"], entries, root)
+
+
+def test_pdf_rendered_in_memory_without_files(tmp_path):
+    entries = _setup_sources(tmp_path)
+    before = sorted(p.name for p in tmp_path.rglob("*"))
+    data, entry = tool.resolve_source(entries[0]["sha256"], entries, tmp_path)
+    image = tool.load_source_image(data, entry)
+    assert image.width > 200 and image.height > 100
+    assert tool.render_preview_png(image, 0.5)[:8] == b"\x89PNG\r\n\x1a\n"
+    assert sorted(p.name for p in tmp_path.rglob("*")) == before
+
+
+def test_image_loaded_and_preview_orientation_applied(tmp_path):
+    entries = _setup_sources(tmp_path)
+    data, entry = tool.resolve_source(entries[1]["sha256"], entries, tmp_path)
+    image = tool.load_source_image(data, entry)
+    assert image.size == (20, 40)  # 40x20 rotated by 90 degrees
+
+
+def test_confirmation_blocked_without_verified_source():
+    with pytest.raises(tool.SourceError):
+        tool.require_verified_source(False)
+    tool.require_verified_source(True)
+
+
+def test_zoom_helpers_bounded():
+    assert tool.clamp_zoom(100) == tool.MAX_ZOOM
+    assert tool.clamp_zoom(0.0001) == tool.MIN_ZOOM
+    assert tool.fit_zoom((1000, 500), (500, 500)) == 0.5
+
+
+def test_source_path_never_written_to_dataset(tmp_path):
+    entries = _setup_sources(tmp_path)
+    case = _case()
+    case["metadata"]["source_sha256"] = entries[0]["sha256"]
+    path = _write(tmp_path, [case])
+    dataset = tool.load_dataset(path)
+    tool.resolve_source(entries[0]["sha256"], entries, tmp_path)
+    tool.apply_decisions(dataset["cases"][0], _full_decisions())
+    tool.save_dataset_atomic(path, dataset)
+    saved = path.read_text(encoding="utf-8")
+    assert "a.pdf" not in saved and "src/" not in saved and str(tmp_path) not in saved
+    assert json.loads(saved)["cases"][0]["ocr_text"] == SECRET_OCR
+
+
+def test_absent_siret_and_unreadable_accepted_vat_number_not_copied():
+    decisions = _full_decisions()
+    decisions["siret"] = (tool.ABSENT, "FR12345678901")
+    decisions["ttc"] = (tool.UNREADABLE, "123,45")
+    assert tool.validate_decisions(decisions) == {}
+    case = _case()
+    tool.apply_decisions(case, decisions)
+    assert case["ground_truth"]["siret"] is None
+    assert case["ground_truth"]["ttc"] is None
+    assert case["metadata"][tool.STATUS_KEY]["siret"] == tool.ABSENT
+    errors = tool.validate_decisions({**decisions, "siret": (tool.KNOWN, "FR12345678901")})
+    assert "siret" in errors
+
+
+def test_manifest_loading(tmp_path):
+    manifest = tmp_path / "m.json"
+    manifest.write_text(json.dumps({"entries": [{"sha256": "a"}]}), encoding="utf-8")
+    assert tool.load_manifest(manifest) == [{"sha256": "a"}]
+    manifest.write_text("{}", encoding="utf-8")
+    with pytest.raises(tool.SourceError):
+        tool.load_manifest(manifest)
+
+
+def test_help_texts_present():
+    assert "Numéro TVA ≠ SIRET" in tool.HELP_WARNINGS
+    assert "UNREADABLE" in tool.HELP_STATES
+    assert "numero_tva" not in tool.FIELDS
