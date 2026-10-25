@@ -155,4 +155,11 @@ Construire un pipeline local de traitement documentaire qui oriente les pages, e
 - Une divergence est classée `RECOVERY_REQUIRED` sans rollback automatique ; aucune métadonnée transactionnelle n'est placée dans `custom_fields`.
 - Les repositories existants sont inchangés ; les 23 tests de fonctionnement et de panne réussissent.
 - Aucune intégration au pipeline métier.
-- Prochaine étape : auditer une première intégration bornée avec le flux de validation humaine, sans lancer de traitement réel.
+- Interface locale fournisseur séparée créée dans `tools/validate_supplier_identity.py`, sans réutilisation abusive de l'interface OCR du benchmark.
+- Elle permet la saisie de l'identité, du pays, des identifiants extensibles, des aliases, des adresses, des profils de paiement et des `custom_fields`.
+- Les actions `CREATE`, `UPDATE` et `CANCEL` sont explicites ; suggestions et collisions sont affichées séparément, sans fusion ni sélection automatique.
+- Confirmation humaine et justification sont obligatoires ; la proposition `PENDING` est écrite avant l'appel au coordinateur.
+- `CREATE` persiste la fiche complète ; `UPDATE` est limité aux identifiants confirmés et aliases acceptés. Toute autre modification en `UPDATE` est refusée avant création de `PENDING`.
+- Une cible `UPDATE` absente ou inactive est refusée ; `CANCEL` ne modifie pas le fournisseur.
+- Les 42 tests ciblés réussissent ; l'interface réelle n'a pas encore été lancée.
+- Prochaine étape : lancement synthétique local de l'interface, sans document réel et sans intégration au pipeline.
