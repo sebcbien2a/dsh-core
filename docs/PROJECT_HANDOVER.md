@@ -142,4 +142,10 @@ Construire un pipeline local de traitement documentaire qui oriente les pages, e
 - Le journal de décision complet est embarqué dans la proposition et sérialisable, mais n'est pas encore persisté automatiquement dans un stockage dédié.
 - L'atomicité globale entre fournisseur et journal reste à traiter lors de l'intégration.
 - Les 33 tests ciblés du service réussissent.
-- Prochaine étape : définir la persistance locale des propositions et décisions avant de raccorder une interface humaine.
+- Repository local des propositions créé dans `repositories/supplier_registration_repository.py`, avec `proposal_id` UUID comme clé primaire.
+- Les propositions `PENDING` et leur journal terminal sont stockés ; les transitions autorisées sont `PENDING` vers `PERSISTED` ou `CANCELLED`.
+- Les états terminaux sont immuables ; un rejeu identique est idempotent ; `candidate` et `source_sha256` sont immuables pendant la transition.
+- Sauvegarde atomique avec fichier `.tmp`, sauvegarde `.bak` et `os.replace` ; les 21 tests ciblés réussissent.
+- Aucune intégration au pipeline métier.
+- Limite connue : `SupplierIdentityRepository` et `SupplierRegistrationRepository` utilisent deux fichiers JSON distincts ; aucune atomicité globale entre eux n'est assurée à ce stade.
+- Prochain chantier : concevoir un coordinateur transactionnel avec reprise après interruption, sans modifier les repositories validés.
