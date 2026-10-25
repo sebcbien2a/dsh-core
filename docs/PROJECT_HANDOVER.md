@@ -122,4 +122,9 @@ Construire un pipeline local de traitement documentaire qui oriente les pages, e
 - Les règles de disposition sont versionnées et ne peuvent être actives qu'après confirmation humaine et preuve source.
 - La fusion est interdite sur le seul nom ou alias ; elle n'est possible que pour un `supplier_id` identique ou un identifiant partagé confirmé humainement des deux côtés.
 - Aucun calcul TVA, HT ou TTC n'a été ajouté ; les 22 tests ciblés réussissent.
-- Prochaine étape : auditer le pont avec `InvoiceParty` et `SupplierRepository`, sans intégration immédiate.
+- Pont en lecture seule de `InvoiceParty` vers `SupplierIdentity` créé, sans intégration au pipeline métier à ce stade.
+- `name` devient `legal_name` ; `normalized_name` est uniquement un `printed_name` suggéré.
+- Les identifiants SIRET et VAT sont créés seulement s'ils existent ; les valeurs brutes sont conservées, aucun SIREN ni pays n'est déduit, et les identifiants restent non primaires et non confirmés humainement.
+- L'adresse est conservée comme ligne brute, sans parsing inventé. Le pont n'accède pas à `SupplierRepository` et n'effectue aucun rapprochement automatique.
+- Les 17 tests ciblés du pont réussissent.
+- Prochaine étape : définir un repository canonique fondé sur `supplier_id`, sans modifier immédiatement l'ancien repository indexé par SIRET.
