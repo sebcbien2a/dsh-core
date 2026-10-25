@@ -163,3 +163,16 @@ Construire un pipeline local de traitement documentaire qui oriente les pages, e
 - Une cible `UPDATE` absente ou inactive est refusée ; `CANCEL` ne modifie pas le fournisseur.
 - Les 42 tests ciblés réussissent ; l'interface réelle n'a pas encore été lancée.
 - Prochaine étape : lancement synthétique local de l'interface, sans document réel et sans intégration au pipeline.
+
+## Index documentaire de reprise
+- `docs/PROJECT_HANDOVER.md` : source de vérité exécutive et point d'entrée.
+- `docs/02_ROADMAP.md` : roadmap détaillée et jalons futurs (section « ROADMAP V2 — CONVERGENCE LOCAL + ORACLE », phases 0 à 11).
+- `docs/DSH_CORE_AI_ARCHITECTURE_V2.md` : architecture cible complète (trois machines, couches, DeepSeek Harness et Skills, mémoire, synchronisation).
+- `QDRANT_INVENTORY.md` : état des collections Qdrant.
+- `NEO4J_INVENTORY.md` : état du graphe Neo4j.
+- `docs/06_MODELS_AND_KEYS_REGISTRY.md` : registre des modèles et emplacements de configuration ; aucune clé n'y est à recopier.
+- Branche `origin/wip/french-business-identity` : chantier TVA commun clients/fournisseurs suspendu ; commit `07900b5` ; 26 tests réussis ; documentation Neo4j encore incomplète ; ne pas intégrer avant audit final.
+- Serveur Oracle : cible décrite dans `docs/DSH_CORE_AI_ARCHITECTURE_V2.md` (§2, « Oracle VM », cible, rien de réel créé) et `docs/02_ROADMAP.md` (phases 7 et 8). Version d'Oracle Linux : NON DOCUMENTÉ DANS LES SOURCES CONSULTÉES.
+- DeepSeek Harness : statut déclaré VALIDÉ, mais chemin, versions et critères non documentés.
+
+Règle : le handover est suffisant pour décider quoi lire ensuite, mais ne remplace pas les documents techniques spécialisés. Aucun nouveau chat ne doit relire tout le dépôt.
