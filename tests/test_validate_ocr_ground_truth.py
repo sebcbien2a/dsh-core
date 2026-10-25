@@ -1,4 +1,5 @@
 import json
+import inspect
 import re
 import socket
 from datetime import datetime
@@ -332,3 +333,51 @@ def test_help_texts_present():
     assert "Numéro TVA ≠ SIRET" in tool.HELP_WARNINGS
     assert "UNREADABLE" in tool.HELP_STATES
     assert "numero_tva" not in tool.FIELDS
+
+
+def test_action_buttons_and_shortcuts_are_wired_to_shared_callbacks():
+    source = inspect.getsource(tool.run_gui)
+    assert "text=PREVIOUS_BUTTON_LABEL, command=previous" in source
+    assert "text=CONFIRM_BUTTON_LABEL," in source
+    assert "command=confirm," in source
+    assert "text=NEXT_BUTTON_LABEL, command=next_case" in source
+    assert "root.bind(PREVIOUS_SHORTCUT, lambda _event: previous())" in source
+    assert "root.bind(NEXT_SHORTCUT, lambda _event: next_case())" in source
+    assert "root.bind(CONFIRM_SHORTCUT, lambda _event: confirm())" in source
+    assert tool.PREVIOUS_SHORTCUT == "<Alt-Left>"
+    assert tool.NEXT_SHORTCUT == "<Alt-Right>"
+    assert tool.CONFIRM_SHORTCUT == "<Control-Return>"
+
+
+def test_unconfirmed_draft_detection_and_close_policy():
+    case = _case()
+    saved = dict(case)
+    decisions = {field: (None, None) for field in tool.FIELDS}
+    assert not tool.has_unconfirmed_draft(case, decisions)
+    assert tool.allow_close(case, decisions, lambda: pytest.fail("unexpected warning"))
+    assert not tool.has_unconfirmed_draft(case, decisions)
+    assert case == saved
+
+    decisions["fournisseur"] = (tool.KNOWN, "Societe Fictive")
+    assert tool.has_unconfirmed_draft(case, decisions)
+    assert not tool.allow_close(case, decisions, lambda: False)
+    assert tool.allow_close(case, decisions, lambda: True)
+    assert case == saved
+
+
+def test_close_policy_does_not_save_or_confirm_a_draft(monkeypatch):
+    case = _case()
+    decisions = {field: (None, None) for field in tool.FIELDS}
+    decisions["fournisseur"] = (tool.KNOWN, "Societe Fictive")
+    save_calls = []
+    monkeypatch.setattr(tool, "save_dataset_atomic", lambda *args: save_calls.append(args))
+
+    assert tool.allow_close(case, decisions, lambda: True)
+    assert save_calls == []
+    assert case["metadata"]["reviewed_by_human"] is False
+
+    source = inspect.getsource(tool.run_gui)
+    close_handler = source.split("    def on_close() -> None:\n", 1)[1].split(
+        "\n    tk.Button", 1
+    )[0]
+    assert "save_dataset_atomic" not in close_handler

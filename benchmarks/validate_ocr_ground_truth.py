@@ -20,7 +20,7 @@ import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from benchmarks.extractor_benchmark_runner import FIELDS, MONEY_FIELDS, _normalize
 
@@ -146,6 +146,26 @@ def case_decisions(case: Mapping[str, Any]) -> dict[str, tuple[str | None, str |
     return {field: (status.get(field), truth.get(field)) for field in FIELDS}
 
 
+def has_unconfirmed_draft(
+    case: Mapping[str, Any],
+    decisions: Mapping[str, tuple[str | None, str | None]],
+) -> bool:
+    saved = case_decisions(case)
+    return any(
+        (state or None, value or None) != saved[field]
+        for field, (state, value) in decisions.items()
+        if field in saved
+    )
+
+
+def allow_close(
+    case: Mapping[str, Any],
+    decisions: Mapping[str, tuple[str | None, str | None]],
+    confirm_discard: Callable[[], bool],
+) -> bool:
+    return not has_unconfirmed_draft(case, decisions) or bool(confirm_discard())
+
+
 def is_confirmed(case: Mapping[str, Any]) -> bool:
     metadata = case.get("metadata", {})
     status = metadata.get(STATUS_KEY)
@@ -200,6 +220,12 @@ PREVIEW_DPI = 170
 MIN_ZOOM = 0.1
 MAX_ZOOM = 3.0
 ZOOM_STEP = 1.25
+PREVIOUS_BUTTON_LABEL = "← Précédent"
+CONFIRM_BUTTON_LABEL = "Confirmer ce cas"
+NEXT_BUTTON_LABEL = "Suivant →"
+PREVIOUS_SHORTCUT = "<Alt-Left>"
+NEXT_SHORTCUT = "<Alt-Right>"
+CONFIRM_SHORTCUT = "<Control-Return>"
 
 HELP_STATES = (
     "KNOWN = champ présent, valeur lisible et attribution certaine\n"
@@ -319,7 +345,13 @@ def run_gui(
 
     root = tk.Tk()
     root.title("Validation humaine - vérité terrain OCR")
-    root.geometry("1500x900")
+    root.geometry("1500x950")
+    root.minsize(1100, 800)
+    root.resizable(True, True)
+    try:
+        root.state("zoomed")
+    except tk.TclError:
+        pass
     labels = {
         "fournisseur": "Fournisseur",
         "date": "Date",
@@ -334,6 +366,13 @@ def run_gui(
     field_entries: dict[str, Any] = {}
     view: dict[str, Any] = {"image": None, "zoom": 1.0, "photo": None, "verified": False}
 
+    buttons = tk.Frame(root, bd=1, relief="raised")
+    buttons.pack(side="bottom", fill="x", padx=8, pady=8)
+    actions = tk.Frame(buttons)
+    actions.pack(side="left")
+    progress_label = tk.Label(buttons, anchor="e")
+    progress_label.pack(side="right", padx=12)
+
     header = tk.Label(root, anchor="w")
     header.pack(fill="x", padx=8, pady=(8, 0))
     help_label = tk.Label(
@@ -342,21 +381,8 @@ def run_gui(
     help_label.pack(fill="x", padx=8)
     status = tk.Label(root, anchor="w")
     status.pack(fill="x", padx=8)
-    panes = tk.PanedWindow(root, orient="horizontal", sashrelief="raised")
-    panes.pack(fill="both", expand=True, padx=8, pady=4)
-    left = tk.Frame(panes)
-    canvas = tk.Canvas(left, bg="#dddddd", width=760, height=520)
-    vbar = tk.Scrollbar(left, orient="vertical", command=canvas.yview)
-    hbar = tk.Scrollbar(left, orient="horizontal", command=canvas.xview)
-    canvas.configure(yscrollcommand=vbar.set, xscrollcommand=hbar.set)
-    hbar.pack(side="bottom", fill="x")
-    vbar.pack(side="right", fill="y")
-    canvas.pack(side="left", fill="both", expand=True)
-    panes.add(left)
-    text = tk.Text(panes, height=18, width=60, wrap="word")
-    panes.add(text)
     form = tk.Frame(root)
-    form.pack(fill="x", padx=8)
+    form.pack(side="bottom", fill="x", padx=8)
     for row, field in enumerate(FIELDS):
         tk.Label(form, text=labels[field], width=12, anchor="w").grid(row=row, column=0)
         for column, state in enumerate(STATES, start=1):
@@ -366,6 +392,20 @@ def run_gui(
         entry = tk.Entry(form, width=40)
         entry.grid(row=row, column=4, padx=4, pady=1)
         field_entries[field] = entry
+
+    panes = tk.PanedWindow(root, orient="horizontal", sashrelief="raised")
+    panes.pack(fill="both", expand=True, padx=8, pady=4)
+    left = tk.Frame(panes)
+    canvas = tk.Canvas(left, bg="#dddddd")
+    vbar = tk.Scrollbar(left, orient="vertical", command=canvas.yview)
+    hbar = tk.Scrollbar(left, orient="horizontal", command=canvas.xview)
+    canvas.configure(yscrollcommand=vbar.set, xscrollcommand=hbar.set)
+    hbar.pack(side="bottom", fill="x")
+    vbar.pack(side="right", fill="y")
+    canvas.pack(side="left", fill="both", expand=True)
+    panes.add(left)
+    text = tk.Text(panes, height=18, width=60, wrap="word")
+    panes.add(text)
 
     def collect() -> dict[str, tuple[str | None, str | None]]:
         return {
@@ -399,6 +439,9 @@ def run_gui(
         header.config(
             text=f"{case['id']} ({index['value'] + 1}/{total}) - {marker} - "
             f"{done}/{total} cas confirmés"
+        )
+        progress_label.config(
+            text=f"Cas {index['value'] + 1}/{total}, confirmés {done}/{total}"
         )
         text.config(state="normal")
         text.delete("1.0", "end")
@@ -458,14 +501,43 @@ def run_gui(
         else:
             render()
 
-    buttons = tk.Frame(root)
-    buttons.pack(pady=8)
-    tk.Button(buttons, text="Précédent", command=lambda: move(-1)).pack(side="left", padx=4)
-    tk.Button(buttons, text="Confirmer ce cas", command=confirm).pack(side="left", padx=4)
-    tk.Button(buttons, text="Suivant", command=lambda: move(1)).pack(side="left", padx=4)
-    tk.Button(buttons, text="Zoom +", command=lambda: zoom_by(ZOOM_STEP)).pack(side="left", padx=12)
-    tk.Button(buttons, text="Zoom -", command=lambda: zoom_by(1 / ZOOM_STEP)).pack(side="left", padx=4)
-    tk.Button(buttons, text="Ajuster", command=fit).pack(side="left", padx=4)
+    def previous() -> None:
+        move(-1)
+
+    def next_case() -> None:
+        move(1)
+
+    def on_close() -> None:
+        case = dataset["cases"][index["value"]]
+        if not allow_close(
+            case,
+            collect(),
+            lambda: messagebox.askyesno(
+                "Saisies non confirmées",
+                "Les saisies non confirmées du cas courant seront perdues. Fermer ?",
+            ),
+        ):
+            return
+        root.destroy()
+
+    tk.Button(actions, text=PREVIOUS_BUTTON_LABEL, command=previous).pack(side="left", padx=4)
+    tk.Button(
+        actions,
+        text=CONFIRM_BUTTON_LABEL,
+        command=confirm,
+        font=("TkDefaultFont", 10, "bold"),
+        bg="#2f6fbb",
+        fg="white",
+        activebackground="#245791",
+    ).pack(side="left", padx=4)
+    tk.Button(actions, text=NEXT_BUTTON_LABEL, command=next_case).pack(side="left", padx=4)
+    tk.Button(actions, text="Zoom +", command=lambda: zoom_by(ZOOM_STEP)).pack(side="left", padx=12)
+    tk.Button(actions, text="Zoom -", command=lambda: zoom_by(1 / ZOOM_STEP)).pack(side="left", padx=4)
+    tk.Button(actions, text="Ajuster", command=fit).pack(side="left", padx=4)
+    root.bind(PREVIOUS_SHORTCUT, lambda _event: previous())
+    root.bind(NEXT_SHORTCUT, lambda _event: next_case())
+    root.bind(CONFIRM_SHORTCUT, lambda _event: confirm())
+    root.protocol("WM_DELETE_WINDOW", on_close)
     render()
     root.mainloop()
 
