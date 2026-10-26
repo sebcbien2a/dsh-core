@@ -15,7 +15,7 @@ Construire un pipeline local de traitement documentaire qui oriente les pages, e
 
 ## 3. État exact des environnements
 - **DSH-Core :** dépôt applicatif et pipeline cible. Utiliser explicitement `A:\dsh-core\.venv-v3\Scripts\python.exe` pour toute commande Python DSH-Core.
-- **DeepSeek Harness :** DeepSeek Harness est validé et conservé comme composant stratégique du projet. Les documents consultés ne précisent ni chemin, ni versions, ni périmètre/critères de validation ; ne pas installer ou revalider sans besoin précis.
+- **DeepSeek Harness :** envisagé comme futur exécuteur spécialisé ou future Skill pilotée par Hermes. Son installation n'est pas démontrée ; aucun test du harness n'est documenté et aucune validation technique n'est démontrée. `DSH_HOME` et les chemins associés restent à confirmer lors d'une future expérimentation.
 - **Paddle Orientation :** environnement isolé `A:\dsh-paddle-orientation` ; Python 3.11.9, PaddlePaddle GPU 3.0.0, PaddleOCR 3.0.3, PaddleX 3.0.3, CUDA 12.6, RTX 4070 Laptop. Hors dépôt DSH-Core.
 - **LightOnOCR Bench :** environnement isolé `A:\dsh-lightonocr-bench` ; Python 3.11.9, Torch 2.14.1+cu126, cache local du modèle d'environ 2,33 Go. Hors dépôt DSH-Core.
 - Les rapports et notes de benchmark Paddle/LightOnOCR se trouvent dans leurs environnements séparés.
@@ -57,12 +57,13 @@ Construire un pipeline local de traitement documentaire qui oriente les pages, e
 - LightOnOCR comme classifieur d'orientation selon le score de quantité de texte mesuré à 20 % : rejeté pour intégration.
 - Ce rejet ne signifie pas que LightOnOCR est abandonné comme OCR ; le smoke-test synthétique a réussi.
 
-## 10. Ce qui est validé
+## 10. État des validations
 - Tests synthétiques PP-LCNet et LightOnOCR réussis dans leurs environnements isolés.
 - PP-LCNet : mesure reproductible rapportée de 8/10 selon les annotations actuelles, mais vérité terrain partiellement contestée.
 - LightOnOCR orientation : résultat 2/10 et insuffisant pour l'intégration.
 - MiMo Vision : classification techniquement exécutée, mais résultat insuffisant pour adoption de production.
-- DeepSeek Harness : statut VALIDÉ déclaré ; détails probants non consignés dans les documents disponibles.
+- DeepSeek Harness : envisagé comme futur exécuteur spécialisé ou future Skill pilotée par Hermes ; installation non démontrée, aucun test documenté et aucune validation technique démontrée. `DSH_HOME` et les chemins associés restent à confirmer lors d'une future expérimentation.
+- Les commits `716d23d`, `2dad618` et `a915d15` concernent d'autres travaux et ne constituent pas des preuves de validation de DeepSeek Harness.
 
 ## 11. Les cinq prochaines étapes prioritaires
 1. Obtenir une validation humaine documentée de l'orientation de `facture_emaux.pdf` et `facture_transport.PDF`.
@@ -173,6 +174,6 @@ Construire un pipeline local de traitement documentaire qui oriente les pages, e
 - `docs/06_MODELS_AND_KEYS_REGISTRY.md` : registre des modèles et emplacements de configuration ; aucune clé n'y est à recopier.
 - Branche `origin/wip/french-business-identity` : chantier TVA commun clients/fournisseurs suspendu ; commit `07900b5` ; 26 tests réussis ; documentation Neo4j encore incomplète ; ne pas intégrer avant audit final.
 - Serveur Oracle : cible décrite dans `docs/DSH_CORE_AI_ARCHITECTURE_V2.md` (§2, « Oracle VM », cible, rien de réel créé) et `docs/02_ROADMAP.md` (phases 7 et 8). Version d'Oracle Linux : NON DOCUMENTÉ DANS LES SOURCES CONSULTÉES.
-- DeepSeek Harness : statut déclaré VALIDÉ, mais chemin, versions et critères non documentés.
+- DeepSeek Harness : envisagé comme futur exécuteur spécialisé ou future Skill pilotée par Hermes ; installation non démontrée, aucun test documenté et aucune validation technique démontrée. `DSH_HOME` et les chemins associés restent à confirmer lors d'une future expérimentation. Les commits `716d23d`, `2dad618` et `a915d15` ne prouvent pas sa validation.
 
 Règle : le handover est suffisant pour décider quoi lire ensuite, mais ne remplace pas les documents techniques spécialisés. Aucun nouveau chat ne doit relire tout le dépôt.

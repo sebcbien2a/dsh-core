@@ -89,7 +89,7 @@ emplacements séparés :
 
 - `A:\dsh-core\.env` : LangGraph et DSH-Core.
 - `%LOCALAPPDATA%\hermes\.env` : Hermes.
-- `%USERPROFILE%\.dsh\.env` : DeepSeek Harness.
+- `%USERPROFILE%\.dsh\.env` : chemin cible envisagé pour DeepSeek Harness, non confirmé comme existant.
 
 Ne pas partager ni copier automatiquement des clés entre ces fichiers. Les
 noms Hermes ci-dessous sont ceux observés dans sa configuration ; cela ne

@@ -45,8 +45,9 @@ Le pipeline Vision/OCR/extraction local existant est conservé tel quel. Un mod�
 
 ## 5. DeepSeek Harness et Skills
 
-- DeepSeek Harness (DSH) deviendra une **Skill Hermes de développement** ; DeepSeek sert au coding, à l'expertise et à l'escalade. Non installé.
-- Chemins séparés : dépôt `A:\dsh-core` ; `DSH_HOME` dédié (`%USERPROFILE%\.dsh` à confirmer, jamais le dépôt) ; workspaces `A:\dsh-workspaces` (PROPOSÉ, NON CRÉÉ) ; sorties Hermes `A:\dsh-hermes-output` (PROPOSÉ, NON CRÉÉ) ; Hermes `%LOCALAPPDATA%\hermes`.
+- DeepSeek Harness (DSH) est envisagé comme futur exécuteur spécialisé ou future Skill pilotée par Hermes ; DeepSeek servirait au coding, à l'expertise et à l'escalade. Son installation n'est pas démontrée, aucun test du harness n'est documenté et aucune validation technique n'est démontrée.
+- Chemins séparés : dépôt `A:\dsh-core` ; `DSH_HOME` dédié (`%USERPROFILE%\.dsh` à confirmer lors d'une future expérimentation, jamais le dépôt) ; workspaces `A:\dsh-workspaces` (PROPOSÉ, NON CRÉÉ) ; sorties Hermes `A:\dsh-hermes-output` (PROPOSÉ, NON CRÉÉ) ; Hermes `%LOCALAPPDATA%\hermes`. Les chemins associés à DSH restent à confirmer lors de cette expérimentation.
+- Les commits `716d23d`, `2dad618` et `a915d15` cités en tête du document ne constituent pas des preuves de validation de DeepSeek Harness.
 - Aucun credential ni session DSH dans le dépôt. Les développements utilisent un worktree ou workspace isolé.
 - Skill Creator et SkillOpt : à tester. Les Skills validés sont versionnés dans Git puis synchronisés de façon contrôlée PC principal → Oracle.
 
