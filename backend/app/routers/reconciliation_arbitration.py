@@ -10,10 +10,15 @@ from __future__ import annotations
 import re
 from datetime import datetime, timezone
 from enum import Enum
+from pathlib import Path
 from typing import Any, Protocol
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from urllib.parse import quote
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from services.rule_registry_service import ObsidianCandidateRuleWriter, RuleRegistryError
 
 ACCOUNT_PATTERN = re.compile(r"^\d{6}\Z")
 PERSONAL_DEBIT_ACCOUNT = "108000"
@@ -69,14 +74,70 @@ class ArbitrationResult(BaseModel):
     candidate_rule: dict[str, Any] | None = None
 
 
+class LineStatusFilter(str, Enum):
+    ALL = "ALL"
+    PENDING = "PENDING"
+    INVOICE_ATTACHED = "INVOICE_ATTACHED"
+    BOOKED_PERSONAL = "BOOKED_PERSONAL"
+    RELEASED_WITHOUT_INVOICE = "RELEASED_WITHOUT_INVOICE"
+
+
+_VIEW_STATUS = {
+    "PENDING": "PENDING",
+    "INVOICE_ATTACHED": "MATCHED",
+    "BOOKED_PERSONAL": "ARBITRATED_PERSONAL",
+    "RELEASED_WITHOUT_INVOICE": "ARBITRATED_NO_INVOICE",
+}
+
+
+class ArbitrationMetadata(BaseModel):
+    reason: str | None = None
+    arbitrated_at: str | None = None
+
+
+class ReconciliationLineView(BaseModel):
+    line_id: str
+    operation_date: str | None = None
+    label: str | None = None
+    debit_amount: str | None = None
+    credit_amount: str | None = None
+    currency: str | None = None
+    status: str
+    counterparty: str | None = None
+    invoice_id: str | None = None
+    invoice_url: str | None = None
+    debit_account: str | None = None
+    credit_account: str | None = None
+    vat_amount: str | None = None
+    arbitration_metadata: ArbitrationMetadata | None = None
+
+
+class ReconciliationLinesPage(BaseModel):
+    items: list[ReconciliationLineView]
+    total: int
+    limit: int
+    offset: int
+
+
 class ArbitrationStore(Protocol):
+    def list_lines(
+        self,
+        tenant_id: str,
+        *,
+        status: str = "ALL",
+        search: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[dict[str, Any]], int]: ...
     def get_line(self, tenant_id: str, line_id: str) -> dict[str, Any] | None: ...
     def save_decision(self, tenant_id: str, line_id: str, decision: dict[str, Any]) -> None: ...
     def save_candidate_rule(self, tenant_id: str, rule: dict[str, Any]) -> None: ...
 
 
 class InMemoryArbitrationStore:
-    def __init__(self) -> None:
+    def __init__(self, rule_writer: ObsidianCandidateRuleWriter | None = None) -> None:
+        self.rule_writer = rule_writer
+        self.written_rule_paths: list[Path] = []
         self.lines: dict[tuple[str, str], dict[str, Any]] = {}
         self.decisions: dict[tuple[str, str], dict[str, Any]] = {}
         self.candidate_rules: list[tuple[str, dict[str, Any]]] = []
@@ -84,14 +145,49 @@ class InMemoryArbitrationStore:
     def get_line(self, tenant_id: str, line_id: str) -> dict[str, Any] | None:
         return self.lines.get((tenant_id, line_id))
 
+    def list_lines(
+        self,
+        tenant_id: str,
+        *,
+        status: str = "ALL",
+        search: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Return one page of the tenant's lines merged with their decision, plus the total."""
+        needle = search.strip().casefold() if search else ""
+        rows: list[dict[str, Any]] = []
+        for (owner, line_id), line in self.lines.items():
+            if owner != tenant_id:
+                continue
+            decision = self.decisions.get((owner, line_id), {})
+            row = {**line, **{k: v for k, v in decision.items() if v is not None}}
+            row["line_id"] = line_id
+            row["raw_status"] = decision.get("status") or line.get("status") or "PENDING"
+            row["arbitrated_at"] = decision.get("arbitrated_at") or line.get("arbitrated_at")
+            if status != "ALL" and row["raw_status"] != status:
+                continue
+            if needle and not any(
+                needle in str(row.get(key) or "").casefold()
+                for key in ("label", "counterparty", "invoice_id")
+            ):
+                continue
+            rows.append(row)
+        rows.sort(key=lambda r: (str(r.get("operation_date") or ""), r["line_id"]))
+        return rows[offset : offset + limit], len(rows)
+
     def save_decision(self, tenant_id: str, line_id: str, decision: dict[str, Any]) -> None:
         self.decisions[(tenant_id, line_id)] = decision
 
     def save_candidate_rule(self, tenant_id: str, rule: dict[str, Any]) -> None:
+        if self.rule_writer is not None:
+            self.written_rule_paths.append(self.rule_writer.write(tenant_id, rule))
         self.candidate_rules.append((tenant_id, rule))
 
 
-_default_store = InMemoryArbitrationStore()
+_default_store = InMemoryArbitrationStore(
+    ObsidianCandidateRuleWriter(Path("knowledge") / "rules")
+)
 
 
 def get_arbitration_store() -> ArbitrationStore:
@@ -121,6 +217,57 @@ def _build_candidate_rule(tenant_id: str, line: dict[str, Any], decision: dict[s
     }
 
 
+def _to_view(row: dict[str, Any]) -> ReconciliationLineView:
+    def text(key: str) -> str | None:
+        value = row.get(key)
+        return None if value is None else str(value)
+
+    invoice_id = text("invoice_id")
+    invoice_url = text("invoice_url")
+    if invoice_url is None and invoice_id:
+        invoice_url = f"/invoices/{quote(invoice_id, safe='')}/document"
+    reason, arbitrated_at = text("reason"), text("arbitrated_at")
+    metadata = (
+        ArbitrationMetadata(reason=reason, arbitrated_at=arbitrated_at)
+        if reason or arbitrated_at
+        else None
+    )
+    return ReconciliationLineView(
+        line_id=row["line_id"],
+        operation_date=text("operation_date"),
+        label=text("label"),
+        debit_amount=text("debit_amount"),
+        credit_amount=text("credit_amount"),
+        currency=text("currency"),
+        status=_VIEW_STATUS.get(row["raw_status"], "PENDING"),
+        counterparty=text("counterparty"),
+        invoice_id=invoice_id,
+        invoice_url=invoice_url,
+        debit_account=text("debit_account"),
+        credit_account=text("credit_account"),
+        vat_amount=text("vat_amount"),
+        arbitration_metadata=metadata,
+    )
+
+
+@router.get("/lines", response_model=ReconciliationLinesPage)
+def list_reconciliation_lines(
+    request: Request,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    status: LineStatusFilter = LineStatusFilter.ALL,
+    search: str | None = Query(None, max_length=200),
+    store: ArbitrationStore = Depends(get_arbitration_store),
+) -> ReconciliationLinesPage:
+    tenant_id = _tenant_of(request)
+    rows, total = store.list_lines(
+        tenant_id, status=status.value, search=search, limit=limit, offset=offset
+    )
+    return ReconciliationLinesPage(
+        items=[_to_view(r) for r in rows], total=total, limit=limit, offset=offset
+    )
+
+
 @router.post("/arbitrate", response_model=ArbitrationResult)
 def arbitrate(
     body: ArbitrationRequest,
@@ -137,7 +284,11 @@ def arbitrate(
     if line.get("status") not in (None, "PENDING"):
         raise HTTPException(status_code=409, detail="LINE_ALREADY_ARBITRATED")
 
-    decision: dict[str, Any] = {"action": body.action.value, "reason": body.reason}
+    decision: dict[str, Any] = {
+        "action": body.action.value,
+        "reason": body.reason,
+        "arbitrated_at": datetime.now(timezone.utc).isoformat(),
+    }
     if body.action is ArbitrationAction.PERSONAL_EXPENSE:
         decision.update(
             status="BOOKED_PERSONAL",
@@ -162,7 +313,12 @@ def arbitrate(
     candidate = None
     if body.remember_rule:
         candidate = _build_candidate_rule(tenant_id, line, decision)
-        store.save_candidate_rule(tenant_id, candidate)
+        try:
+            store.save_candidate_rule(tenant_id, candidate)
+        except RuleRegistryError as exc:
+            raise HTTPException(status_code=400, detail=exc.code) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="INVALID_CANDIDATE_RULE") from exc
 
     store.save_decision(tenant_id, body.line_id, decision)
     return ArbitrationResult(

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
+import uuid
 from pathlib import Path
 from types import MappingProxyType
 from typing import Iterable, Mapping
@@ -377,3 +378,80 @@ class RuleRegistryService:
     @staticmethod
     def _ordered(rules: Iterable[BusinessRuleModel]) -> list[BusinessRuleModel]:
         return sorted(rules, key=lambda rule: (rule.priority, rule.rule_id))
+
+
+_WRITABLE_STATUSES = frozenset({"candidate", "approved"})
+
+
+class ObsidianCandidateRuleWriter:
+    """Persist HITL candidate rules as Markdown files under ``<root>/tenants/<tenant_id>/``."""
+
+    def __init__(self, root: Path, *, status: str = "candidate") -> None:
+        if status not in _WRITABLE_STATUSES:
+            raise ValueError(f"status must be one of {sorted(_WRITABLE_STATUSES)}")
+        self._root = Path(root)
+        self._status = status
+
+    @staticmethod
+    def _slug(value: str) -> str:
+        slug = re.sub(r"[^a-z0-9]+", "-", value.casefold()).strip("-")[:40].strip("-")
+        return slug or "unknown"
+
+    def tenant_directory(self, tenant_id: str) -> Path:
+        RuleRegistryService._validate_tenant_id(tenant_id)
+        tenants_root = (self._root / "tenants").resolve()
+        target = (tenants_root / tenant_id).resolve()
+        if target.parent != tenants_root:
+            raise RuleRegistryError("PATH_TRAVERSAL", repr(tenant_id))
+        return target
+
+    def write(
+        self,
+        tenant_id: str,
+        candidate: Mapping[str, object],
+        *,
+        operator: str = "contains",
+    ) -> Path:
+        """Write one rule file and return its path; never overwrites an existing file."""
+        if operator not in ("contains", "eq"):
+            raise ValueError("operator must be 'contains' or 'eq'")
+        counterparty = candidate.get("counterparty")
+        if not isinstance(counterparty, str) or not counterparty.strip():
+            raise ValueError("candidate rule requires a non-empty counterparty")
+        counterparty = counterparty.strip()
+
+        directory = self.tenant_directory(tenant_id)
+        directory.mkdir(parents=True, exist_ok=True)
+        if directory.resolve().parent != (self._root / "tenants").resolve():
+            raise RuleRegistryError("PATH_TRAVERSAL", repr(tenant_id))
+
+        rule_id = f"R-HITL-{tenant_id}-{self._slug(counterparty)}-{uuid.uuid4().hex[:8]}"
+        parameters = {
+            key: candidate[key]
+            for key in ("debit_account", "credit_account")
+            if candidate.get(key) is not None
+        }
+        frontmatter = {
+            "rule_id": rule_id,
+            "version": "1.0.0",
+            "status": self._status,
+            "domain": "accounting",
+            "applies_to_nodes": ["rule_evaluation"],
+            "priority": 100,
+            "conditions": [
+                {"field": "counterparty", "operator": operator, "value": counterparty}
+            ],
+            "deterministic_actions": [
+                {"action": "assign_accounts", "parameters": parameters}
+            ],
+        }
+        body = (
+            f"---\n{yaml.safe_dump(frontmatter, sort_keys=False, allow_unicode=True)}---\n\n"
+            f"# {rule_id}\n\n"
+            f"Règle générée par arbitrage HITL (action `{candidate.get('action')}`) "
+            f"pour le tenant `{tenant_id}`.\n"
+        )
+        path = directory / f"{rule_id}.md"
+        with path.open("x", encoding="utf-8", newline="\n") as handle:
+            handle.write(body)
+        return path
