@@ -38,6 +38,41 @@ function accounts(line: ReconciliationLineView): string {
   return `${line.debit_account ?? "—"} / ${line.credit_account ?? "—"}`;
 }
 
+type ExportKind = "fec" | "reconciliation" | "arbitrations";
+
+const EXPORT_FALLBACK_NAMES: Record<ExportKind, string> = {
+  fec: "FEC.txt",
+  reconciliation: "REVISION_reconciliation.csv",
+  arbitrations: "REVISION_arbitrations.csv",
+};
+
+function filenameFromDisposition(header: string | null, fallback: string): string {
+  if (!header) return fallback;
+  const star = /filename\*=UTF-8''([^;]+)/i.exec(header);
+  if (star) {
+    try {
+      return decodeURIComponent(star[1].trim());
+    } catch {
+      /* fall through to plain filename */
+    }
+  }
+  const plain = /filename="?([^";]+)"?/i.exec(header);
+  const name = plain?.[1]?.trim().replace(/[\\/]/g, "_");
+  return name || fallback;
+}
+
+async function exportErrorMessage(response: Response): Promise<string> {
+  let detail = "";
+  try {
+    const body = (await response.json()) as { detail?: unknown };
+    if (typeof body.detail === "string") detail = body.detail;
+    else if (body.detail !== undefined) detail = JSON.stringify(body.detail);
+  } catch {
+    /* non-JSON body */
+  }
+  return detail ? `HTTP ${response.status} : ${detail}` : `HTTP ${response.status}`;
+}
+
 export default function ReconciliationTable({
   tenantId,
   apiBaseUrl = "",
@@ -53,6 +88,51 @@ export default function ReconciliationTable({
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<ReconciliationLineView | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [exporting, setExporting] = useState<ExportKind | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  const handleExport = useCallback(
+    async (kind: ExportKind) => {
+      const params = new URLSearchParams();
+      if (kind !== "fec") {
+        params.set("scope", kind);
+        params.set("format", "csv");
+      }
+      if (dateFrom) params.set("date_from", dateFrom);
+      if (dateTo) params.set("date_to", dateTo);
+      const path = kind === "fec" ? "/accounting/export/fec" : "/accounting/export/spreadsheet";
+      const query = params.toString();
+
+      setExporting(kind);
+      setExportError(null);
+      try {
+        const response = await fetch(`${apiBaseUrl}${path}${query ? `?${query}` : ""}`, {
+          headers: { "X-Tenant-ID": tenantId },
+        });
+        if (!response.ok) throw new Error(await exportErrorMessage(response));
+        const blob = await response.blob();
+        const filename = filenameFromDisposition(
+          response.headers.get("Content-Disposition"),
+          EXPORT_FALLBACK_NAMES[kind],
+        );
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+      } catch (e: unknown) {
+        setExportError(e instanceof Error ? e.message : "Erreur inconnue");
+      } finally {
+        setExporting(null);
+      }
+    },
+    [apiBaseUrl, tenantId, dateFrom, dateTo],
+  );
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -128,6 +208,54 @@ export default function ReconciliationTable({
         />
         {loading && <span className="text-sm text-gray-500">Chargement…</span>}
       </div>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="flex items-center gap-1 text-sm text-gray-700">
+          Du
+          <input
+            type="date"
+            aria-label="Date de début"
+            value={dateFrom}
+            max={dateTo || undefined}
+            onChange={(e) => setDateFrom(e.target.value)}
+            className="rounded border border-gray-300 px-2 py-1 text-sm"
+          />
+        </label>
+        <label className="flex items-center gap-1 text-sm text-gray-700">
+          au
+          <input
+            type="date"
+            aria-label="Date de fin"
+            value={dateTo}
+            min={dateFrom || undefined}
+            onChange={(e) => setDateTo(e.target.value)}
+            className="rounded border border-gray-300 px-2 py-1 text-sm"
+          />
+        </label>
+        {(
+          [
+            ["fec", "Export FEC (.txt)"],
+            ["reconciliation", "Journal de révision (.csv)"],
+            ["arbitrations", "Relevé des arbitrages (.csv)"],
+          ] as [ExportKind, string][]
+        ).map(([kind, label]) => (
+          <button
+            key={kind}
+            type="button"
+            disabled={exporting !== null}
+            onClick={() => void handleExport(kind)}
+            className="rounded border border-gray-300 bg-white px-3 py-1 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {exporting === kind ? "Export en cours…" : label}
+          </button>
+        ))}
+      </div>
+
+      {exportError && (
+        <p role="alert" className="text-sm text-red-600">
+          Échec de l&apos;export ({exportError}).
+        </p>
+      )}
 
       {error && (
         <p role="alert" className="text-sm text-red-600">
