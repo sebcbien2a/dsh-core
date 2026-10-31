@@ -1,3 +1,13 @@
+---
+master_doc: PROJECT_HANDOVER.md
+branch_domain: Annexe transverse — État historique du projet
+status: FROZEN
+upstream_dependencies: [git history]
+downstream_consumers: []
+verification_tests: []
+contract_version: 1.0.1
+---
+
 # État du projet DSH-Core
 
 ## Référence Git
@@ -33,3 +43,10 @@
 
 ## Prochaine étape technique unique
 Obtenir une validation humaine documentée de l'orientation attendue des deux factures contestées avant toute mise à jour des résultats de référence.
+
+### Documents minimaux de reprise
+
+- docs/PROJECT_STATE.md
+- docs/PROJECT_DECISIONS.md
+
+Ces deux fichiers doivent permettre à eux seuls de reconstruire l’état du projet dans une nouvelle conversation.

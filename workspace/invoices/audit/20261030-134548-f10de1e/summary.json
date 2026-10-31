@@ -1,0 +1,121 @@
+{
+  "run_id": "20261030-134548-f10de1e",
+  "output_dir": "A:\\dsh-core\\workspace\\invoices\\audit\\20261030-134548-f10de1e",
+  "generated_at": "2026-10-30T13:54:49+01:00",
+  "record_count": 6,
+  "decisions": {
+    "VALIDATED": 0,
+    "HITL": 6,
+    "REJECTED": 0
+  },
+  "rule_outcomes": {
+    "NOT_TRIGGERED": 0,
+    "NO_RULE_REACHED": 0,
+    "RULE_EVALUATION_SKIPPED": 5,
+    "RULE_MISSING": 0,
+    "TRIGGERED_BLOCKED": 1,
+    "TRIGGERED_RESOLVED": 0,
+    "UNKNOWN": 0
+  },
+  "blocking_codes": [
+    {
+      "code": "INVOICE_NOT_VALIDATED",
+      "layer": "rule",
+      "severity": "blocker",
+      "count": 5
+    },
+    {
+      "code": "VISION_EXTRACTION_FAILED",
+      "layer": "production",
+      "severity": "blocker",
+      "count": 5
+    },
+    {
+      "code": "AMBIGUOUS_ZERO_VAT",
+      "layer": "rule",
+      "severity": "blocker",
+      "count": 1
+    },
+    {
+      "code": "MISSING_SIRET",
+      "layer": "extraction",
+      "severity": "warning",
+      "count": 1
+    },
+    {
+      "code": "MISSING_VAT_NUMBER",
+      "layer": "extraction",
+      "severity": "warning",
+      "count": 1
+    }
+  ],
+  "records_with_blockers": 6,
+  "file_types": {
+    "pdf": 6
+  },
+  "extraction_field_coverage": {
+    "supplier_name": {
+      "present": 1,
+      "total": 6,
+      "ratio": 0.167
+    },
+    "siret": {
+      "present": 0,
+      "total": 6,
+      "ratio": 0.0
+    },
+    "vat_number": {
+      "present": 0,
+      "total": 6,
+      "ratio": 0.0
+    },
+    "country": {
+      "present": 1,
+      "total": 6,
+      "ratio": 0.167
+    },
+    "invoice_number": {
+      "present": 1,
+      "total": 6,
+      "ratio": 0.167
+    },
+    "issue_date": {
+      "present": 1,
+      "total": 6,
+      "ratio": 0.167
+    },
+    "net_amount": {
+      "present": 1,
+      "total": 6,
+      "ratio": 0.167
+    },
+    "tax_amount": {
+      "present": 1,
+      "total": 6,
+      "ratio": 0.167
+    },
+    "gross_amount": {
+      "present": 1,
+      "total": 6,
+      "ratio": 0.167
+    }
+  },
+  "top_suppliers": [
+    {
+      "name": "CRISOL COLOR, S.L.",
+      "count": 1
+    }
+  ],
+  "durations_ms": {
+    "min": 90053,
+    "median": 90073,
+    "max": 90787,
+    "total": 541139
+  },
+  "cloud_escalations": {
+    "count": 0,
+    "ratio": 0.0,
+    "threshold": 0.05,
+    "exceeded": false
+  }
+}

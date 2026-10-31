@@ -1,3 +1,13 @@
+---
+master_doc: PROJECT_HANDOVER.md
+branch_domain: Annexe historique — Archives numérotées
+contract_version: 1.0.1
+status: FROZEN
+upstream_dependencies: []
+downstream_consumers: []
+verification_tests: []
+---
+
 # 04 - INVENTAIRE DSH-CORE (MAPPAGE ET DÉPENDANCES)
 
 Ce document dresse l'inventaire exact des fichiers actuels du projet `dsh-core`, de leurs interdépendances et de leurs méthodes publiques, afin de préparer l'audit de refactoring et d'éliminer la dette technique (fusion/suppression d'agents obsolètes).

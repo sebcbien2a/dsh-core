@@ -1,274 +1,137 @@
 # Inventaire Qdrant — DSH-Core
 
-## Méthode et limites
+**État de référence : 31 octobre 2026 (phase P9.4).**
 
-- Inventaire du serveur Qdrant local `http://localhost:6333`, relevé le
-  **2026-10-19 vers 18:08 UTC** (20:08 heure locale).
-- Version déclarée par le serveur : **Qdrant 1.19.1**.
-- Le nombre de points a été vérifié avec l'API de comptage exacte
-  (`exact=true`). Les points présents dans les collections non vides ont chacun
-  un vecteur dense de **768 dimensions**; le nombre de vecteurs stockés indiqué
-  ci-dessous est donc égal au nombre de points.
-- « Dernière utilisation journalisée » désigne la dernière opération de données
-  visible dans les journaux du conteneur Qdrant conservés sur les 30 derniers
-  jours, avant le début des requêtes de cet audit (avant
-  **2026-10-19 18:07 UTC**). Cela ne
-  prouve pas le dernier accès applicatif : les journaux peuvent être incomplets
-  ou expurgés. Les vérifications de présence de collection ne sont pas comptées
-  comme opérations de données.
-- Les dates `created_at` et `timestamp` mentionnées sont des valeurs de payload,
-  pas un historique complet des accès. Une collection vide ou sans journal
-  exploitable n'a pas de dernière utilisation vérifiable.
-- La recherche du code couvre les sources Python du dépôt, y compris les scripts
-  de test et de sauvegarde. Aucun contenu de point n'est reproduit dans ce
-  rapport.
+Ce document remplace l'inventaire détaillé du 19 octobre 2026. L'état courant
+est issu du serveur local `http://localhost:6333`, Qdrant **1.19.1**, après
+l'assainissement P9.4. Le contrat de payload est
+[`docs/PERSISTENCE_QDRANT_NEO4J_CONTRACT.md`](docs/PERSISTENCE_QDRANT_NEO4J_CONTRACT.md)
+et l'annexe opérationnelle est
+[`docs/collections_qdrant.md`](docs/collections_qdrant.md).
 
-## Collections présentes sur le serveur
+## 1. Méthode
 
-| Collection | Vecteurs / points | Dernière utilisation journalisée | Classification |
-|---|---:|---|---|
-| `agent_skills` | 4 | 2026-09-30 04:09:04 UTC — `POST /points/payload` | **TEST** |
-| `document_bus` | 0 | Aucune opération de données trouvée dans les journaux conservés | **ACTIF** |
-| `invoice_documents` | 3 | 2026-10-01 00:35:29 UTC — `PUT /points` | **INCONNU** |
-| `mem0` | 0 | Aucune opération de données trouvée dans les journaux conservés | **ACTIF** |
-| `mem0migrations` | 0 | Aucune opération de données trouvée dans les journaux conservés | **INCONNU** |
-| `research_cache` | 0 | 2026-09-29 02:18:48 UTC — `POST /points` | **ACTIF** |
-| `skills_catalog` | 0 | Aucune opération de données trouvée dans les journaux conservés | **ABANDONNÉ** |
-| `teacher_student_metrics` | 16 | 2026-10-02 02:56:24 UTC — `POST /points/scroll` | **ACTIF** |
+- Relevé par l'API Qdrant et par
+  `tools/audit_qdrant_collections.py` avec l'interpréteur
+  `A:\dsh-core\.venv-v3\Scripts\python.exe`.
+- Les comptes de points sont exacts (`count(exact=true)`), les dimensions et
+  les distances proviennent de la configuration de chaque collection.
+- Aucun contenu de point, aucune valeur métier et aucun secret ne sont
+  reproduits ici.
+- Les writers/readers ont été recherchés dans les sources Python du dépôt.
+  Une classe présente mais non instanciée n'est pas considérée comme raccordée.
 
-**Total présent : 23 vecteurs dans 8 collections.**
+## 2. État réel du serveur
 
-## Détail par collection
+| Indicateur | Valeur |
+|---|---|
+| Collections présentes | **9** |
+| Collections absentes | **2** (`invoices`, `episodic_memory`) |
+| Points stockés | **0** |
+| Vecteurs de 768 dimensions | oui, pour toutes les collections présentes |
+| Distance | `Cosine` |
+| Points non conformes au contrat facture | **0** |
+| Candidats de purge | **0** |
 
-### `agent_skills` — TEST
+### 2.1 Collections présentes
 
-- **État :** 4 vecteurs de 768 dimensions.
-- **Écriture :** `repositories/skills_repository.py`, méthode
-  `SkillsRepository.save_skill`; l'agent `agents/skill_creator_agent.py`
-  l'utilise. `agents/teacher_student_agent.py` peut déclencher cet agent sous
-  certaines conditions. Le script `test_learning_loop.py` crée également un
-  skill.
-- **Lecture :** `SkillsRepository.find_relevant_skills` et
-  `SkillsRepository.increment_usage`, appelés par
-  `services/skill_router.py::SkillRouter.retrieve_skill_for_task`.
-  `test_learning_loop.py` exerce cette voie.
-- **Raccordement applicatif :** `agents/research_agent.py` appelle désormais
-  `SkillRouter.retrieve_skill_for_task`. Cette correction est enregistrée dans
-  le commit `658dc45` et a été validée par test isolé; ce test ne constitue pas
-  une validation E2E du pipeline de recherche. Les points présents et l'activité
-  journalisée correspondent au moins à une utilisation antérieure; les sources
-  actuelles ne permettent pas d'attribuer cette activité à un appel de
-  production précis.
-- **Payload :** le dernier `created_at` observé est
-  `2026-09-30T06:08:58.616308`; le payload contient `usage_count`, mais pas de
-  date de dernière utilisation.
-- **Classement :** collection de skills effectivement couverte par un test,
-  avec un raccordement de recherche applicatif actuellement cassé.
+| Collection | Points | Dimension | Distance | Index de payload | Rôle | Tenant |
+|---|---:|---:|---|---|---|---|
+| `agent_skills` | 0 | 768 | Cosine | — | Skills distillés (legacy) | Aucun |
+| `document_bus` | 0 | 768 | Cosine | — | Bus documentaire RAG (legacy) | Aucun |
+| `invoice_documents` | 0 | 768 | Cosine | — | Ancienne similarité facture (legacy) | Aucun |
+| `mem0` | 0 | 768 | Cosine | `actor_id`, `agent_id`, `run_id`, `user_id` | Mémoire Mem0 | Aucun `tenant_id` |
+| `mem0_memories` | 0 | 768 | Cosine | `actor_id`, `agent_id`, `run_id`, `user_id` | Ancienne collection de test Mem0 — **blacklistée** | Aucun |
+| `mem0migrations` | 0 | 768 | Cosine | `actor_id`, `agent_id`, `run_id`, `user_id` | Migrations Mem0 — **blacklistée** | Aucun |
+| `research_cache` | 0 | 768 | Cosine | — | Cache de recherche (legacy) | Aucun |
+| `skills_catalog` | 0 | 768 | Cosine | — | Ancienne collection planifiée — **blacklistée** | Aucun |
+| `teacher_student_metrics` | 0 | 768 | Cosine | — | Métriques teacher/student (legacy) | Aucun |
 
-### `document_bus` — ACTIF
+### 2.2 Collections absentes
 
-- **État :** 0 vecteur.
-- **Écriture prévue dans le code :** `memory_manager.py::indexer_document`
-  appelle LlamaIndex `VectorStoreIndex.from_documents`. Le script
-  `test_llamaindex_qdrant.py` construit aussi un index avec cette collection.
-  Aucun appelant de `indexer_document` n'a été repéré dans le code applicatif.
-- **Lecture :** `agents/research_agent.py` ouvre la collection comme
-  `QdrantVectorStore` et son mode document interroge l'index via un retriever.
-  Cette lecture est raccordée à la route de recherche de l'API; la collection
-  est toutefois vide au relevé.
-- **Activité :** les journaux conservés ne montrent pas d'opération de données
-  sur cette collection; dernière utilisation non déterminable.
-- **Classement :** cible d'une voie de lecture documentaire applicative, mais
-  sans vecteur actuellement stocké.
+| Collection | Points | Statut |
+|---|---:|---|
+| `invoices` | 0 | **Canonique** ; créée paresseusement par `QdrantVectorStore.ensure_collection()` au premier commit |
+| `episodic_memory` | 0 | Ancienne collection `repositories/memory_repository.py`, non raccordée |
 
-### `invoice_documents` — INCONNU
+### 2.3 Collection canonique `invoices`
 
-- **État :** 3 vecteurs de 768 dimensions.
-- **Écriture :** aucun writer vers cette collection n'a été trouvé dans les
-  sources Python actuelles.
-- **Lecture prévue dans le code :** `services/invoice_similarity_service.py`,
-  méthodes `find_similar_invoices` et `find_invoices_by_supplier`. Aucune
-  instanciation ou utilisation effective de ce service n'a été repérée.
-- **Activité :** le dernier appel de données journalisé est une écriture
-  `PUT /points` du 2026-10-01 00:35:29 UTC, mais son origine n'est pas attribuable
-  au code actuel examiné. Le payload contient une date métier
-  `date_facture=2024-01-15`, qui ne donne pas la date d'indexation.
-- **Classement :** des données existent, mais leur writer, leur propriétaire et
-  leur usage applicatif courant ne sont pas identifiés.
+- Écriture : `services/persistence_manager.py::PersistenceManager` via
+  `QdrantVectorStore`.
+- Payload strict : `schemas/vector_payload_schema.py::InvoiceVectorPayloadV1`.
+- Champs structurants : `contract_version="1.0.1"`, `tenant_id`,
+  `source_sha256`, `invoice_id`, `point_id`, `text`.
+- Vecteur : 768 dimensions, distance `Cosine`.
+- Clé de point : `uuid5(NAMESPACE_URL, "qdrant:<invoice_id>")`.
+- Isolation : **toute lecture métier doit filtrer `tenant_id`** ; aucune
+  recherche multi-tenant sans filtre explicite.
 
-### `mem0` — ACTIF
+## 3. Purge P9.4
 
-- **État :** 0 vecteur.
-- **Écriture :** le module racine `memory_manager.py` initialise Mem0 via
-  `Memory.from_config`; `ajouter_souvenir` appelle `memoire_m0.add`. La
-  fonction `register_skill` peut ajouter un souvenir à l'enregistrement d'un
-  skill.
-- **Lecture :** `recuperer_contexte` appelle `memoire_m0.search`; le routeur
-  racine `router.py::route_prompt` l'utilise lorsqu'il récupère le contexte.
-- **Collection effective :** la configuration de ce module ne précise pas de
-  `collection_name`; `mem0` est la collection présente sur le serveur. La
-  correspondance est donc déduite du client Mem0 et du nom observé.
-- **Activité :** aucun appel de données sur `mem0` trouvé dans les journaux
-  conservés; dernière utilisation non déterminable. L'import du module
-  configure le client, mais cela ne démontre pas une écriture.
-- **Classement :** voie mémoire présente et appelée par le code, sans données
-  persistées au moment du relevé.
+Commande exécutée :
 
-### `mem0migrations` — INCONNU
+```powershell
+A:\dsh-core\.venv-v3\Scripts\python.exe tools\audit_qdrant_collections.py --sanitize --apply
+```
 
-- **État :** 0 vecteur.
-- **Écriture/lecture applicatives :** aucun accès direct trouvé dans les sources
-  du projet.
-- **Origine probable :** collection auxiliaire liée à l'initialisation ou aux
-  migrations Mem0, puisque le projet initialise `Memory.from_config`; cette
-  attribution est une déduction et n'est pas déclarée dans le code applicatif.
-- **Activité :** aucune opération de données observée dans les journaux
-  conservés.
-- **Classement :** collection présente dont le rôle interne et le cycle de vie
-  n'ont pas été confirmés.
+Points supprimés :
 
-### `research_cache` — ACTIF
+| Collection | Points |
+|---|---:|
+| `agent_skills` | 4 |
+| `document_bus` | 4 |
+| `invoice_documents` | 3 |
+| `mem0_memories` | 1 |
+| `teacher_student_metrics` | 16 |
+| **Total** | **28** |
 
-- **État :** 0 vecteur.
-- **Écriture :** `agents/research_agent.py::_save_cache` fait un `upsert` après
-  une recherche approfondie réussie.
-- **Lecture :** `ResearchAgent._check_cache` récupère le résultat avant
-  l'exécution de la stratégie approfondie.
-- **Création :** `ResearchAgent.__init__` crée la collection si elle est
-  absente.
-- **Activité :** dernier appel de données journalisé :
-  `POST /points` le 2026-09-29 02:18:48 UTC. La collection est vide maintenant;
-  l'écriture historique peut avoir été remplacée ou les points supprimés.
-- **Classement :** cache raccordé au code de recherche, mais actuellement vide.
+Après suppression, l'audit final ne signale :
 
-### `skills_catalog` — ABANDONNÉ
+- aucun point non conforme ;
+- aucun candidat de purge ;
+- aucun point dans une collection blacklistée.
 
-- **État :** 0 vecteur.
-- **Écriture/lecture applicatives :** aucune référence opérationnelle trouvée
-  dans le code Python courant. Le nom apparaît dans une ancienne documentation
-  d'architecture comme collection prévue; le code actuel utilise plutôt
-  `agent_skills`.
-- **Activité :** aucun appel de données observé dans les journaux conservés.
-- **Classement :** ancienne collection planifiée sans writer ni reader courant
-  repéré.
+Rapports :
 
-### `teacher_student_metrics` — ACTIF
+- planification : `workspace/qdrant/audit/qdrant-audit-20261031T165442Z.json` ;
+- contrôle final : `workspace/qdrant/audit/qdrant-audit-20261031T165449Z.json`.
 
-- **État :** 16 vecteurs de 768 dimensions.
-- **Écriture :** `agents/teacher_student_agent.py::_record_metric` fait un
-  `upsert`. `agents/research_agent.py` instancie cet agent quand Qdrant est
-  disponible et appelle `handle_task_result` pour ses stratégies de recherche.
-- **Lecture :** `TeacherStudentAgent._should_create_skill` compte des métriques;
-  `repositories/teacher_student_repository.py::get_global_metrics` lit la
-  collection avec `scroll`. Aucun appelant de ce repository de lecture n'a été
-  repéré.
-- **Activité :** dernière opération de données journalisée :
-  `POST /points/scroll` le 2026-10-02 02:56:24 UTC. Le `timestamp` maximum
-  observé dans les payloads est `2026-10-01T03:02:12.865580`.
-- **Classement :** collection de métriques raccordée à l'agent de recherche
-  pour l'écriture; le tableau de bord/repository de lecture n'est pas raccordé
-  à un appelant repéré.
+## 4. Writers / readers identifiés
 
-## Collections définies par le code mais absentes du serveur
-
-| Collection | Vecteurs actuels | Code qui écrit | Code qui lit | Classification |
-|---|---:|---|---|---|
-| `invoices` | 0 — collection absente | `invoice_indexer.py::InvoiceIndexer.indexer_facture_json` (création et `upsert`) | `InvoiceIndexer.rechercher` | **TEST** |
-| `episodic_memory` | 0 — collection absente | `repositories/memory_repository.py::MemoryRepository.save_memory` | `search_semantic_memory` et `get_session_history` | **ABANDONNÉ** |
-| `mem0_memories` | 0 — collection absente | `test_mem0_qdrant.py` configure Mem0 et appelle `add` | `test_mem0_qdrant.py` appelle `search` | **TEST** |
-
-### Précisions sur ces collections absentes
-
-- `invoices` n'est créée qu'à l'instanciation de `InvoiceIndexer`, utilisée dans
-  le bloc de lancement autonome du script. Aucun appelant applicatif n'a été
-  repéré.
-- `episodic_memory` est le nom par défaut du `MemoryRepository`, mais le
-  `services.memory_manager.MemoryManager` qui l'utilise n'est instancié par
-  aucun appelant repéré. La collection n'existe pas sur le serveur.
-- `mem0_memories` est explicitement configurée par le script de test; elle ne
-  figure pas dans l'inventaire runtime. Le `memory_manager.py` racine utilise une
-  configuration Mem0 distincte sans nom de collection explicite.
-
-## Synthèse des writers/readers Qdrant repérés
-
-| Composant | Collection(s) | Écriture | Lecture |
+| Composant | Collection | Écriture | Lecture |
 |---|---|---|---|
-| `repositories/skills_repository.py::SkillsRepository` | `agent_skills` par défaut | `save_skill` | `find_relevant_skills`, `increment_usage` |
-| `agents/teacher_student_agent.py::TeacherStudentAgent` | `teacher_student_metrics` | `_record_metric` | `_should_create_skill` (`count`) |
-| `repositories/teacher_student_repository.py::TeacherStudentRepository` | `teacher_student_metrics` | — | `get_global_metrics` (`scroll`) |
-| `agents/research_agent.py::ResearchAgent` | `research_cache`, `document_bus` | `_save_cache` (`research_cache`) | `_check_cache`; retriever de `document_bus` |
-| `memory_manager.py` (racine) | `document_bus`, Mem0 (`mem0` observé) | `indexer_document`; `ajouter_souvenir` | `interroger_documents`; `recuperer_contexte` |
-| `services/invoice_similarity_service.py` | `invoice_documents` | Aucun writer trouvé | recherche vectorielle et par fournisseur |
-| `invoice_indexer.py::InvoiceIndexer` | `invoices` | `indexer_facture_json` | `rechercher` |
-| `repositories/memory_repository.py::MemoryRepository` | `episodic_memory` par défaut | `save_memory` | recherche sémantique et historique de session |
+| `services/persistence_manager.py::PersistenceManager` | `invoices` (canonique) | `QdrantVectorStore.upsert` | — (writer du pipeline) |
+| `repositories/skills_repository.py` | `agent_skills` | `save_skill` | `find_relevant_skills`, `increment_usage` |
+| `agents/teacher_student_agent.py` | `teacher_student_metrics` | `_record_metric` | `_should_create_skill` |
+| `repositories/teacher_student_repository.py` | `teacher_student_metrics` | — | `get_global_metrics` |
+| `agents/research_agent.py` | `research_cache`, `document_bus` | `_save_cache` | `_check_cache`, retriever documentaire |
+| `memory_manager.py` (racine) | `document_bus`, `mem0` | `indexer_document`, `ajouter_souvenir` | `interroger_documents`, `recuperer_contexte` |
+| `services/invoice_similarity_service.py` | `invoice_documents` | Aucun writer canonique | Recherche vectorielle et par fournisseur |
+| `repositories/memory_repository.py` | `episodic_memory` | `save_memory` | `search_semantic_memory`, `get_session_history` |
 | `test_mem0_qdrant.py` | `mem0_memories` | `Memory.add` | `Memory.search` |
 
-Les collections vides restent néanmoins susceptibles d'être créées ou utilisées
-par ces chemins lorsqu'ils sont exécutés. Les classes de repository et services
-non instanciés ne prouvent pas qu'une écriture ou une lecture a effectivement eu
-lieu.
+Les collections `agent_skills`, `document_bus`, `research_cache`,
+`invoice_documents`, `teacher_student_metrics`, `mem0`, `mem0_memories`,
+`mem0migrations`, `skills_catalog` et `episodic_memory` ne portent pas de
+`tenant_id`. Elles ne doivent pas servir de source d'isolation multi-tenant
+pour le pipeline facture.
 
-# AUDITS QDRANT P1-2 ET P1-3 — 15 OCTOBRE 2026
+## 5. Historique
 
-Cette section consigne les résultats communiqués pour les audits P1-2 et P1-3.
-La date du 15 octobre 2026 est la date réelle d'intervention déclarée. Les
-horodatages de fichiers ci-dessous sont des métadonnées observées pendant la
-comparaison, et non des dates d'exécution des audits.
+- **2026-10-19** : relevé initial, 8 collections présentes et 23 points
+  (dont des skills, des documents legacy et des métriques). Il incluait
+  `research_cache` vide et ne contenait pas encore `mem0_memories`.
+- **2026-10-31 (P9.4)** : audit et purge. Le serveur comptait 9 collections
+  présentes, 28 points et 0 point conforme au contrat facture. Les 28 points
+  ont été supprimés ; l'état courant est de 0 point.
+- Les anciens audits P1-2/P1-3 restent des pièces historiques ; leurs chiffres
+  ne décrivent plus l'état courant.
 
-## P1-2 — Comparaison non destructive des stockages
+## 6. Vérification
 
-- Stockage relié à l'instance Qdrant active observée :
-  `A:\dsh-core\qdrant_storage`.
-- Stockage secondaire inactif, sans seconde instance démarrée :
-  `A:\dsh-core\docker\qdrant_storage`.
-- La comparaison a été strictement non destructive; aucun stockage n'a été
-  modifié, fusionné, renommé ou déplacé.
-- Stockage actif : **4 366 859 237 octets**, **1 574 fichiers** et
-  **738 répertoires**.
-- Stockage secondaire : **3 553 976 763 octets**, **1 652 fichiers** et
-  **775 répertoires**.
-- Collections identifiables dans le stockage actif :
-  `agent_skills`, `document_bus`, `invoice_documents`, `mem0`,
-  `mem0migrations`, `research_cache`, `skills_catalog`,
-  `teacher_student_metrics`.
-- Collections identifiables dans le stockage secondaire :
-  `document_bus`, `invoices`, `mem0`, `mem0_memories`, `mem0migrations`.
-- Collections communes : `document_bus`, `mem0`, `mem0migrations`.
-- Cinq collections exclusives au stockage actif :
-  `agent_skills`, `invoice_documents`, `research_cache`, `skills_catalog`,
-  `teacher_student_metrics`.
-- Deux collections exclusives au stockage secondaire : `invoices` et
-  `mem0_memories`.
-- **1 544 fichiers** sont présents uniquement dans le stockage actif et
-  **1 622 fichiers** uniquement dans le stockage secondaire. Six chemins
-  communs ont des tailles différentes.
-- Le répertoire `.deleted` est présent uniquement dans le stockage secondaire.
-- Les dates extrêmes de dernière modification observées sur les fichiers sont
-  des métadonnées : stockage actif, du 27 septembre 2026 au 19 octobre 2026;
-  stockage secondaire, du 24 au 27 septembre 2026. Elles ne datent pas
-  l'exécution de l'audit.
-- **Statut P1-2 : `DIFFÉRENTS`.** Aucune équivalence, fusion ou autorité du
-  stockage secondaire ne peut être déduite. Le stockage racine reste le seul
-  stockage relié à l'instance active observée.
+```powershell
+A:\dsh-core\.venv-v3\Scripts\python.exe tools\audit_qdrant_collections.py
+```
 
-## P1-3 — Lecture des quatre points `agent_skills`
-
-- La collection active `agent_skills` a été interrogée en lecture seule; quatre
-  points ont été examinés.
-- Les quatre points ont le même `task_name` et le même objectif général :
-  extraire la TVA d'une facture présentant une inversion visuelle des montants
-  HT et TTC. Leurs contenus textuels, identifiants, dates et compteurs d'usage
-  diffèrent.
-- Chaque vecteur visible compte **768 dimensions**. Les similarités cosinus
-  calculées entre paires vont de **94,90 % à 99,04 %**; elles indiquent une
-  proximité, pas une identité.
-- Aucun doublon strict ni aucune contradiction de règle n'a été observé. La
-  redondance fonctionnelle est probable et les formulations sont partiellement
-  complémentaires.
-- Les payloads ne fournissent aucun champ de version ou de cycle de vie
-  exploitable. Un seul point a `usage_count=1`; les trois autres ont
-  `usage_count=0`.
-- Statut des quatre entrées : **`PROBABLE_DOUBLON`**.
-- Réponse à « Peut-on désigner immédiatement un skill canonique sans perte
-  d'information ? » : **NON**.
-- Aucune suppression, fusion, réécriture ou promotion n'a été effectuée.
+Attendu en mode courant : `Collections=11 present=9 points=0 conforming=0
+purge_candidates=0`.

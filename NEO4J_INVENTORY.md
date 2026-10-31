@@ -1,255 +1,156 @@
 # Inventaire Neo4j — DSH-Core
 
-## Méthode et limites
+**État de référence : 31 octobre 2026 (phase P9.4).**
 
-- Le serveur local `dsh-neo4j` était démarré et répondait au relevé du
-  **2026-10-19**.
-- Les données ont été comptées par des requêtes Cypher en lecture seule dans la
-  base `neo4j`. Seuls labels, types de relations, noms de propriétés, comptes et
-  dates déjà présentes ont été examinés; les valeurs métier ne sont pas
-  reproduites ici.
-- Les usages et appels applicatifs ont été recherchés dans les sources Python
-  du dépôt. Aucun appel n'a été exécuté pour cet audit.
-- « ABANDONNÉ » décrit ici un composant sans raccordement appelant trouvé dans
-  le dépôt courant; ce constat ne prouve pas qu'il n'est utilisé par un système
-  externe.
+Ce document décrit l'état réel du serveur local `dsh-neo4j` et distingue
+explicitement le chemin de persistance canonique des fichiers legacy non
+raccordés. Le contrat applicable est
+[`docs/PERSISTENCE_QDRANT_NEO4J_CONTRACT.md`](docs/PERSISTENCE_QDRANT_NEO4J_CONTRACT.md).
 
-## Résultat runtime — données réellement enregistrées
+## 1. Méthode
+
+- Instance locale Neo4j **Community 2026.09.0**, base `neo4j`, accessible via
+  le driver du projet.
+- Relevé en lecture par requêtes Cypher avec l'interpréteur
+  `A:\dsh-core\.venv-v3\Scripts\python.exe`.
+- Seuls les labels, types de relations, noms de propriétés, comptes et
+  contraintes sont reproduits. Aucune valeur métier et aucun secret ne sont
+  affichés.
+- « Non raccordé » signifie qu'aucune instanciation ou appel applicatif n'a
+  été trouvé dans les sources du dépôt. Cela ne prouve pas l'absence d'un
+  usage externe.
+
+## 2. État réel
 
 Le serveur contient **3 nœuds** et **2 relations** :
 
-| Label de nœud réellement observé | Nombre | Propriétés présentes | Date métier observée |
-|---|---:|---|---|
-| `Fournisseur` | 1 | `nom`, `region` | Aucune propriété de date observée |
-| `Facture` | 1 | `numero`, `date`, `montant` | `2026-09-20` |
-| `MouvementBancaire` | 1 | `id`, `date`, `montant` | `2026-09-27` |
+| Label observé | Nœuds | Propriétés observées |
+|---|---:|---|
+| `Facture` | 1 | `numero`, `date`, `montant` |
+| `Fournisseur` | 1 | `nom`, `region` |
+| `MouvementBancaire` | 1 | `id`, `date`, `montant` |
 
-Relations présentes :
-
-| Source | Relation | Cible | Nombre |
+| Source | Relation | Cible | Relations |
 |---|---|---|---:|
 | `Fournisseur` | `A_EMIS` | `Facture` | 1 |
 | `MouvementBancaire` | `REGLE` | `Facture` | 1 |
 
-Aucune contrainte Neo4j n'a été retournée. Les seuls index relevés sont les
-index natifs de lookup par label de nœud et type de relation.
+Contraintes d'unicité présentes :
 
-### Écart avec le modèle de graphe du code
+| Nom | Type | Label / propriété |
+|---|---|---|
+| `dsh_tenant_tenant_id` | `NODE_PROPERTY_UNIQUENESS` | `Tenant.tenant_id` |
+| `dsh_supplier_supplier_id` | `NODE_PROPERTY_UNIQUENESS` | `Supplier.supplier_id` |
+| `dsh_invoice_source_sha256` | `NODE_PROPERTY_UNIQUENESS` | `Invoice.source_sha256` |
 
-`GraphRepository.create_invoice_graph` écrit des labels anglais `Supplier`,
-`Invoice` et `Document`, avec des relations `BELONGS_TO` et `CONTAINS`.
-`Neo4jService` recherche les mêmes labels anglais et relations.
-Les nœuds présents utilisent au contraire `Fournisseur`, `Facture` et
-`MouvementBancaire`, et les relations `A_EMIS` et `REGLE`.
+Index : les trois index `RANGE` associés à ces contraintes, plus les deux index
+techniques `LOOKUP` de Neo4j.
 
-Par conséquent, **les requêtes actuelles de `Neo4jService` ne correspondent pas
-au graphe observé** et ne trouveraient pas les données présentes sous les
-labels/relation indiqués. Le relevé runtime ne permet pas d'attribuer avec
-certitude qui a créé ces données.
+### 2.1 Ontologie unifiée du contrat v1.0.1
 
-## ACTIF
+L'ontologie canonique est celle de `services/persistence_manager.py` :
 
-### Service Neo4j
+| Élément | Propriétés principales | Relations |
+|---|---|---|
+| `(:Tenant)` | `tenant_id`, `contract_version` | `OWNS` → `(:Invoice)` |
+| `(:Supplier)` | `supplier_id`, `name`, `siren`, `siret`, `vat_number`, `country` | `ISSUED` → `(:Invoice)` |
+| `(:Invoice)` | `source_sha256`, `invoice_id`, `document_number`, `issue_date`, `gross_amount`, `net_amount`, `tax_amount`, `currency`, `direction`, `validation_status`, `contract_version` | `OWNS`, `ISSUED`, `HAS_LINE`, `EVALUATED_BY` |
+| `(:InvoiceLine)` | `line_id`, `line_index`, `description`, `quantity`, `unit_price`, `total_amount`, `tax_rate` | `HAS_LINE` depuis `(:Invoice)` |
+| `(:RuleOutcome)` | `rule_id`, `outcome`, `reason` | `EVALUATED_BY` depuis `(:Invoice)` |
 
-- Le conteneur Neo4j est actif et accessible.
-- Le graphe comporte les trois nœuds et deux relations décrits ci-dessus.
-- Ce statut est celui de l'infrastructure et des données présentes; il ne
-  signifie pas que le code `GraphRepository` est utilisé par l'application.
+**Comptes actuels :** `Tenant` = 0, `Supplier` = 0, `Invoice` = 0,
+`InvoiceLine` = 0, `RuleOutcome` = 0. L'ontologie unifiée est donc vide mais
+prête : les contraintes existent et le premier commit de
+`PersistenceManager` créera les nœuds. Les labels `Tenant`, `Supplier`,
+`Invoice` et `RuleOutcome` figurent encore dans le catalogue de labels du
+serveur parce qu'ils ont déjà été utilisés, mais ils ne portent aucun nœud.
 
-## TEST
+### 2.2 Correction E4
 
-### `GraphRepository` — code d'accès/écriture présent
+La correction E4 est actée dans le contrat v1.0.1 :
 
-Fichier : `repositories/graph_repository.py`.
+- aucun nœud `Product` n'est écrit par l'upsert unifié ;
+- aucune donnée de ligne ne peut écraser une entité partagée ;
+- chaque ligne est un `(:InvoiceLine)` identifié par
+  `uuid5(NAMESPACE_URL, "invoice-line:<source_sha256>:<line_index>")` et
+  rattaché à sa facture par `HAS_LINE`.
 
-Les recherches d'appelants ne trouvent **aucune instanciation directe**
-(`GraphRepository(...)`) dans les sources du dépôt. Les seuls appels aux
-méthodes de ce repository proviennent de `services/memory_manager.py`, dont la
-classe `MemoryManager` n'a elle-même aucun appelant/instanciation repéré.
-L'accès applicatif à ce repository n'est donc pas raccordé dans le code courant.
+Les tests `tests/test_persistence_manager.py` vérifient l'absence de `Product`
+dans le Cypher, y compris pour deux lignes de même description.
 
-Méthodes et Cypher définis :
+### 2.3 Nettoyage P9.4
 
-1. `document_exists(document_hash)` — **lecture**
-   ```cypher
-   MATCH (d:Document {hash: $hash})
-   RETURN count(d) > 0 AS exists
-   ```
-2. `create_entity(label, properties, unique_key)` — **écriture**;
-   `MERGE`/mise à jour quand la clé existe, sinon `CREATE`
-   ```cypher
-   MERGE (n:<label> {<unique_key>: $unique_value})
-   SET n += $props
-   RETURN elementId(n) AS node_id
-   ```
-   ou
-   ```cypher
-   CREATE (n:<label> $props)
-   RETURN elementId(n) AS node_id
-   ```
-3. `create_relationship(...)` — **écriture**
-   ```cypher
-   MATCH (a:<label_a> {<key_a>: $val_a})
-   MATCH (b:<label_b> {<key_b>: $val_b})
-   MERGE (a)-[r:<rel_type>]->(b)
-   RETURN type(r)
-   ```
-4. `create_invoice_graph(invoice_data, document_hash)` — **écriture**, au sein
-   de la méthode :
-   ```cypher
-   MERGE (s:Supplier {name: $fournisseur})
-   ```
-   ```cypher
-   MERGE (i:Invoice {id: $invoice_id})
-   SET i += $props
-   WITH i
-   MATCH (s:Supplier {name: $fournisseur})
-   MERGE (i)-[:BELONGS_TO]->(s)
-   ```
-   Si `document_hash` est fourni :
-   ```cypher
-   MERGE (d:Document {hash: $hash})
-   WITH d
-   MATCH (i:Invoice {id: $invoice_id})
-   MERGE (d)-[:CONTAINS]->(i)
-   ```
-5. `execute_query(query, parameters)` — exécute le Cypher reçu en argument;
-   aucune requête arbitraire appelante n'a été trouvée dans le dépôt.
+Un nœud `RuleOutcome` orphelin, résidu de l'ancien test d'intégration (règle
+`RULE-TVA-ZERO-001` sans relation `EVALUATED_BY`), a été supprimé le
+31 octobre 2026. Après nettoyage :
 
-### Appels `GraphRepository` trouvés
+- aucun nœud `Tenant`, `Supplier`, `Invoice`, `InvoiceLine` ou `RuleOutcome` ;
+- aucune donnée de test résiduelle ;
+- les 3 nœuds legacy et 2 relations historiques sont conservés ;
+- total : **3 nœuds, 2 relations**.
 
-Tous les sites sont dans `services/memory_manager.py` :
+## 3. Chemin canonique raccordé
 
-- `MemoryManager.is_document_known` → `graph_repo.document_exists`.
-- `MemoryManager.save_invoice_context` → `graph_repo.create_invoice_graph`.
-- `MemoryManager.save_skill` → `create_entity` pour `Skill` et `Task`, puis
-  `create_relationship` avec `SOLVES`.
-- `MemoryManager.save_episodic_memory` → `create_entity` pour `Session` et
-  `Message`, puis `create_relationship` avec `HAS_MESSAGE`.
+Le seul writer unifié est `services/persistence_manager.py` :
 
-Ces sites sont des appels de méthode présents, mais aucun code trouvé
-n'instancie `MemoryManager` ni n'injecte un `GraphRepository` dans ce manager.
-Ils ne démontrent donc pas que ces écritures ont été faites sur le serveur.
+- `PersistenceManager.persist_invoice()` construit un `InvoiceGraphRecord` ;
+- `Neo4jGraphStore.upsert_invoice()` exécute l'upsert idempotent ;
+- `ensure_constraints()` crée les trois contraintes `IF NOT EXISTS` une fois
+  par instance ;
+- `verify_connectivity()` permet une sonde non bloquante.
 
-**Classement : TEST** — code d'accès implémenté, mais sans chemin d'appel
-applicatif courant trouvé; son schéma ne correspond pas au graphe actuellement
-présent.
+L'appel applicatif est `backend/app/graphs/invoice_graph.py::commit_node`.
+Aucun autre service n'écrit dans l'ontologie unifiée.
 
-## ABANDONNÉ
+## 4. Fichiers legacy non raccordés
 
-### `Neo4jService` — lectures métier non raccordées
+### 4.1 `services/neo4j_service.py`
 
-Fichier : `services/neo4j_service.py`.
+- **Statut : NON RACCORDÉ / ABANDONNÉ.**
+- Aucune instanciation de `Neo4jService(...)` ni appel de ses méthodes trouvé
+  dans le dépôt.
+- Le service délègue à `GraphRepository` et lit un schéma legacy
+  `Invoice` / `Supplier` / `Document` / `Skill` / `Task`.
+- Ses requêtes ne créent pas les contraintes du contrat v1.0.1.
 
-Aucun appel à `Neo4jService(...)` ni à ses méthodes n'a été trouvé dans les
-sources du dépôt. Le service délègue à `GraphRepository.execute_query` ou
-`document_exists`; il ne constitue donc pas à lui seul une connexion Neo4j.
+### 4.2 `repositories/graph_repository.py`
 
-Requêtes déclarées :
+- **Statut : NON RACCORDÉ / LEGACY.**
+- Aucune instanciation directe de `GraphRepository(...)` trouvée.
+- Seul `services/memory_manager.py` référence ce repository ; or
+  `MemoryManager` n'est lui-même instancié par aucun appelant repéré.
+- Le writer `create_invoice_graph()` écrit `Supplier` / `Invoice` / `Document`
+  avec `BELONGS_TO` et `CONTAINS`, hors contrat unifié.
+- Il imprime des erreurs sur la sortie standard et ne garantit pas les
+  contraintes d'unicité du contrat.
 
-1. `get_supplier_history(supplier_name)` — lit factures et fournisseur :
-   ```cypher
-   MATCH (i:Invoice)-[:BELONGS_TO]->(s:Supplier {name: $supplier_name})
-   RETURN i.id AS invoice_id, i.montant_ttc AS montant_ttc,
-          i.date_facture AS date_facture, i.qdrant_vector_id AS qdrant_id
-   ORDER BY i.date_facture DESC
-   ```
-2. `get_invoice_lineage(invoice_num, supplier_name)` — lit la chaîne document,
-   facture, fournisseur :
-   ```cypher
-   MATCH (d:Document)-[:CONTAINS]->(i:Invoice {id: $invoice_id})-[:BELONGS_TO]->(s:Supplier)
-   RETURN d.hash AS document_hash, i.id AS invoice_id, s.name AS supplier_name
-   ```
-3. `get_skills_for_task(task_name)` — lit les skills liés aux tâches :
-   ```cypher
-   MATCH (s:Skill)-[:SOLVES]->(t:Task {name: $task_name})
-   RETURN s.id AS skill_id, s.snippet AS skill_snippet
-   ```
-4. `verify_document_ingestion(document_hash)` — délègue à
-   `GraphRepository.document_exists`, qui cherche un nœud `Document`.
+Ces deux fichiers ne doivent pas être branchés au pipeline facture sans
+migration explicite vers `services/persistence_manager.py`.
 
-Ces requêtes utilisent `Invoice`, `Supplier` et `Document`, labels qui ne
-correspondent pas à `Facture` et `Fournisseur` présents dans la base. Aucun nœud
-`Document`, `Skill`, `Task`, `Session` ou `Message` n'a été observé dans le
-relevé runtime.
+## 5. Vérification
 
-**Classement : ABANDONNÉ (au sens non raccordé dans les sources examinées)** —
-service défini, mais non instancié ni appelé, et requêtes alignées sur un schéma
-différent de celui des données présentes.
+```powershell
+@'
+from services.persistence_manager import Neo4jGraphStore
+store = Neo4jGraphStore.from_env()
+print("connectivité:", store.verify_connectivity())
+with store.driver.session(database=store.database) as session:
+    print("nœuds:", session.run("MATCH (n) RETURN count(n) AS c").single()["c"])
+    print("relations:", session.run("MATCH ()-[r]->() RETURN count(r) AS c").single()["c"])
+    print("contraintes:", session.run("SHOW CONSTRAINTS YIELD name RETURN collect(name) AS names").single()["names"])
+store.close()
+'@ | A:\dsh-core\.venv-v3\Scripts\python.exe -
+```
 
-## Conclusion
+Attendu : connectivité `True`, 3 nœuds, 2 relations, trois contraintes
+`dsh_*`.
 
-- La base Neo4j est en fonctionnement et contient un petit graphe non vide :
-  **1 fournisseur, 1 facture et 1 mouvement bancaire**, reliés par deux
-  relations.
-- Les classes `GraphRepository` et `Neo4jService` ainsi que les méthodes du
-  `MemoryManager` fournissent un autre schéma de graphe, majoritairement en
-  anglais.
-- Aucun branchement de ces composants depuis l'API ou le pipeline facture
-  courant n'a été trouvé. Les données runtime ne peuvent pas être attribuées
-  avec certitude à ces méthodes et ne suivent pas leur schéma.
+## 6. Historique
 
-# AUDIT AUTHENTIFIÉ EN LECTURE — 15 OCTOBRE 2026
-
-## Périmètre et méthode
-
-Audit complémentaire de l'instance `dsh-neo4j`, exécuté avec l'authentification
-déjà configurée. Le secret n'a pas été affiché. `cypher-shell` a été lancé avec
-`--access-mode read`; aucune écriture, migration, modification de schéma ou
-redémarrage du conteneur n'a été effectué.
-
-La date du 19 octobre inscrite dans l'inventaire précédent reste une date
-documentaire non vérifiée; elle n'est pas utilisée comme date réelle de cet
-audit.
-
-**Statut final : `PARTIAL_READ_ONLY`.** L'accès authentifié et l'inventaire de
-lecture ont réussi. Le mode read de `cypher-shell` a protégé cet audit, mais
-l'édition Community n'a pas permis de certifier un rôle exclusivement
-read-only pour l'utilisateur. Aucune écriture Neo4j ne doit être entreprise
-tant qu'un mécanisme permanent de lecture seule n'est pas défini.
-
-## Instance et bases
-
-- Le conteneur `dsh-neo4j` était actif.
-- Le stockage hôte `A:\dsh-core\neo4j_data` était monté vers `/data`.
-- Version : Neo4j Community `2026.09.0`.
-- Les bases `neo4j` et `system` étaient en ligne.
-- Base auditée : `neo4j`.
-- L'authentification existante a fonctionné sans affichage du secret.
-
-## Résultat structurel
-
-La base auditée contenait **3 nœuds** et **2 relations** :
-
-| Label | Nombre |
-|---|---:|
-| `Facture` | 1 |
-| `Fournisseur` | 1 |
-| `MouvementBancaire` | 1 |
-
-| Source | Relation | Cible | Nombre |
-|---|---|---|---:|
-| `Fournisseur` | `A_EMIS` | `Facture` | 1 |
-| `MouvementBancaire` | `REGLE` | `Facture` | 1 |
-
-Propriétés structurelles observées, sans aucune valeur de propriété :
-
-- `Facture` : `date`, `montant`, `numero`;
-- `Fournisseur` : `nom`, `region`;
-- `MouvementBancaire` : `date`, `id`, `montant`.
-
-Aucune propriété n'a été observée sur les relations. Aucune contrainte n'a été
-retournée. Deux index techniques de lookup/token, pour les nœuds et les
-relations, étaient en ligne.
-
-## Divergence et provenance
-
-Le graphe runtime observé utilise les labels `Facture`, `Fournisseur` et
-`MouvementBancaire` ainsi que les relations `A_EMIS` et `REGLE`. Les
-repositories/services DSH-Core utilisent principalement les labels anglais
-`Document`, `Invoice`, `Supplier`, `Skill` et `Task`, avec un schéma de
-relations différent.
-
-La provenance des trois nœuds est inconnue. Aucun writer applicatif n'est
-attribué aux données présentes. Le mode `read` a limité les opérations de cet
-audit, mais ne certifie pas un privilège permanent exclusivement en lecture.
+- **2026-10-19** : relevé initial de 3 nœuds et 2 relations, sans contrainte
+  applicative ; le schéma des fichiers legacy ne correspondait pas aux données
+  présentes.
+- **P9.1 / P9.2** : mise en place de l'ontologie unifiée et des contraintes.
+- **2026-10-31 (P9.4)** : suppression du `RuleOutcome` orphelin de test ;
+  inventaire consolidé. Les données legacy `Facture` / `Fournisseur` /
+  `MouvementBancaire` restent inchangées et non attribuées.

@@ -1,0 +1,53 @@
+{
+  "contract_version": "1.0.1",
+  "run_id": "p8-1-final2",
+  "git_commit": "f10de1e",
+  "decisions": {
+    "VALIDATED": 29,
+    "HITL": 40,
+    "REJECTED": 0
+  },
+  "rule_outcomes": {
+    "NOT_TRIGGERED": 27,
+    "NO_RULE_REACHED": 0,
+    "RULE_EVALUATION_SKIPPED": 29,
+    "RULE_MISSING": 0,
+    "TRIGGERED_BLOCKED": 11,
+    "TRIGGERED_RESOLVED": 2,
+    "UNKNOWN": 0
+  },
+  "perception": {
+    "profiles": {
+      "complex_pdf": 47,
+      "image": 1,
+      "native_pdf": 16,
+      "scanned_pdf": 5
+    },
+    "routes": {
+      "docling": 9,
+      "local_ocr": 6,
+      "native_text": 54
+    }
+  },
+  "timing": {
+    "off_ms": 1549,
+    "on_ms": 12488,
+    "ratio": 8.062
+  },
+  "tests_passed": 1321,
+  "skills": {
+    "invoice_crisol_color": "sha256:49a21fd9b5877f5e1bc216584f48e99bc0f681a3cd5724b74ceac51c5964f461",
+    "invoice_edf": "sha256:ffb5abdd04c2d418d1a537c6f6fb3df9956ce2cae8dd1554d08b0d1a34e11e4b",
+    "invoice_smtrt_sas": "sha256:22d1d1c2e64ff2beb6810e4cf4c3eb7fa33a2c0f6e06cc746102a6276a8453bc"
+  },
+  "contract_sha256": "208089033928241361248f88bc8cbc8be4c0bdcd4b97dff36c656f4ce38c6e08",
+  "counters": {
+    "route_calls_per_file": 1,
+    "raster_fast_path": 60,
+    "raster_fast_path_renders": 0,
+    "find_tables_probe_pages_max": 2,
+    "get_cdrawings_called": false
+  },
+  "signature": "faa65126a8f27275e2d9120c8939634cd3525e82590502599abd54e0a7342e23",
+  "signed_at": "2026-10-30T22:52:03+01:00"
+}

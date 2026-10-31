@@ -1,0 +1,156 @@
+## Non, inutile de changer d'hébergeur : Oracle reste le seul choix viable, et le risque de suppression se neutralise en 2 minutes
+
+**Le cœur de votre problème se résout sans migrer.** Oracle ne supprime pas vos serveurs « au hasard » : il réclame les instances gratuites considérées *inactives* (usage CPU/RAM < 20 % sur 7 jours). **La solution officielle et éprouvée est de basculer votre compte en mode « Pay As You Go » (PAYG)** : cela supprime la réclamation pour inactivité, et vous ne payez **0 €** tant que vous restez dans les limites Always Free (2 OCPU / 12 Go / 200 Go). Aucune des alternatives que vous citez ne remplace Oracle pour votre architecture : Hostinger n'a pas d'offre gratuite permanente, Google Cloud ne donne qu'un e2-micro de 1 Go de RAM (trop petit pour Neo4j + Qdrant + Hermes), et Microsoft Azure n'est gratuit que 12 mois.
+
+## Sécuriser votre VM Oracle contre la suppression
+
+C'est le point qui vous inquiète le plus, et c'est le plus simple à traiter.
+
+- **Seuil d'inactivité officiel** : Oracle réclame une instance A1 Always Free si, sur une période de 7 jours, le CPU (95e percentile), le réseau et la mémoire sont tous **inférieurs à 20 %**.
+- **Solution recommandée (et la plus fiable) : passer en PAYG.**
+  - Ajoutez une carte bancaire au compte et basculez sur « Pay As You Go ».
+  - Tant que votre shape (2 OCPU / 12 Go / 200 Go) reste dans les quotas Always Free, **la facture est de 0 €**.
+  - La réclamation pour inactivité n'est plus appliquée.
+- **Alternative sans carte bancaire** : maintenir une activité légère et continue (cron, tâches de veille, SearXNG, FreshRSS, rclone) pour rester au-dessus des seuils. Des outils comme `lookbusy` ou un job Folding@Home sont aussi utilisés, mais c'est **moins robuste** que le PAYG.
+- **À faire quoi qu'il arrive** : un **backup externe régulier** (rsync vers OneDrive/Google Drive, ou un volume de blocs), car Oracle peut aussi supprimer des instances pour maintenance ou disparition d'une shape.
+
+> **Verdict** : gardez Oracle, passez en PAYG, et sécurisez avec un backup. C'est 0 € et cela élimine le risque principal.
+
+## Pourquoi Hostinger, Google et Azure ne remplacent pas Oracle pour votre cas
+
+Votre cahier des charges exige un serveur **permanent, gratuit (0 €)** et **suffisamment puissant** (12 Go de RAM pour faire tourner simultanément Hermes, Qdrant, Neo4j, SearXNG, FreshRSS).
+
+| Fournisseur | Offre « free » | RAM dispo | Permanent ? | Verdict pour votre architecture |
+|---|---|---|---|---|
+| Oracle Cloud | Always Free (2 OCPU ARM) | **12 Go** | ✅ Oui | ✅ **Seule option adaptée** |
+| Google Cloud | e2-micro (2 vCPU partagés) | **1 Go** | ✅ (3 régions US) | ❌ Trop petit, très lent |
+| Microsoft Azure | B1s / B2pts v2 (750 h/mois) | 1 Go (B1s) | ❌ 12 mois | ❌ Expire, puis ~8 $/mois |
+| Hostinger | Aucun (30 j d'essai) | — | ❌ | ❌ Payant dès le 1er mois |
+
+- **Google Cloud** : l'e2-micro (1 Go RAM) est **insuffisant** — Hermes seul demande 2–4 Go, et Neo4j exige **2 Go minimum**. Les retours d'expérience décrivent des latences importantes (« stall for seconds »).
+- **Azure** : gratuit 12 mois seulement, puis payant. Ce n'est pas une solution « always free ».
+- **Hostinger** : pas de tier gratuit permanent, uniquement une garantie de remboursement 30 jours.
+
+**Oracle reste l'unique grande plateforme offrant des ressources réelles et permanentes à 0 €.** C'est la seule qui correspond à votre besoin de 12 Go de RAM en continu.
+
+## Intégration d'ofxparse, mt940 et XGrammar dans votre architecture
+
+Ces trois outils simplifient et fiabilisent votre pipeline bancaire. Voici leur place exacte.
+
+### ofxparse et mt940 — le bypass « zéro vision » pour les relevés structurés
+
+Ces deux bibliothèques Python (zéro dépendance lourde) parsent les relevés bancaires **déjà structurés**, sans aucun passage par le modèle de vision.
+
+- **ofxparse** : parse `.ofx` / `.qfx` (export standard de CA, BNP, SocGen…). `OfxParser.parse("releve.ofx")` → itération des transactions.
+- **mt-940** : parse `.sta` / `.mt940` (format SWIFT, banques pro comme Bourso Business, N26 Business). `mt940.parse("releve.sta")` → transactions typées.
+
+**Intégration dans le pipeline (nœud `rapprochement` de LangGraph) :**
+
+```
+[Relevé bancaire]
+    ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ DÉTECTION FORMAT                                                │
+│   • .ofx / .qfx → ofxparse (structuré, PAS de vision)          │
+│   • .sta / .mt940 → mt-940 (structuré, PAS de vision)          │
+│   • .csv → pandas (structuré, PAS de vision)                   │
+│   • .pdf / .jpg → NuExtract3 + XGrammar (vision + JSON forcé)  │
+└─────────────────────────────────────────────────────────────────┘
+    ↓
+[Transactions normalisées → Neo4j (TransactionBancaire / LCR)]
+```
+
+**Gains concrets :**
+- **Zéro coût API** et **zéro latence de vision** pour les relevés structurés.
+- **Zéro risque d'erreur OCR** sur les montants (le montant est lu tel quel, pas « reconnu »).
+- NuExtract3 n'est appelé **que** pour les PDF/images scannées.
+- Les transactions extraites alimentent directement vos fonctions `_rapprocher_debit_v2`, `_rapprocher_lcr`, `_gerer_retour_prelevement`.
+
+### XGrammar — le JSON garanti dans Ollama
+
+Ce n'est **pas un outil à installer** : c'est le moteur de *constrained decoding* intégré à Ollama 0.5+. Il force le modèle à produire **uniquement** du JSON valide selon votre schéma Pydantic.
+
+```python
+from pydantic import BaseModel
+from typing import Optional
+
+class Facture(BaseModel):
+    vendor: str
+    date: str
+    total_ht: float
+    taux_tva: float
+    montant_tva: float
+    total_ttc: float
+    line_items: list[dict]
+    currency: str = "EUR"
+    n_tva: Optional[str] = None
+
+result = ollama.chat(
+    model="numind/nuextract3",
+    messages=[{"role": "user", "content": "Extrais cette facture en JSON"}],
+    format=Facture.model_json_schema(),  # ← XGrammar actif ici
+    options={"temperature": 0.2}
+)
+facture = Facture.model_validate_json(result.message.content)
+print(facture.total_ttc)  # 150.0 (float garanti, jamais "150€")
+```
+
+**Gains pour votre pipeline :**
+- **Zéro parse error** → le fallback LightOnOCR n'est déclenché que pour les vrais échecs de compréhension.
+- **Types et enums forcés** : `montant_ttc` est toujours un `float`, `regime_tva` est toujours un enum valide.
+- **Overhead négligeable** (< 1 ms/token), le grammar est pré-compilé en DFA.
+
+## Fine-tuner NuExtract3 (LoRA) sans utiliser votre PC
+
+Vous voulez améliorer NuExtract3 sur **vos** factures sans solliciter votre machine locale. Voici les options, de la plus simple à la plus puissante.
+
+### Option 1 — Google Colab (gratuit, recommandée pour démarrer)
+
+- **Outils** : Unsloth ou Axolotl sur un notebook Colab avec GPU T4 (16 Go VRAM, gratuit).
+- **Méthode QLoRA** (quantification 4-bit) : un VLM de 4–7 B tient confortablement dans 16 Go de VRAM.
+  - **Astuce clé** : exclure les couches de vision du LoRA avec `exclude_modules=r'.*visual.*'` pour figer l'encodeur visuel et ne fine-tuner que la partie langage → moins de RAM, convergence plus rapide.
+- **Workflow** :
+  1. Uploader vos images de factures + annotations JSON dans Colab.
+  2. Lancer le fine-tuning QLoRA (Unsloth accélère de 2× à 5×).
+  3. **Sauvegarder les poids LoRA dans Colab** (ne pas merger immédiatement pour éviter les problèmes de RAM).
+  4. Convertir le LoRA en **GGUF** via `llama.cpp` (le CPU suffit).
+  5. Télécharger le GGUF et le charger dans **Ollama** sur votre PC local.
+
+### Option 2 — Location de GPU à l'heure (payant, plus rapide)
+
+- **Plateformes** : RunPod ou Vast.ai (les moins chers, surtout pour A100).
+- **Méthode** : louer un GPU (RTX 4090 ou A100), lancer un conteneur avec Axolotl ou Unsloth, pointer vers vos données, et exécuter le fine-tuning LoRA.
+- **Coût** : quelques euros pour une session de quelques heures.
+- **Avantage** : beaucoup plus rapide que Colab, et vous pouvez héberger le modèle quantisé 4-bit + LoRA sur une seule GPU pour l'inférence.
+
+### Option 3 — Plateformes managées (payant, « no-code »)
+
+- **Plateformes** : Together AI ou Replicate.
+- **Méthode** : uploader vos données JSONL, choisir le modèle de base, et le service gère la provision GPU, le training et le serving.
+- **Avantage** : zéro gestion d'infrastructure, mais coût par token/job, et **moins adapté aux VLM custom** comme NuExtract3 (ces plateformes ciblent surtout les LLM open-source standards).
+
+### Recommandation pour votre architecture
+
+| Objectif | Solution | Coût |
+|---|---|---|
+| Fine-tuning initial de NuExtract3 | **Google Colab + Unsloth (QLoRA)** | 0 € |
+| Fine-tuning itératif / rapide | RunPod / Vast.ai (GPU à l'heure) | ~quelques € |
+| Inférence du modèle fine-tuné | Ollama (GGUF) sur PC local + **XGrammar** | 0 € |
+| Relevés bancaires structurés | **ofxparse / mt940** (bypass vision) | 0 € |
+
+**Le flux final :** fine-tuner sur Colab (0 €) → exporter en GGUF → charger dans Ollama → utiliser XGrammar pour garantir le JSON → utiliser ofxparse/mt940 pour les relevés bancaires afin de ne pas solliciter la vision inutilement.
+
+## Prochaines étapes concrètes
+
+1. **Basculez votre compte Oracle en PAYG** (2 min, carte bancaire, 0 €) et mettez en place un **backup rsync** vers OneDrive.
+2. **Installez ofxparse et mt-940** sur votre PC local et votre VM Oracle, et ajoutez la détection de format dans votre nœud `rapprochement` LangGraph.
+3. **Activez XGrammar** dans tous vos appels Ollama (paramètre `format` avec votre schéma Pydantic).
+4. **Préparez votre dataset** (images de factures + JSON annotés) et lancez un premier fine-tuning QLoRA sur Google Colab avec Unsloth.
+5. **Exportez le LoRA en GGUF** et intégrez-le dans Ollama sur votre PC local.
+
+## Limites et points d'attention
+
+- **NuExtract3 et LoRA** : je n'ai pas trouvé de documentation spécifique confirmant que NuExtract3 supporte nativement le fine-tuning LoRA sur des plateformes managées comme Together AI ou Replicate. L'approche **Colab + Unsloth/Axolotl** est la plus sûre car elle fonctionne avec n'importe quel VLM compatible Hugging Face. Vérifiez que le modèle est bien sur Hugging Face et que l'encodeur visuel est bien exclu via `exclude_modules`.
+- **Seuil d'inactivité Oracle** : les sources varient entre 10 % et 20 % selon les périodes et les shapes. Le **PAYG reste la solution qui élimine ce risque** indépendamment du seuil exact.
+- **e2-micro Google** : bien que « gratuit pour toujours », il est limité à 3 régions US (us-west1, us-central1, us-east1) et est nettement trop faible pour votre stack.
+

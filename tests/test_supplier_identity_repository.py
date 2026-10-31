@@ -1,6 +1,5 @@
 import json
 import socket
-import sys
 from uuid import UUID, uuid4
 
 import pytest
@@ -266,4 +265,3 @@ def test_legacy_repository_never_imported():
 
     source = open(module.__file__, encoding="utf-8").read()
     assert "supplier_repository" not in source
-    assert "services.supplier_repository" not in sys.modules

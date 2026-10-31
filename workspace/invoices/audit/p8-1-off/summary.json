@@ -1,0 +1,207 @@
+{
+  "run_id": "p8-1-off",
+  "output_dir": "A:\\dsh-core\\workspace\\invoices\\audit\\p8-1-off",
+  "generated_at": "2026-10-30T22:48:17+01:00",
+  "record_count": 69,
+  "decisions": {
+    "VALIDATED": 29,
+    "HITL": 40,
+    "REJECTED": 0
+  },
+  "rule_outcomes": {
+    "NOT_TRIGGERED": 27,
+    "NO_RULE_REACHED": 0,
+    "RULE_EVALUATION_SKIPPED": 29,
+    "RULE_MISSING": 0,
+    "TRIGGERED_BLOCKED": 11,
+    "TRIGGERED_RESOLVED": 2,
+    "UNKNOWN": 0
+  },
+  "blocking_codes": [
+    {
+      "code": "MISSING_SIRET",
+      "layer": "extraction",
+      "severity": "warning",
+      "count": 35
+    },
+    {
+      "code": "MISSING_INVOICE_NUMBER",
+      "layer": "extraction",
+      "severity": "warning",
+      "count": 30
+    },
+    {
+      "code": "INVOICE_NOT_VALIDATED",
+      "layer": "rule",
+      "severity": "blocker",
+      "count": 29
+    },
+    {
+      "code": "EXTRACTION_FAILED",
+      "layer": "production",
+      "severity": "blocker",
+      "count": 23
+    },
+    {
+      "code": "MISSING_VAT_NUMBER",
+      "layer": "extraction",
+      "severity": "warning",
+      "count": 21
+    },
+    {
+      "code": "MISSING_ISSUE_DATE",
+      "layer": "extraction",
+      "severity": "warning",
+      "count": 20
+    },
+    {
+      "code": "AMBIGUOUS_ZERO_VAT",
+      "layer": "rule",
+      "severity": "blocker",
+      "count": 11
+    },
+    {
+      "code": "MISSING_COUNTRY",
+      "layer": "extraction",
+      "severity": "warning",
+      "count": 6
+    },
+    {
+      "code": "SCANNED_PDF_REQUIRES_VISION",
+      "layer": "production",
+      "severity": "blocker",
+      "count": 6
+    },
+    {
+      "code": "SUPPLIER_UNKNOWN",
+      "layer": "extraction",
+      "severity": "warning",
+      "count": 2
+    }
+  ],
+  "records_with_blockers": 67,
+  "file_types": {
+    "pdf": 68,
+    "image": 1
+  },
+  "extraction_field_coverage": {
+    "supplier_name": {
+      "present": 38,
+      "total": 69,
+      "ratio": 0.551
+    },
+    "siret": {
+      "present": 5,
+      "total": 69,
+      "ratio": 0.072
+    },
+    "vat_number": {
+      "present": 19,
+      "total": 69,
+      "ratio": 0.275
+    },
+    "country": {
+      "present": 34,
+      "total": 69,
+      "ratio": 0.493
+    },
+    "invoice_number": {
+      "present": 10,
+      "total": 69,
+      "ratio": 0.145
+    },
+    "issue_date": {
+      "present": 20,
+      "total": 69,
+      "ratio": 0.29
+    },
+    "net_amount": {
+      "present": 40,
+      "total": 69,
+      "ratio": 0.58
+    },
+    "tax_amount": {
+      "present": 40,
+      "total": 69,
+      "ratio": 0.58
+    },
+    "gross_amount": {
+      "present": 40,
+      "total": 69,
+      "ratio": 0.58
+    }
+  },
+  "top_suppliers": [
+    {
+      "name": "ASSISTANCE PEINTURES DIFFUSION",
+      "count": 9
+    },
+    {
+      "name": "ASSISTANCE PEINTURE DIFFUSION",
+      "count": 5
+    },
+    {
+      "name": "assistance peintures diffusion",
+      "count": 4
+    },
+    {
+      "name": "Autre S.A.S. Assistance Peintures Diffusion",
+      "count": 3
+    },
+    {
+      "name": "Assistance Peintures Diffusion",
+      "count": 3
+    },
+    {
+      "name": "Chronopost SAS est membre du Groupe TVA La Poste,",
+      "count": 2
+    },
+    {
+      "name": "sebastien paul",
+      "count": 1
+    },
+    {
+      "name": "PAUL sebastien assistance peintures diffusion",
+      "count": 1
+    },
+    {
+      "name": "SAS ASSISTANCE PEINTURES DIFFUSION",
+      "count": 1
+    },
+    {
+      "name": "Datos cliente: SAS ASSISTANCE PEINTURES DIFFUSION",
+      "count": 1
+    }
+  ],
+  "durations_ms": {
+    "min": 8,
+    "median": 19,
+    "max": 69,
+    "total": 1549
+  },
+  "perception": {
+    "enabled": false,
+    "profiles": {},
+    "routes": {},
+    "families": {},
+    "rotations_applied": {
+      "0": 69
+    },
+    "annotations_total": 0,
+    "annotations_by_kind": {},
+    "failures": 0,
+    "geometry_fast_path": 0
+  },
+  "cloud_escalations": {
+    "count": 0,
+    "ratio": 0.0,
+    "threshold": 0.05,
+    "exceeded": false,
+    "budget": {
+      "max": 4,
+      "used": 0,
+      "exhausted": false,
+      "external_extractor": false
+    }
+  }
+}

@@ -6,6 +6,8 @@ __pycache__/
 # Bases de données locales (Ne jamais versionner les datas)
 qdrant_storage/
 neo4j_data/
+/langfuse_db/
+/n8n_data/
 
 # Poids des modèles IA (Fichiers massifs)
 models/
@@ -24,3 +26,7 @@ benchmarks/data/ocr_baseline_texts.json
 # Client exports and their aggregate structure reports
 workspace/imports/clients/*.xml
 workspace/imports/clients/*_report.json
+workspace/imports/tariffs/*_report.json
+workspace/imports/tariffs/*_review.xlsx
+workspace/imports/tariffs/*_anomalies.json
+workspace/imports/tariffs/*_audit.json

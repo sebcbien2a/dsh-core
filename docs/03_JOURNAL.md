@@ -1,3 +1,13 @@
+---
+master_doc: PROJECT_HANDOVER.md
+branch_domain: Annexe historique — Archives numérotées
+contract_version: 1.0.1
+status: FROZEN
+upstream_dependencies: []
+downstream_consumers: []
+verification_tests: []
+---
+
 # 03 - JOURNAL DE SUIVI ET DE VALIDATION
 
 19/10 : audits réalisés

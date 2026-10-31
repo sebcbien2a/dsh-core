@@ -1,7 +1,42 @@
 import os
+import re
 from pathlib import Path
 import pymupdf  # PyMuPDF
 from schemas.profile_schema import DocumentProfile
+
+
+def _strong_business_signature(text: str) -> bool:
+    if len(str(text).split()) < 50:
+        return False
+    lowered = str(text).casefold()
+    return (
+        re.search(r"\bht\b|h\.t\.?|hors taxe", text, re.IGNORECASE)
+        is not None
+        and "tva" in lowered
+        and re.search(
+            r"\bttc\b|t\.t\.c\.?|net a payer|total",
+            text,
+            re.IGNORECASE,
+        )
+        is not None
+    )
+
+
+def _infer_has_tables(text: str) -> bool:
+    lines = [line for line in str(text).splitlines() if line.strip()]
+    multi_column = sum(
+        1 for line in lines if len(re.findall(r"\s{2,}|\t", line)) >= 2
+    )
+    header = any(
+        re.search(
+            r"\b(?:code|description|designation|qte|prix|montant|total|libelle)\b",
+            line,
+            re.IGNORECASE,
+        )
+        for line in lines[:80]
+    )
+    return multi_column >= 3 or header
+
 
 class DocumentProfiler:
     def __init__(self, text_threshold: int = 50):
@@ -61,9 +96,12 @@ class DocumentProfiler:
                 prof.has_images = True
 
             # 3. Détection structurelle de tableaux
-            tables = page.find_tables()
-            if tables and len(tables.tables) > 0:
-                prof.has_tables = True
+            if _strong_business_signature(text):
+                prof.has_tables = _infer_has_tables(text)
+            else:
+                tables = page.find_tables()
+                if tables and len(tables.tables) > 0:
+                    prof.has_tables = True
 
             doc.close()
 

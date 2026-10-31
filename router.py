@@ -112,7 +112,7 @@ def route_prompt(prompt: str, user_id: str = "admin", image_provided: bool = Fal
     }
 
 if __name__ == "__main__":
-    print("=== TEST DU ROUTEUR V2 (Qwen2.5-VL Ready) ===")
+    print("=== TEST DU ROUTEUR V2 (VISION LOCALE) ===")
 
     scenarios = [
         ("Décris ce qui est présent sur cette capture d'écran.", True),

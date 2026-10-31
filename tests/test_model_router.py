@@ -7,6 +7,7 @@ from model_router import (
     resolve_model,
     resolve_provider,
     validate_model_config,
+    validate_model_identifier,
 )
 
 
@@ -97,7 +98,16 @@ def test_string_role_and_mode_are_accepted():
     ) == "vision-model"
 
 
-@pytest.mark.parametrize("retired_model", ["qwen2.5vl:7b", "qwen3.5:2b"])
+@pytest.mark.parametrize(
+    "retired_model",
+    [
+        "qwen2.5vl:7b",
+        "qwen2.5-coder:7b",
+        "qwen2.5:27b",
+        "QWEN2.5VL:7B",
+        "qwen3.5:2b",
+    ],
+)
 def test_retired_vision_models_are_rejected(retired_model):
     with pytest.raises(ValueError, match="VISION_MODEL_NOT_CONFIGURED"):
         resolve_model(
@@ -105,6 +115,31 @@ def test_retired_vision_models_are_rejected(retired_model):
             "local",
             {"LOCAL_VISION_MODEL": retired_model},
         )
+
+
+@pytest.mark.parametrize(
+    "retired_model",
+    ["qwen2.5vl:7b", "qwen2.5-coder:7b", "qwen2.5:27b", "QWEN2.5VL:7B"],
+)
+def test_validate_model_identifier_rejects_qwen25_family(retired_model):
+    with pytest.raises(ValueError, match="MODEL_RETIRED"):
+        validate_model_identifier(retired_model)
+
+
+@pytest.mark.parametrize("role", list(ModelRole))
+@pytest.mark.parametrize(
+    "retired_model",
+    ["qwen2.5vl:7b", "qwen2.5-coder:7b", "qwen2.5:27b"],
+)
+def test_qwen25_is_rejected_for_every_local_role(role, retired_model):
+    variable = LOCAL_VARIABLES[role]
+    error_code = (
+        "VISION_MODEL_NOT_CONFIGURED"
+        if role is ModelRole.VISION
+        else "MODEL_RETIRED"
+    )
+    with pytest.raises(ValueError, match=error_code):
+        resolve_model(role, "local", {variable: retired_model})
 
 
 @pytest.mark.parametrize("role", list(ModelRole))

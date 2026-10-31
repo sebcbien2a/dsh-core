@@ -1,3 +1,13 @@
+---
+master_doc: PROJECT_HANDOVER.md
+branch_domain: Annexe — Architecture IA cible
+contract_version: 1.0.1
+status: FROZEN
+upstream_dependencies: []
+downstream_consumers: []
+verification_tests: []
+---
+
 # DSH-Core — Architecture IA v2
 
 Statut : ARCHITECTURE CIBLE VALIDÉE
@@ -7,11 +17,20 @@ Dernier socle validé : commit 716d23d
 Documentation consolidée : commits 2dad618 et a915d15
 Date du document : 2026-10-15 (date réelle de consolidation)
 
-> Ce document décrit une **cible**. Seuls le writer local atomique (332 tests),
-> l'installation de Hermes 0.22.4 et ses approbations manuelles sont vérifiés.
-> Tout le reste est prévu, à tester ou à déterminer. La source externe
+> Ce document décrit une **cible d'intégration DSH-Core**, pas l'inventaire des
+> outils globaux. Leur installation, configuration, rôles, matrice et routage
+> actuels sont consignés dans la source canonique ci-dessous. Le writer local
+> atomique (332 tests) et les approbations manuelles Hermes correspondent aux
+> validations de cette architecture. Les intégrations DSH-Core restent à
+> déterminer. La source externe
 > `architecture-ia-v2.md` n'est pas dans le dépôt ; ce document en retient les
 > décisions validées par l'utilisateur, sans en reprendre les chiffres.
+>
+> Pour l'état opérationnel actuel des outils globaux, leurs rôles, la matrice,
+> le routage, les fallbacks et le quota OpenRouter, voir
+> [`AI_MODEL_ROUTING_AND_HARNESSES.md`](AI_MODEL_ROUTING_AND_HARNESSES.md).
+> Cette architecture décrit les cibles d'intégration DSH-Core et ne remplace
+> pas cette source canonique.
 
 ## 1. Principes
 
@@ -25,7 +44,7 @@ Date du document : 2026-10-15 (date réelle de consolidation)
 
 | Machine | Rôle cible | Statut |
 |---|---|---|
-| PC principal | Vérité comptable, pipeline Vision local existant, LangGraph, Neo4j, Qdrant, Mem0, SkillOpt, Hermes, futur DeepSeek Harness | Partiel (Hermes installé, reste non connecté) |
+| PC principal | Vérité comptable, pipeline Vision local existant, LangGraph, Neo4j, Qdrant, Mem0, SkillOpt, Hermes, DeepSeek Harness | Partiel (Hermes configuré avec OpenRouter ; accès à DSH-Core non accordé ; DeepSeek Harness installé mais non finalisé) |
 | Oracle VM | Disponibilité 24/7, staging, recherche, traitements massifs, répliques contrôlées, services distants | Cible, rien de réel créé |
 | Mini PC salon | Vocal (faster-whisper, Piper), médias, mpv, Qdrant/Memory médias, pilotage, scripts spécialisés | Cible, dimensionnement à vérifier |
 
@@ -33,7 +52,7 @@ Séparation des vérités : comptable (PC principal), médias (mini PC), service
 
 ## 3. Couches
 
-- **Hermes** : interface agentique et superviseur. Il propose, ne committe pas.
+- **Hermes** : orchestrateur et planificateur des tâches difficiles ; il propose, ne committe pas, et ne remplace pas l'exécutant principal OpenCode.
 - **LangGraph** : orchestrateur métier (sous-agents et spécialistes métier : cible à construire).
 - **Modèles** : locaux (Ollama) et distants ; disponibilité, identifiants, coûts et performances à vérifier.
 - **Outils** : Skills, services et repositories DSH-Core, exposés par liste blanche en lecture seule d'abord.
@@ -45,7 +64,7 @@ Le pipeline Vision/OCR/extraction local existant est conservé tel quel. Un mod�
 
 ## 5. DeepSeek Harness et Skills
 
-- DeepSeek Harness (DSH) est envisagé comme futur exécuteur spécialisé ou future Skill pilotée par Hermes ; DeepSeek servirait au coding, à l'expertise et à l'escalade. Son installation n'est pas démontrée, aucun test du harness n'est documenté et aucune validation technique n'est démontrée.
+- DeepSeek Harness est installé globalement en version `0.2.1-rc.2`, mais sa finalisation technique et son rôle spécialisé restent à valider. Cinq scripts npm d'installation sont encore non autorisés. Il ne doit pas dupliquer les responsabilités d'Hermes ou d'OpenCode ; voir la source canonique pour les rôles et le routage.
 - Chemins séparés : dépôt `A:\dsh-core` ; `DSH_HOME` dédié (`%USERPROFILE%\.dsh` à confirmer lors d'une future expérimentation, jamais le dépôt) ; workspaces `A:\dsh-workspaces` (PROPOSÉ, NON CRÉÉ) ; sorties Hermes `A:\dsh-hermes-output` (PROPOSÉ, NON CRÉÉ) ; Hermes `%LOCALAPPDATA%\hermes`. Les chemins associés à DSH restent à confirmer lors de cette expérimentation.
 - Les commits `716d23d`, `2dad618` et `a915d15` cités en tête du document ne constituent pas des preuves de validation de DeepSeek Harness.
 - Aucun credential ni session DSH dans le dépôt. Les développements utilisent un worktree ou workspace isolé.
@@ -82,7 +101,7 @@ Le pipeline Vision/OCR/extraction local existant est conservé tel quel. Un mod�
 3. Intégrer Mem0 local.
 4. Connecter Qdrant local.
 5. Créer les premiers spécialistes LangGraph.
-6. Intégrer DeepSeek Harness comme Skill isolé.
+6. Après finalisation technique, valider le rôle spécialisé de DeepSeek Harness sans doublonner Hermes ou OpenCode.
 7. Tester Skill Creator et SkillOpt.
 8. Préparer les synchronisations Oracle.
 9. Préparer le mini PC salon.

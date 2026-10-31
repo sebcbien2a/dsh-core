@@ -1,0 +1,1695 @@
+===== .env.example =====
+# Valeurs modifiables sans changement de code.
+# Aucun secret réel ne doit être versionné.
+AI_MODE=hybrid
+
+# Modèle local rapide à sélectionner après validation ; aucun fallback implicite.
+LOCAL_FAST_MODEL=
+LOCAL_BASE_MODEL=qwen3.5:9b
+# Modèle Vision local à sélectionner après validation ; aucun fallback implicite.
+LOCAL_VISION_MODEL=
+LOCAL_EXTRACTION_MODEL=numind/nuextract3:q4_k_m
+LOCAL_EMBEDDING_MODEL=nomic-embed-text:latest
+
+# Nemotron : préparation, décomposition, RAG courant et review.
+CLOUD_PREPARATION_MODEL=nvidia/nemotron-3-ultra-550b-a55b:free
+# MiMo : expert principal, image, audio, vidéo et coding.
+CLOUD_EXPERT_MODEL=xiaomi/mimo-v2.6-pro
+CLOUD_VISION_MODEL=xiaomi/mimo-v2.6-pro
+CLOUD_CODING_MODEL=xiaomi/mimo-v2.6-pro
+CLOUD_REVIEW_MODEL=nvidia/nemotron-3-ultra-550b-a55b:free
+# DeepSeek : premier fallback agentique.
+CLOUD_AGENTIC_FALLBACK_MODEL=deepseek/deepseek-v4.1-flash
+# Gemini : second fallback multimodal et PDF complexe.
+CLOUD_MULTIMODAL_FALLBACK_MODEL=google/gemini-3.8-flash
+
+# Aucun secret réel dans ce fichier.
+OPENROUTER_API_KEY=
+
+
+===== docs/PROJECT_HANDOVER.md =====
+Lire uniquement ce document. Ne lire aucun autre fichier tant qu'une information précise n'est pas manquante.
+
+# DSH-Core — document unique de reprise et état exécutif
+
+## 1. Objectif final DSH-Core
+Construire un pipeline local de traitement documentaire qui oriente les pages, effectue l'OCR, extrait des données structurées, puis applique validation canonique et contrôles métier.
+
+## 2. Architecture cible complète
+- Rendu du document → orientation de page → OCR → extraction structurée → normalisation/validation canonique → contrôles métier.
+- PP-LCNet_x1_0_doc_ori est le candidat local provisoire d'orientation ; l'OCR suit l'orientation.
+- ExtractionManager/Ollama est le chemin d'extraction intégré à évaluer ; NuExtract3 est un candidat d'extraction structuré après OCR, pas un moteur OCR.
+- Comparer les extracteurs sur les mêmes textes OCR et la vérité terrain des champs fournisseur, date, HT, TVA, TTC et SIRET.
+- Exclure réconciliation, règles TVA et skills du benchmark d'exactitude brute ; les évaluer séparément.
+- Les modèles cloud sont des secours explicites pour les cas complexes, jamais le chemin par défaut des tâches locales simples.
+
+## 3. État exact des environnements
+- **DSH-Core :** dépôt applicatif et pipeline cible. Les documents consultés ne consignent ni environnement d'exécution, ni versions de runtime/dépendances ; ne pas les supposer.
+- **DeepSeek Harness :** DeepSeek Harness est validé et conservé comme composant stratégique du projet. Les documents consultés ne précisent ni chemin, ni versions, ni périmètre/critères de validation ; ne pas installer ou revalider sans besoin précis.
+- **Paddle Orientation :** environnement isolé `A:\dsh-paddle-orientation` ; Python 3.11.9, PaddlePaddle GPU 3.0.0, PaddleOCR 3.0.3, PaddleX 3.0.3, CUDA 12.6, RTX 4070 Laptop. Hors dépôt DSH-Core.
+- **LightOnOCR Bench :** environnement isolé `A:\dsh-lightonocr-bench` ; Python 3.11.9, Torch 2.14.1+cu126, cache local du modèle d'environ 2,33 Go. Hors dépôt DSH-Core.
+- Les rapports et notes de benchmark Paddle/LightOnOCR se trouvent dans leurs environnements séparés.
+
+## 4. Résultats du benchmark d'orientation
+- Corpus/manifeste : 10 documents.
+- Les résultats ci-dessous mesurent l'accord avec les annotations présentes ; deux annotations sont contestées.
+- Deux désaccords relevés : `facture_emaux.pdf` (attendu 90°, prédit 0°) et `facture_transport.PDF` (attendu 0°, prédit 90°).
+- Un audit visuel suggère que les attentes pourraient être inversées, mais la vérité terrain n'est pas confirmée.
+
+## 5. Résultats PP-LCNet
+- PP-LCNet_x1_0_doc_ori : 8/10 (80 %) sur les annotations existantes, quatre classes (0/90/180/270).
+- Rapport : `A:\dsh-paddle-orientation\orientation_benchmark_pplcnet.json`.
+- Le test synthétique a chargé le modèle et effectué une prédiction GPU.
+- L'accuracy réelle n'est pas établie avant arbitrage humain ; une accuracy de 100 % après correction est uniquement conditionnelle.
+
+## 6. Résultats LightOnOCR
+- LightOnOCR-1B-1025 orientation : 2/10 (20 %), PDF 1/9 (11,1 %), image 1/1 (100 %), 8 erreurs, aucune erreur d'exécution.
+- Rapport : `A:\dsh-lightonocr-bench\orientation_benchmark_lightonocr.json`.
+- Temps moyen : 120,81 s/document et 30,08 s/rotation. Le score privilégiant la quantité de texte est insuffisant pour l'orientation.
+- Smoke-test OCR synthétique réussi (« HELLO OCR TEST 123 ») ; aucune transcription réelle n'est conservée dans le rapport.
+- Heuristique de lisibilité ultérieure : 5/10 non consigné au rapport ; combinaison rapportée : 2/10. Résultats non référentiels.
+
+## 7. Choix IA locale
+- Garder les expérimentations dans des environnements isolés.
+- PP-LCNet reste provisoire jusqu'à la validation humaine des labels ; ne pas modifier les documents sources pour les rotations.
+- ExtractionManager/Ollama est la voie intégrée à évaluer ; NuExtract3 peut être comparé après OCR.
+- SeeingStraight reste une piste non adoptée : checkpoint, licence, runtime, compatibilité et performances non vérifiés ; aucun fallback ni seuil validé.
+
+## 8. Choix IA cloud
+- MiMo Vision a été techniquement testé avec `reasoning.enabled=false` : 50 % sur 10 documents, coût rapporté 0,0046284 USD ; insuffisant pour la production.
+- DeepSeek Vision est un candidat de secours, mais disponibilité/configuration et politique d'usage restent à confirmer.
+- Gemini est un secours envisagé pour PDF/catalogues complexes, images multiples ou échec DeepSeek ; ne pas l'appeler par défaut.
+- Nemotron n'est pas adopté ; rôle et validation ne sont pas établis.
+- Ne jamais afficher ni recopier les valeurs du vrai `.env`.
+
+## 9. Ce qui est définitivement abandonné
+- LightOnOCR comme classifieur d'orientation selon le score de quantité de texte mesuré à 20 % : rejeté pour intégration.
+- Ce rejet ne signifie pas que LightOnOCR est abandonné comme OCR ; le smoke-test synthétique a réussi.
+
+## 10. Ce qui est validé
+- Tests synthétiques PP-LCNet et LightOnOCR réussis dans leurs environnements isolés.
+- PP-LCNet : mesure reproductible rapportée de 8/10 selon les annotations actuelles, mais vérité terrain partiellement contestée.
+- LightOnOCR orientation : résultat 2/10 et insuffisant pour l'intégration.
+- MiMo Vision : classification techniquement exécutée, mais résultat insuffisant pour adoption de production.
+- DeepSeek Harness : statut VALIDÉ déclaré ; détails probants non consignés dans les documents disponibles.
+
+## 11. Les cinq prochaines étapes prioritaires
+1. Obtenir une validation humaine documentée de l'orientation de `facture_emaux.pdf` et `facture_transport.PDF`.
+2. Après décision seulement, corriger les annotations concernées si nécessaire.
+3. Recalculer l'accuracy PP-LCNet après validation des annotations et décision explicite.
+4. Avant toute mise en production, valider PP-LCNet, pilote CUDA et mémoire sur la version cible d'Oracle Linux.
+5. Comparer ExtractionManager et NuExtract3 avec les mêmes textes OCR et vérités terrain des six champs ; exclure les règles de réconciliation de la comparaison brute.
+
+## 12. Reprise d'une nouvelle conversation
+- PROJECT_HANDOVER.md devient la source de vérité principale pour toute nouvelle conversation.
+- Lire d'abord uniquement ce document. Ne consulter un autre fichier que si une information précise nécessaire manque ; limiter chaque lecture ultérieure à 150 lignes par fichier.
+- Ne pas relire le dépôt entier, le code ou la roadmap sauf demande explicite.
+- Avant toute expérimentation, tenir compte des résultats et décisions déjà consignés ici ; ne pas relancer modèles/benchmarks, installer ou télécharger sans besoin et autorisation explicites.
+- Priorité de reprise : organiser la validation humaine des deux orientations ; ne pas commencer par une installation ou un nouveau benchmark.
+- Gemini est un auditeur mémoire/documentation, pas l'exécuteur principal.
+- Préserver les changements préexistants ; ne pas modifier du code ni committer sans demande explicite.
+- Préférer VS Code Auto + Efficiency et l'effort Rapide. Proposer exactement UNE action VS Code prête à copier-coller, puis s'arrêter au périmètre demandé.
+
+## 13. État du benchmark ExtractionManager vs NuExtract3
+- Le plan technique est consigné dans `benchmarks/extractor_comparison_plan.md` ; le squelette sans modèle est dans `benchmarks/extractor_benchmark_runner.py`.
+- Les montants français (dont espaces normaux et insécables) sont normalisés en Decimal ; les dates `YYYY-MM-DD` et `DD/MM/YYYY` sont prises en charge. Les dates impossibles et les formats ambigus sont rejetés.
+- NuExtract3 est adapté vers les structures canoniques `supplier`, `reference` et `amount`. Le vrai `InvoiceSchema` confirme le chemin du SIRET `supplier.siret` ; cette validation est testée avec des données synthétiques.
+- Le runner calcule les métriques par champ et l'exactitude complète sur les six champs. Sa méthode `run` est testée avec deux extracteurs factices, sans client de modèle.
+- 42 tests ciblés ont réussi. Aucun LLM, Ollama, OCR ni benchmark réel n'a été lancé.
+- Prochain blocage pour exécuter une comparaison réelle : préparer ultérieurement un dataset versionné de textes OCR figés avec vérité terrain vérifiée pour fournisseur, date, HT, TVA, TTC et SIRET. Ne pas créer ce dataset dans le lot actuel.
+- Le runner reste un squelette de benchmark : aucun résultat comparatif réel n'est disponible.
+
+## 14. Sélection du modèle Vision
+- `qwen2.5vl:7b` est retiré ; `qwen3.5:2b` est retiré de Vision et de tous les rôles locaux actifs, y compris FAST et BASE. Ces identifiants restent uniquement dans les tests explicites de rejet.
+- Aucun remplaçant local n'est choisi. `LOCAL_FAST_MODEL` et `LOCAL_VISION_MODEL` sont volontairement vides dans `.env.example` ; aucun fallback implicite n'est autorisé. Le nouveau choix local est reporté à un benchmark séparé.
+- `A:\dsh-core` reste la cible canonique ; la copie `A:\dsh-hermes-context` est inchangée.
+- `RoutingEngine` résout la configuration via `model_router` lors du routage Vision ; les PDF natifs n'exigent pas de configuration Vision. Le profil manuscrit reste `HANDWRITING_PATH_MISSING`.
+
+
+===== model_router.py =====
+"""Central model selection without loading dotenv files or contacting providers."""
+
+import os
+from dataclasses import dataclass
+from enum import Enum
+from typing import Mapping, Optional, Union
+
+
+class ModelRole(str, Enum):
+    FAST = "fast"
+    BASE = "base"
+    VISION = "vision"
+    EXTRACTION = "extraction"
+    EMBEDDING = "embedding"
+    PREPARATION = "preparation"
+    EXPERT = "expert"
+    CODING = "coding"
+    REVIEW = "review"
+
+
+class ExecutionMode(str, Enum):
+    LOCAL = "local"
+    HYBRID = "hybrid"
+    CLOUD = "cloud"
+
+
+class Provider(str, Enum):
+    OLLAMA = "ollama"
+    OPENROUTER = "openrouter"
+
+
+@dataclass(frozen=True)
+class ConfigIssue:
+    variable: str
+    role: Optional[ModelRole]
+    mode: Optional[ExecutionMode]
+    message: str
+
+
+RoleInput = Union[ModelRole, str]
+ModeInput = Union[ExecutionMode, str]
+
+_ROLE_VARIABLES = {
+    ExecutionMode.LOCAL: {
+        ModelRole.FAST: "LOCAL_FAST_MODEL",
+        ModelRole.BASE: "LOCAL_BASE_MODEL",
+        ModelRole.VISION: "LOCAL_VISION_MODEL",
+        ModelRole.EXTRACTION: "LOCAL_EXTRACTION_MODEL",
+        ModelRole.EMBEDDING: "LOCAL_EMBEDDING_MODEL",
+        ModelRole.PREPARATION: "LOCAL_BASE_MODEL",
+        ModelRole.EXPERT: "LOCAL_BASE_MODEL",
+        ModelRole.CODING: "LOCAL_BASE_MODEL",
+        ModelRole.REVIEW: "LOCAL_BASE_MODEL",
+    },
+    ExecutionMode.HYBRID: {
+        ModelRole.FAST: "LOCAL_FAST_MODEL",
+        ModelRole.BASE: "LOCAL_BASE_MODEL",
+        ModelRole.VISION: "LOCAL_VISION_MODEL",
+        ModelRole.EXTRACTION: "LOCAL_EXTRACTION_MODEL",
+        ModelRole.EMBEDDING: "LOCAL_EMBEDDING_MODEL",
+        ModelRole.PREPARATION: "CLOUD_PREPARATION_MODEL",
+        ModelRole.EXPERT: "CLOUD_EXPERT_MODEL",
+        ModelRole.CODING: "CLOUD_CODING_MODEL",
+        ModelRole.REVIEW: "CLOUD_REVIEW_MODEL",
+    },
+    ExecutionMode.CLOUD: {
+        ModelRole.VISION: "CLOUD_VISION_MODEL",
+        ModelRole.PREPARATION: "CLOUD_PREPARATION_MODEL",
+        ModelRole.EXPERT: "CLOUD_EXPERT_MODEL",
+        ModelRole.CODING: "CLOUD_CODING_MODEL",
+        ModelRole.REVIEW: "CLOUD_REVIEW_MODEL",
+    },
+}
+
+_CLOUD_VARIABLES = frozenset(
+    variable
+    for variables in _ROLE_VARIABLES.values()
+    for variable in variables.values()
+    if variable.startswith("CLOUD_")
+)
+_RETIRED_MODELS = frozenset({"qwen2.5vl:7b", "qwen3.5:2b"})
+
+
+def validate_model_identifier(model: str) -> str:
+    """Reject retired model identifiers without loading a model."""
+    if not model or not model.strip():
+        raise ValueError("MODEL_NOT_CONFIGURED")
+    if model.strip().casefold() in _RETIRED_MODELS:
+        raise ValueError(f"MODEL_RETIRED: {model.strip()}")
+    return model.strip()
+
+
+def validate_vision_model(model: str) -> str:
+    """Reject missing or retired Vision selections without loading a model."""
+    try:
+        return validate_model_identifier(model)
+    except ValueError as exc:
+        if str(exc).startswith("MODEL_RETIRED") or str(exc) == "MODEL_NOT_CONFIGURED":
+            raise ValueError("VISION_MODEL_NOT_CONFIGURED") from None
+        raise
+
+
+def _parse_role(role: RoleInput) -> ModelRole:
+    try:
+        return role if isinstance(role, ModelRole) else ModelRole(role)
+    except (TypeError, ValueError):
+        raise ValueError(f"Unknown model role: {role!r}") from None
+
+
+def _parse_mode(mode: ModeInput) -> ExecutionMode:
+    try:
+        return mode if isinstance(mode, ExecutionMode) else ExecutionMode(mode)
+    except (TypeError, ValueError):
+        raise ValueError(f"Unknown execution mode: {mode!r}") from None
+
+
+def _environment(environ: Optional[Mapping[str, str]]) -> Mapping[str, str]:
+    return os.environ if environ is None else environ
+
+
+def _selected_mode(
+    mode: Optional[ModeInput], environ: Mapping[str, str]
+) -> ExecutionMode:
+    if mode is not None:
+        return _parse_mode(mode)
+    configured_mode = environ.get("AI_MODE")
+    if configured_mode is None or not configured_mode.strip():
+        raise ValueError("AI_MODE is missing or empty")
+    return _parse_mode(configured_mode)
+
+
+def _variable_for(role: ModelRole, mode: ExecutionMode) -> str:
+    variable = _ROLE_VARIABLES[mode].get(role)
+    if variable is None:
+        raise ValueError(f"Role {role.value!r} is not supported in mode {mode.value!r}")
+    return variable
+
+
+def resolve_model(
+    role: RoleInput,
+    mode: Optional[ModeInput] = None,
+    environ: Optional[Mapping[str, str]] = None,
+) -> str:
+    """Return a configured model identifier, never a credential."""
+    role_value = _parse_role(role)
+    env = _environment(environ)
+    mode_value = _selected_mode(mode, env)
+    variable = _variable_for(role_value, mode_value)
+    model = env.get(variable)
+    if model is None or not model.strip():
+        if role_value is ModelRole.VISION:
+            raise ValueError("VISION_MODEL_NOT_CONFIGURED")
+        raise ValueError(
+            f"Missing or empty {variable} for role {role_value.value!r} "
+            f"in mode {mode_value.value!r}"
+        )
+    if role_value is ModelRole.VISION:
+        return validate_vision_model(model)
+    return validate_model_identifier(model)
+
+
+def resolve_provider(role: RoleInput, mode: Optional[ModeInput] = None) -> Provider:
+    """Return the provider assigned by the role/mode table."""
+    role_value = _parse_role(role)
+    mode_value = _selected_mode(mode, os.environ)
+    variable = _variable_for(role_value, mode_value)
+    return Provider.OPENROUTER if variable.startswith("CLOUD_") else Provider.OLLAMA
+
+
+def validate_model_config(
+    mode: Optional[ModeInput] = None,
+    environ: Optional[Mapping[str, str]] = None,
+) -> list[ConfigIssue]:
+    """Report missing configuration without exposing environment values."""
+    env = _environment(environ)
+    if mode is None:
+        configured_mode = env.get("AI_MODE")
+        if configured_mode is None or not configured_mode.strip():
+            return [
+                ConfigIssue(
+                    variable="AI_MODE",
+                    role=None,
+                    mode=None,
+                    message="AI_MODE is missing or empty",
+                )
+            ]
+        try:
+            mode_value = _parse_mode(configured_mode)
+        except ValueError:
+            return [
+                ConfigIssue(
+                    variable="AI_MODE",
+                    role=None,
+                    mode=None,
+                    message="AI_MODE contains an unknown execution mode",
+                )
+            ]
+    else:
+        mode_value = _parse_mode(mode)
+
+    issues = []
+    role_variables = _ROLE_VARIABLES[mode_value]
+    checked_variables = set()
+    for role_value, variable in role_variables.items():
+        if variable not in checked_variables and (
+            variable not in env or not env[variable].strip()
+        ):
+            issues.append(
+                ConfigIssue(
+                    variable=variable,
+                    role=role_value,
+                    mode=mode_value,
+                    message=f"{variable} is missing or empty",
+                )
+            )
+        if variable is not None:
+            checked_variables.add(variable)
+
+    if any(variable.startswith("CLOUD_") for variable in role_variables.values()):
+        if not env.get("OPENROUTER_API_KEY", "").strip():
+            issues.append(
+                ConfigIssue(
+                    variable="OPENROUTER_API_KEY",
+                    role=None,
+                    mode=mode_value,
+                    message="OPENROUTER_API_KEY is missing or empty",
+                )
+            )
+    return issues
+
+
+===== router.py =====
+# router.py - Routeur d'agents V2 (Cascade locale et superviseur cloud)
+import re
+from typing import Any, Dict
+from model_router import ExecutionMode, ModelRole, resolve_model
+
+# ==========================================
+# 1. REGISTRE DES MODÈLES (FACILE À MODIFIER)
+# ==========================================
+MODELS_REGISTRY = {
+    "vision_general": "",                  # Résolu par model_router ; aucun fallback
+    "executor_fast": "qwen3.5:9b",          # Tâches courantes, scripts rapides, MCP
+    "reasoning_expert": "qwen3.6:27b",      # Raisonnement lourd, refactoring complexe
+    "supervisor_cloud": "anthropic/claude-3-5-sonnet" # Audit, architecture, validation de SKILL
+}
+
+# Import sécurisé du gestionnaire unifié
+try:
+    from memory_manager import recuperer_contexte, find_skill
+    HAS_MEMORY_MANAGER = True
+except ImportError:
+    HAS_MEMORY_MANAGER = False
+
+def detecter_complexite(prompt: str) -> str:
+    """Évalue si la tâche locale nécessite l'expert Qwen 27B ou l'exécuteur 9B."""
+    prompt_lower = prompt.lower()
+    
+    expert_patterns = [
+        r'\b(optimis|refactor|complex|algorithme|debug.*avancé)\b',
+        r'\b(architecture.*données|parcours.*graphe|concurren)\b',
+        r'\b(analyse.*critique|modélis|pipeline.*comptable)\b'
+    ]
+    if any(re.search(p, prompt_lower) for p in expert_patterns):
+        return "expert"
+    return "fast"
+
+def analyze_prompt_complexity(prompt: str, image_provided: bool = False) -> Dict[str, str]:
+    """Détermine le niveau hiérarchique requis selon la nature du prompt."""
+    prompt_lower = prompt.lower()
+
+    # 1. Flux Multimodal / Vision (Aiguillage général)
+    vision_patterns = [r'\b(image|photo|capture|scann|vision|vois-tu|décris)\b']
+    if image_provided or any(re.search(p, prompt_lower) for p in vision_patterns):
+        return {
+            "agent": "vision-sensor-local",
+            "model": resolve_model(ModelRole.VISION, ExecutionMode.LOCAL),
+            "role": "Capteur Visuel (Multimodal)",
+            "tier": "vision",
+            "reasoning": "Présence d'une image ou requête d'observation visuelle générale."
+        }
+
+    # 2. Superviseur Cloud (Audit, gouvernance, rédaction de règles / SKILL)
+    teacher_patterns = [
+        r'\b(skill|compétence|mémoire procédurale|template)\b',
+        r'\b(juge|audit.*sécurité|valide.*code|contrôle.*qualité)\b',
+        r'\b(arbitre|master.*blueprint|décision.*architecture)\b'
+    ]
+    if any(re.search(p, prompt_lower) for p in teacher_patterns):
+        return {
+            "agent": "cloud-supervisor",
+            "model": MODELS_REGISTRY["supervisor_cloud"],
+            "role": "Superviseur & Rédacteur SKILL",
+            "tier": "supervisor",
+            "reasoning": "Tâche d'arbitrage de haut niveau, audit de code ou gouvernance du système."
+        }
+
+    # 3. Cascade Locale (Expert 27B vs Exécuteur 9B)
+    if detecter_complexite(prompt) == "expert":
+        return {
+            "agent": "qwen-expert-local",
+            "model": MODELS_REGISTRY["reasoning_expert"],
+            "role": "Expert Raisonnement Local",
+            "tier": "expert",
+            "reasoning": "Tâche locale nécessitant une capacité d'abstraction et d'analyse avancée."
+        }
+
+    return {
+        "agent": "qwen-executor-local",
+        "model": MODELS_REGISTRY["executor_fast"],
+        "role": "Exécuteur Rapide Local",
+        "tier": "fast",
+        "reasoning": "Tâche opérationnelle directe, manipulation d'outils MCP ou script rapide."
+    }
+
+def route_prompt(prompt: str, user_id: str = "admin", image_provided: bool = False) -> Dict[str, Any]:
+    """Aiguille la requête et injecte les souvenirs et compétences applicables."""
+    decision = analyze_prompt_complexity(prompt, image_provided)
+    
+    # 1. Vérification d'une compétence outillée (Skill)
+    matched_skill = None
+    if HAS_MEMORY_MANAGER:
+        matched_skill = find_skill(prompt)
+
+    # 2. Récupération du contexte contextuel utilisateur
+    contexte_utilisateur = ""
+    if HAS_MEMORY_MANAGER:
+        contexte_utilisateur = recuperer_contexte(user_id, prompt)
+
+    # 3. Assemblage du contrat d'instructions
+    instructions = {
+        "vision": "Tu es le Capteur Visuel. Analyse les éléments graphiques, extrait le texte visible et décris la scène avec précision.",
+        "supervisor": "Tu es le Superviseur. Audite les résultats, valide le respect des normes et génère les fiches SKILL.",
+        "expert": "Tu es l'Expert Local. Résous les blocages logiques complexes, optimise le code et garantis la cohérence technique.",
+        "fast": "Tu es l'Exécuteur Rapide. Utilise les outils locaux (MCP, fichiers, scripts) pour exécuter l'action demandée sans détour."
+    }
+
+    return {
+        **decision,
+        "instructions": instructions[decision["tier"]],
+        "active_skill": matched_skill,
+        "episodic_context": contexte_utilisateur,
+        "input_prompt": prompt
+    }
+
+if __name__ == "__main__":
+    print("=== TEST DU ROUTEUR V2 (Qwen2.5-VL Ready) ===")
+
+    scenarios = [
+        ("Décris ce qui est présent sur cette capture d'écran.", True),
+        ("Rédige un nouveau template de SKILL pour auditer la mémoire.", False),
+        ("Optimise cet algorithme récursif pour éviter les fuites de mémoire.", False),
+        ("Crée le fichier script.py et écris une fonction de test.", False),
+        ("Vérifie la disponibilité de Qdrant avec un ping.", False)
+    ]
+
+    for p, img in scenarios:
+        res = route_prompt(prompt=p, image_provided=img)
+        print(f"\nPrompt : « {p} » (Image : {img})")
+        print(f"-> Agent assigné : {res['agent']} ({res['model']})")
+        print(f"-> Rôle : {res['role']}")
+        print(f"-> Justification : {res['reasoning']}")
+        if res.get("active_skill"):
+            print(f"-> Skill détecté : {res['active_skill']['name']}")
+
+===== services/business_extraction_manager.py =====
+# services/business_extraction_manager.py
+import json
+import ollama
+from pydantic import ValidationError
+from model_router import ExecutionMode, ModelRole, resolve_model, validate_model_identifier
+from schemas.document_result import DocumentResult
+from schemas.invoice_schema import InvoiceData
+
+class BusinessExtractionManager:
+    def __init__(self, base_model: str = None):
+        self.base_model = (
+            validate_model_identifier(base_model)
+            if base_model is not None
+            else resolve_model(ModelRole.BASE, ExecutionMode.LOCAL)
+        )
+
+    def extract_to_json(self, document: DocumentResult) -> dict:
+        print(f"\n[BusinessExtractionManager] Analyse métier via {self.base_model}...")
+        
+        # SÉCURITÉ 1 : On vérifie ce que l'OCR a réellement lu
+        texte_extrait = document.raw_text.strip()
+        print(f"[BusinessExtractionManager] Texte reçu ({len(texte_extrait)} caractères) : {texte_extrait[:60]}...")
+        
+        if not texte_extrait:
+            return {"status": "error", "message": "Le texte brut est vide, l'OCR a échoué."}
+
+        # PROMPT STRICT : Interdiction totale de calculer
+        prompt = f"""Tu es un extracteur de données strict, pas une calculatrice. 
+RÈGLE ABSOLUE : Tu dois extraire UNIQUEMENT les nombres exactement tels qu'ils sont imprimés sur le document. 
+NE FAIS AUCUN CALCUL. N'additionne rien. Si un chiffre n'est pas écrit noir sur blanc, mets 0.0.
+        
+Texte brut extrait via {document.extraction_tool} :
+{texte_extrait}
+
+Format JSON attendu :
+{{
+  "fournisseur": "Nom de l'entreprise",
+  "date_facture": "YYYY-MM-DD",
+  "montant_ht": 0.0,
+  "montant_tva": 0.0,
+  "montant_ttc": 0.0,
+  "devise": "EUR",
+  "numero_facture": "NUM-123"
+}}"""
+
+        try:
+            response = ollama.chat(
+                model=self.base_model,
+                messages=[
+                    {"role": "system", "content": "Tu es un extracteur de données strict. Tu réponds UNIQUEMENT par du JSON valide, sans aucun texte autour."},
+                    {"role": "user", "content": prompt}
+                ],
+                format="json", # Force Ollama à bloquer tout ce qui n'est pas du JSON
+                options={"temperature": 0.0}
+            )
+            
+            raw_json = response["message"]["content"].strip()
+            
+            if not raw_json:
+                return {"status": "error", "message": "Le modèle a renvoyé une réponse vide", "raw_output": ""}
+
+            parsed_data = json.loads(raw_json)
+            
+            # Mise à jour de l'enveloppe
+            document.business_type = "invoice"
+            document.processing_notes.append(f"llm_extraction_{self.base_model.replace(':', '_')}")
+            
+            return self._validate_data(parsed_data, document)
+
+        except json.JSONDecodeError:
+            return {"status": "error", "message": "JSON invalide généré", "raw_output": raw_json}
+        except Exception as e:
+            return {"status": "critical_error", "message": str(e)}
+
+    def _validate_data(self, data: dict, document: DocumentResult) -> dict:
+        print("[BusinessExtractionManager] Validation Pydantic (HT + TVA = TTC) en cours...")
+        try:
+            valid_invoice = InvoiceData(**data)
+            document.processing_notes.append("pydantic_validation_success")
+            print("[BusinessExtractionManager] ✅ SUCCÈS : Données validées !")
+            return {
+                "status": "success", 
+                "document_metadata": document.model_dump(exclude={'raw_text'}),
+                "data": valid_invoice.model_dump()
+            }
+        except ValidationError as e:
+            document.processing_notes.append("pydantic_validation_failed")
+            print("[BusinessExtractionManager] ⚠ REJET : Échec mathématique ou structurel.")
+            return {
+                "status": "validation_failed", 
+                "document_metadata": document.model_dump(exclude={'raw_text'}),
+                "extracted_data": data, 
+                "errors": [err["msg"] for err in e.errors()]
+            }
+
+===== services/extraction_manager.py =====
+# services/extraction_manager.py
+import json
+from typing import Any
+
+import ollama
+from pydantic import ValidationError
+from model_router import ExecutionMode, ModelRole, resolve_model, validate_model_identifier
+from schemas.invoice_schema import InvoiceSchema
+from schemas.document_result import DocumentResult
+
+
+class InvoiceExtractionValidationError(Exception):
+    """Raised when extracted invoice data violates the canonical contract."""
+
+
+class ExtractionManager:
+    def __init__(self, base_model: str = None):
+        self.base_model = (
+            validate_model_identifier(base_model)
+            if base_model is not None
+            else resolve_model(ModelRole.BASE, ExecutionMode.LOCAL)
+        )
+
+    def extract_to_json(self, document: DocumentResult) -> dict:
+        print(f"\n[ExtractionManager] Structuration du texte brut via {self.base_model}...")
+
+        # Le prompt est mis à jour pour coller EXACTEMENT à ton InvoiceSchema
+        prompt = f"""Tu es un expert comptable implacable. Transforme ce texte brut extrait d'un document en un JSON strict qui respecte EXACTEMENT cette structure.
+        
+Origine du texte : {document.profile_type} extrait via {document.extraction_tool}
+Texte brut :
+{document.raw_text}
+
+Format JSON attendu (réponds UNIQUEMENT le JSON, aucun texte avant ou après) :
+{{
+  "numero_facture": "Numéro ou FA-INCONNU",
+  "date_emission": "YYYY-MM-DD",
+  "fournisseur": {{
+    "nom": "Nom du vendeur"
+  }},
+  "client": {{
+    "nom": "Nom de l'acheteur"
+  }},
+  "lignes": [
+    {{
+      "description": "Nom de l'article",
+      "quantite": 1.0,
+      "prix_unitaire_ht": 0.0,
+      "total_ht": 0.0,
+      "taux_tva": 20.0
+    }}
+  ],
+  "total_ht": 0.0,
+  "montant_tva": 0.0,
+  "total_ttc": 0.0,
+  "devise": "EUR"
+}}"""
+
+        try:
+            response = ollama.chat(
+                model=self.base_model,
+                messages=[{"role": "user", "content": prompt}],
+                options={"temperature": 0.0}
+            )
+            
+            raw_json = response["message"]["content"].strip()
+            
+            # Nettoyage si le modèle ajoute des balises Markdown
+            if raw_json.startswith("```json"):
+                raw_json = raw_json.replace("```json", "").replace("```", "").strip()
+            elif raw_json.startswith("```"):
+                raw_json = raw_json.replace("```", "").strip()
+
+            parsed_data = json.loads(raw_json)
+            return self._validate_data(parsed_data)
+
+        except json.JSONDecodeError:
+            print("[ExtractionManager] ❌ ÉCHEC : Le modèle n'a pas renvoyé un JSON lisible.")
+            return {"status": "error", "message": "JSON invalide", "raw_output": raw_json}
+        except Exception as e:
+            print(f"[ExtractionManager] ❌ ÉCHEC API Ollama : {e}")
+            return {"status": "critical_error", "message": str(e)}
+
+    def validate_invoice(self, payload: dict[str, Any]) -> InvoiceSchema:
+        try:
+            return InvoiceSchema.model_validate(payload)
+        except ValidationError as exc:
+            raise InvoiceExtractionValidationError(
+                "Extracted invoice data does not satisfy the canonical contract"
+            ) from exc
+
+    def _validate_data(self, data: dict) -> dict:
+        print("[ExtractionManager] Validation Pydantic complète en cours...")
+        try:
+            valid_invoice = self.validate_invoice(data)
+            print("[ExtractionManager] ✅ SUCCÈS : Données comptables validées ! L'équation mathématique est juste.")
+            return {
+                "status": "success",
+                "data": valid_invoice.model_dump(mode="json"),
+            }
+        except InvoiceExtractionValidationError as exc:
+            validation_error = exc.__cause__
+            if not isinstance(validation_error, ValidationError):
+                raise
+            print("[ExtractionManager] ⚠ REJET PYDANTIC : Échec de la validation métier.")
+            error_msgs = [err["msg"] for err in validation_error.errors()]
+            return {"status": "validation_failed", "extracted_data": data, "errors": error_msgs}
+
+===== services/routing_engine.py =====
+# services/routing_engine.py
+import pandas as pd
+import pymupdf
+import ollama
+from pathlib import Path
+from model_router import ExecutionMode, ModelRole, resolve_model, validate_vision_model
+from schemas.profile_schema import DocumentProfile
+from schemas.document_result import DocumentResult
+
+class RoutingEngine:
+    def __init__(self, vision_model: str | None = None):
+        self.vision_model = (
+            validate_vision_model(vision_model) if vision_model is not None else None
+        )
+
+    def extract(self, file_path: str | Path, profile: DocumentProfile) -> DocumentResult:
+        """Route le document vers le bon outil et retourne l'enveloppe DocumentResult."""
+        path = Path(file_path)
+        ptype = profile.profile_type
+        tool_used = "unknown"
+        raw_text = ""
+        notes = []
+
+        print(f"\n[RoutingEngine] Routage de {path.name} -> {ptype.upper()}")
+
+        if ptype == "native_pdf":
+            tool_used = "PyMuPDF"
+            notes.append("native_text_extracted")
+            raw_text = self._extract_native_pdf(path)
+        elif ptype == "spreadsheet":
+            tool_used = "Pandas/OpenPyXL"
+            notes.append("spreadsheet_to_markdown")
+            raw_text = self._extract_spreadsheet(path)
+        elif ptype in ["scanned_pdf", "image"]:
+            vision_model = self._require_vision_model()
+            tool_used = f"Local Vision ({vision_model})"
+            notes.append("vision_png_standardized")
+            notes.append("autorotate_applied") # Traçabilité de l'action géométrique
+            notes.append(f"ocr_{vision_model.replace(':', '_')}")
+            raw_text = self._extract_vision(path, vision_model)
+        elif ptype == "complex_pdf":
+            tool_used = "Docling (Fallback PyMuPDF)"
+            notes.append("fallback_pymupdf_used")
+            raw_text = self._extract_docling(path)
+        elif ptype in ("handwritten", "handwriting", "manuscrit"):
+            raise ValueError("HANDWRITING_PATH_MISSING")
+        else:
+            raise ValueError(f"Profil physique inconnu : {ptype}")
+
+        # Construction et retour de l'enveloppe avec son historique complet
+        return DocumentResult(
+            source_name=path.name,
+            profile_type=ptype,
+            extraction_tool=tool_used,
+            raw_text=raw_text,
+            processing_notes=notes,
+            metadata={
+                "extension": profile.extension,
+                "word_count": profile.word_count,
+                "has_tables": profile.has_tables,
+                "has_images": profile.has_images,
+                "is_scanned": profile.is_scanned
+            }
+        )
+        
+    def _extract_native_pdf(self, path: Path) -> str:
+        print("-> Outil engagé : PyMuPDF (Texte natif)")
+        doc = pymupdf.open(path)
+        texte = "\n".join([page.get_text() for page in doc])
+        doc.close()
+        return texte
+
+    def _extract_spreadsheet(self, path: Path) -> str:
+        print("-> Outil engagé : Pandas/OpenPyXL (Tableur)")
+        if path.suffix.lower() == '.csv':
+            df = pd.read_csv(path)
+        else:
+            df = pd.read_excel(path)
+        return df.to_markdown()
+
+    def _require_vision_model(self) -> str:
+        if self.vision_model is not None:
+            return validate_vision_model(self.vision_model)
+        return resolve_model(ModelRole.VISION, ExecutionMode.LOCAL)
+
+    def _extract_vision(self, path: Path, vision_model: str) -> str:
+        print(f"-> Outil engagé : Local Vision ({vision_model}) avec AutoRotate")
+        doc = pymupdf.open(path)
+        
+        best_text = ""
+        best_len = -1
+        best_angle = 0
+        
+        prompt = (
+            "Transcris tout le texte visible. "
+            "Si un mot est illisible, écris [?]. "
+            "N'invente rien. "
+            "Respecte la mise en page."
+        )
+
+        # Force Brute : Test des 4 orientations géométriques avec syntaxe robuste
+        for angle in [0, 90, 180, 270]:
+            matrix = pymupdf.Matrix(1, 1).prerotate(angle)
+            
+            if path.suffix.lower() == ".pdf":
+                pix = doc[0].get_pixmap(matrix=matrix, dpi=200)
+            else:
+                pix = doc[0].get_pixmap(matrix=matrix)
+                
+            img_bytes = pix.tobytes("png")
+            
+            try:
+                reponse = ollama.chat(
+                    model=vision_model,
+                    messages=[{"role": "user", "content": prompt, "images": [img_bytes]}],
+                    options={"temperature": 0.0}
+                )
+                
+                texte_courant = reponse["message"]["content"].strip()
+                taille_courante = len(texte_courant)
+                
+                print(f"   [AutoRotate] Test {angle}° -> {taille_courante} caractères")
+                
+                # On conserve strictement l'orientation produisant le plus de texte
+                if taille_courante > best_len:
+                    best_len = taille_courante
+                    best_text = texte_courant
+                    best_angle = angle
+            except Exception as e:
+                # Si le modèle crash (ex: token repeat limit sur image à l'envers), on ignore et on continue
+                print(f"   [AutoRotate] Test {angle}° -> ❌ ÉCHEC du modèle (Ignoré)")
+
+        doc.close()
+        print(f"-> Orientation optimale validée : {best_angle}°")
+        return best_text
+
+    def _extract_docling(self, path: Path) -> str:
+        print("-> Outil engagé : Docling (Tableaux complexes)")
+        print("   (Fallback temporaire sur PyMuPDF)")
+        return self._extract_native_pdf(path)
+
+===== test_experimental_multitva.py =====
+# test_experimental_multitva.py
+import os
+import json
+import ollama
+from pathlib import Path
+from dotenv import load_dotenv
+from pydantic import BaseModel, Field, model_validator
+from typing import Optional
+
+from services.document_profiler import DocumentProfiler
+from services.routing_engine import RoutingEngine
+from model_router import ExecutionMode, ModelRole, resolve_model
+
+load_dotenv()
+
+VISION_MODEL = resolve_model(ModelRole.VISION, ExecutionMode.LOCAL)
+NUEXTRACT_MODEL = os.getenv("NUEXTRACT_MODEL", "numind/nuextract3:q4_k_m") 
+
+# ==========================================
+# SCHÉMA EXPÉRIMENTAL V8.7 (Isolé du reste)
+# ==========================================
+class LigneTVA(BaseModel):
+    base_ht: float
+    taux_pourcentage: float
+    montant_tva: float
+
+class InvoiceDataExperimental(BaseModel):
+    fournisseur: str
+    date_facture: str
+    numero_facture: Optional[str] = None
+    
+    montant_ht: float
+    montant_tva: float
+    montant_ttc: float
+    
+    # Le tableau multi-TVA au centre du crash-test
+    lignes_tva: list[LigneTVA] = Field(default_factory=list)
+    
+    devise: str = "EUR"
+
+    @model_validator(mode="after")
+    def process_and_verify(self):
+        # 1. Vérification Globale
+        attendu_ttc = round(self.montant_ht + self.montant_tva, 2)
+        if abs(attendu_ttc - self.montant_ttc) > 0.02:
+            raise ValueError(f"Maths globales invalides : HT ({self.montant_ht}) + TVA ({self.montant_tva}) != TTC ({self.montant_ttc})")
+            
+        # 2. Vérification de la ventilation
+        if self.lignes_tva:
+            somme_ht = sum(ligne.base_ht for ligne in self.lignes_tva)
+            somme_tva = sum(ligne.montant_tva for ligne in self.lignes_tva)
+            
+            if abs(somme_ht - self.montant_ht) > 0.02:
+                raise ValueError(f"Ventilation HT invalide : Sommes bases ({somme_ht}) != HT Global ({self.montant_ht})")
+            if abs(somme_tva - self.montant_tva) > 0.02:
+                raise ValueError(f"Ventilation TVA invalide : Sommes TVA ({somme_tva}) != TVA Globale ({self.montant_tva})")
+                
+        return self
+
+# ==========================================
+# SCRIPT DE TEST
+# ==========================================
+profiler = DocumentProfiler()
+router = RoutingEngine(vision_model=VISION_MODEL)
+
+fichier = Path(r"A:\dsh-core\workspace\invoices\input\ticket_resto.pdf")
+
+print("=== V8.7 EXPERIMENTAL : TEST MULTI-TVA ===")
+
+if fichier.exists():
+    print("\n--- 1. Pipeline Physique ---")
+    profil = profiler.profile(fichier)
+    document_result = router.extract(fichier, profil)
+    texte_ocr = document_result.raw_text.strip()
+    
+    if not texte_ocr:
+        print("❌ L'OCR a échoué. Texte vide.")
+        exit()
+
+    print("\n--- TEXTE OCR ---")
+    print(texte_ocr[:3000])
+    print("\n-----------------")
+
+    print(f"\n--- 2. Pipeline NuExtract ({NUEXTRACT_MODEL}) ---")
+    
+    template = {
+        "fournisseur": "string",
+        "date_facture": "YYYY-MM-DD",
+        "numero_facture": "string",
+        "montant_ht": "number",
+        "montant_tva": "number",
+        "montant_ttc": "number",
+        "lignes_tva": [
+            {
+                "base_ht": "number",
+                "taux_pourcentage": "number",
+                "montant_tva": "number"
+            }
+        ],
+        "devise": "EUR"
+    }
+
+    prompt = f"""<|input|>
+### Template:
+{json.dumps(template)}
+### Text:
+{texte_ocr}
+<|output|>"""
+
+    try:
+        response = ollama.chat(
+            model=NUEXTRACT_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            options={"temperature": 0.0}
+        )
+        
+        raw_json = response["message"]["content"].strip()
+        if raw_json.startswith("```json"):
+            raw_json = raw_json.replace("```json", "").replace("```", "").strip()
+        elif raw_json.startswith("```"):
+            raw_json = raw_json.replace("```", "").strip()
+            
+        print("\n[NuExtract] RÉSULTAT BRUT :")
+        parsed_data = json.loads(raw_json)
+        print(json.dumps(parsed_data, indent=2, ensure_ascii=False))
+        
+        print("\n--- 3. Validation Pydantic V8.7 ---")
+        valid_invoice = InvoiceDataExperimental(**parsed_data)
+        
+        print("✅ SUCCÈS : NuExtract a compris la ventilation multi-taux !")
+        print(json.dumps(valid_invoice.model_dump(), indent=2, ensure_ascii=False))
+
+    except json.JSONDecodeError:
+        print("❌ ERREUR JSON")
+    except Exception as e:
+        print(f"❌ ERREUR PYDANTIC : {e}")
+
+else:
+    print("Fichier introuvable.")
+
+===== test_nuextract.py =====
+import os
+import json
+from pathlib import Path
+from dotenv import load_dotenv
+import ollama
+
+from schemas.invoice_schema import InvoiceData
+from services.document_profiler import DocumentProfiler
+from services.routing_engine import RoutingEngine
+from services.invoice_reconciliation_engine import InvoiceReconciliationEngine
+from services.tax_classification_engine import TaxClassificationEngine
+from services.invoice_skill_applier import InvoiceSkillApplier
+from model_router import ExecutionMode, ModelRole, resolve_model
+
+load_dotenv()
+
+VISION_MODEL = resolve_model(ModelRole.VISION, ExecutionMode.LOCAL)
+NUEXTRACT_MODEL = os.getenv("NUEXTRACT_MODEL", "numind/nuextract3:q4_k_m") 
+
+profiler = DocumentProfiler()
+router = RoutingEngine(vision_model=VISION_MODEL)
+reconciliation_engine = InvoiceReconciliationEngine()
+tax_engine = TaxClassificationEngine()
+skill_applier = InvoiceSkillApplier()
+
+dossier_input = Path(r"A:\dsh-core\workspace\invoices\input")
+
+print("=== V8.6.4 : TEST BATCH AVEC SKILL EN AUTORITÉ FINALE ===")
+
+fichiers = [f for f in dossier_input.iterdir() if f.is_file() and f.suffix.lower() in ['.pdf', '.jpg', '.jpeg', '.png']]
+
+if not fichiers:
+    print(f"❌ Aucun fichier trouvé dans {dossier_input}")
+    exit()
+
+for fichier in fichiers:
+    print(f"\n{'='*70}")
+    print(f"📄 TRAITEMENT EN COURS : {fichier.name}")
+    print(f"{'='*70}")
+
+    profil = profiler.profile(fichier)
+    document_result = router.extract(fichier, profil)
+    texte_ocr = document_result.raw_text.strip()
+    
+    if not texte_ocr:
+        print(f"❌ L'OCR a échoué sur {fichier.name}. Texte vide. On passe au suivant.")
+        continue
+
+    template = {
+        "fournisseur": "string",
+        "date_facture": "YYYY-MM-DD",
+        "numero_facture": "string",
+        "montant_ht": "number",
+        "taux_tva_pourcentage": "number",
+        "montant_tva": "number",
+        "montant_ttc": "number",
+        "montant_remise": "number",
+        "montant_paye": "number",
+        "devise": "EUR"
+    }
+
+    prompt = f"<|input|>\n### Template:\n{json.dumps(template)}\n### Text:\n{texte_ocr}\n<|output|>"
+
+    try:
+        response = ollama.chat(
+            model=NUEXTRACT_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            options={"temperature": 0.0}
+        )
+        
+        raw_json = response["message"]["content"].strip()
+        if raw_json.startswith("```json"):
+            raw_json = raw_json.replace("```json", "").replace("```", "").strip()
+        elif raw_json.startswith("```"):
+            raw_json = raw_json.replace("```", "").strip()
+            
+        parsed_data = json.loads(raw_json)
+        commentaires_hybrides = []
+
+        # =====================================================================
+        # ÉTAPE 1 : Réconciliation montants & typage documentaire standard
+        # =====================================================================
+        parsed_data, com_rec = reconciliation_engine.reconcile(texte_ocr, parsed_data)
+        commentaires_hybrides.extend(com_rec)
+
+        # =====================================================================
+        # ÉTAPE 2 : Qualification du régime fiscal standard
+        # =====================================================================
+        type_tva, taux_theorique, com_tax = tax_engine.classify(texte_ocr, parsed_data)
+        parsed_data["type_tva"] = type_tva
+        parsed_data["taux_tva_theorique"] = taux_theorique
+        if type_tva in ["AUTOLIQUIDATION", "NON_ASSUJETTI"]:
+            parsed_data["montant_tva"] = 0.0
+            parsed_data["taux_tva_pourcentage"] = None
+        commentaires_hybrides.extend(com_tax)
+
+        # =====================================================================
+        # ÉTAPE 3 : APPLICATION DU SKILL MÉTIER (Autorité finale)
+        # =====================================================================
+        active_skill = skill_applier.find_matching_skill(texte_ocr)
+        if active_skill:
+            com_skill = skill_applier.apply_skill(active_skill, texte_ocr, parsed_data)
+            commentaires_hybrides.extend(com_skill)
+
+        # =====================================================================
+        # ÉTAPE 4 : Métadonnées documentaires
+        # =====================================================================
+        origine = "INCONNU"
+        if profil:
+            doc_enum = getattr(profil, 'document_type', getattr(profil, 'type', getattr(profil, 'doc_type', None)))
+            if doc_enum:
+                origine = getattr(doc_enum, 'name', str(doc_enum))
+        parsed_data["origine_document"] = origine
+        
+        if commentaires_hybrides:
+            parsed_data["commentaires_controle"] = commentaires_hybrides
+            
+        valid_invoice = InvoiceData(**parsed_data)
+        statut = valid_invoice.statut_traitement
+        icone = "✅" if statut == "VALIDE" else "⚠️"
+        
+        print(f"{icone} STATUT FINAL : {statut} (Type: {valid_invoice.type_piece.value} | Régime: {valid_invoice.type_tva.value})")
+        print(json.dumps(valid_invoice.model_dump(), indent=2, ensure_ascii=False))
+
+    except Exception as e:
+        print(f"❌ ERREUR sur {fichier.name} : {e}")
+
+print(f"\n🎉 TRAITEMENT BATCH TERMINÉ. {len(fichiers)} fichiers analysés.")
+
+===== test_profiler.py =====
+# test_profiler.py
+import os
+import json
+from dotenv import load_dotenv
+from pathlib import Path
+from services.document_profiler import DocumentProfiler
+from services.routing_engine import RoutingEngine
+from services.business_extraction_manager import BusinessExtractionManager
+from model_router import ExecutionMode, ModelRole, resolve_model
+
+load_dotenv()
+# On utilise le modèle rapide pour tout le monde
+VISION_MODEL = resolve_model(ModelRole.VISION, ExecutionMode.LOCAL)
+BASE_MODEL = resolve_model(ModelRole.BASE, ExecutionMode.LOCAL)
+
+profiler = DocumentProfiler()
+router = RoutingEngine(vision_model=VISION_MODEL)
+extractor = BusinessExtractionManager(base_model=BASE_MODEL)
+
+# On teste sur notre fameux ticket capricieux
+fichiers_test = [
+    Path(r"A:\dsh-core\workspace\invoices\input\test_image.jpg")
+]
+
+print("=== Validation Étape C : De l'image au JSON Métier ===")
+
+for fichier in fichiers_test:
+    if fichier.exists():
+        # 1. Pipeline Physique (Profilage + Extraction + Enveloppe)
+        profil = profiler.profile(fichier)
+        document_result = router.extract(fichier, profil)
+        
+        # --- DEBUG OCR : On vérifie ce que la force brute a capturé ---
+        print("\n=== DEBUG OCR ===")
+        print(f"Taille du texte brut : {len(document_result.raw_text)} caractères")
+        print("--- DEBUT TEXTE BRUT ---")
+        print(document_result.raw_text)
+        print("--- FIN TEXTE BRUT ---")
+        print("===================\n")
+        
+        # 2. Pipeline Métier (LLM JSON + Validation Pydantic)
+        resultat_final = extractor.extract_to_json(document_result)
+        
+        print(f"\n--- VERDICT FINAL POUR {fichier.name} ---")
+        print(json.dumps(resultat_final, indent=2, ensure_ascii=False))
+        print("-" * 60)
+    else:
+        print(f"Fichier introuvable : {fichier}")
+
+===== tests/test_extraction_manager_invoice_schema.py =====
+import json
+from decimal import Decimal
+from pathlib import Path
+
+import pytest
+from pydantic import ValidationError
+
+from schemas.invoice_schema import InvoiceSchema
+from services.business_extraction_manager import BusinessExtractionManager
+from services.extraction_manager import (
+    ExtractionManager,
+    InvoiceExtractionValidationError,
+)
+
+@pytest.mark.parametrize(
+    "manager_type",
+    [BusinessExtractionManager, ExtractionManager],
+)
+def test_manager_uses_central_local_base_model_without_loading_it(
+    manager_type: type,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LOCAL_BASE_MODEL", "synthetic-base-model")
+
+    assert manager_type().base_model == "synthetic-base-model"
+
+
+@pytest.mark.parametrize(
+    "manager_type",
+    [BusinessExtractionManager, ExtractionManager],
+)
+def test_manager_rejects_missing_local_base_model(
+    manager_type: type,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("LOCAL_BASE_MODEL", raising=False)
+
+    with pytest.raises(ValueError, match="LOCAL_BASE_MODEL"):
+        manager_type()
+
+
+@pytest.mark.parametrize(
+    "manager_type",
+    [BusinessExtractionManager, ExtractionManager],
+)
+def test_manager_rejects_retired_injected_model(manager_type: type) -> None:
+    with pytest.raises(ValueError, match="MODEL_RETIRED"):
+        manager_type(base_model="qwen3.5:2b")
+
+
+@pytest.fixture
+def extraction_payload() -> dict[str, object]:
+    return {
+        "numero_facture": "EM-204",
+        "date_emission": "2026-10-01",
+        "fournisseur": {"nom": "Extraction Supplier"},
+        "client": {"nom": "Extraction Customer"},
+        "lignes": [
+            {
+                "description": "Consulting",
+                "quantite": 2.0,
+                "prix_unitaire_ht": 50.0,
+                "total_ht": 100.0,
+                "taux_tva": 20.0,
+            }
+        ],
+        "total_ht": 100.0,
+        "montant_tva": 20.0,
+        "total_ttc": 120.0,
+        "devise": "EUR",
+    }
+
+
+def test_validate_invoice_returns_canonical_model_and_preserves_payload(
+    extraction_payload: dict[str, object],
+) -> None:
+    manager = ExtractionManager(base_model="synthetic-base-model")
+
+    invoice = manager.validate_invoice(extraction_payload)
+
+    assert isinstance(invoice, InvoiceSchema)
+    assert invoice.supplier.name == "Extraction Supplier"
+    assert invoice.customer.name == "Extraction Customer"
+    assert invoice.reference.invoice_number == "EM-204"
+    assert invoice.reference.issue_date.isoformat() == "2026-10-01"
+    assert invoice.lines[0].description == "Consulting"
+    assert invoice.amount.net_amount == Decimal("100.0")
+    assert invoice.amount.tax_amount == Decimal("20.0")
+    assert invoice.amount.gross_amount == Decimal("120.0")
+    assert invoice.amount.currency == "EUR"
+    assert invoice.document_id is None
+    assert invoice.created_at is None
+    assert invoice.updated_at is None
+
+
+def test_historical_validation_interface_returns_json_serializable_dict(
+    extraction_payload: dict[str, object],
+) -> None:
+    manager = ExtractionManager(base_model="synthetic-base-model")
+
+    result = manager._validate_data(extraction_payload)
+
+    assert result["status"] == "success"
+    assert result["data"]["supplier"]["name"] == "Extraction Supplier"
+    assert json.dumps(result)
+    assert result["data"]["amount"]["gross_amount"] == "120.0"
+
+
+@pytest.mark.parametrize(
+    "invalid_update",
+    [
+        {"unknown_business_field": "not accepted"},
+        {"total_ttc": 121.0},
+        {"lignes": [{"description": "missing required numeric fields"}]},
+    ],
+)
+def test_invalid_payload_raises_domain_error_with_validation_cause(
+    extraction_payload: dict[str, object],
+    invalid_update: dict[str, object],
+) -> None:
+    payload = dict(extraction_payload)
+    payload.update(invalid_update)
+    manager = ExtractionManager(base_model="synthetic-base-model")
+
+    with pytest.raises(InvoiceExtractionValidationError) as error:
+        manager.validate_invoice(payload)
+
+    assert isinstance(error.value.__cause__, ValidationError)
+
+
+def test_historical_interface_keeps_validation_failure_shape(
+    extraction_payload: dict[str, object],
+) -> None:
+    payload = dict(extraction_payload)
+    payload["total_ttc"] = 121.0
+
+    result = ExtractionManager(base_model="synthetic-base-model")._validate_data(payload)
+
+    assert result["status"] == "validation_failed"
+    assert result["extracted_data"] is payload
+    assert result["errors"]
+
+
+def test_validation_does_not_call_external_services_or_write_files(
+    extraction_payload: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    def fail_if_called(*args: object, **kwargs: object) -> None:
+        pytest.fail("External model service must not be called during validation")
+
+    monkeypatch.setattr("services.extraction_manager.ollama.chat", fail_if_called)
+
+    result = ExtractionManager(base_model="synthetic-base-model")._validate_data(extraction_payload)
+
+    assert result["status"] == "success"
+    assert list(tmp_path.iterdir()) == []
+
+
+===== tests/test_model_router.py =====
+import pytest
+
+from model_router import (
+    ExecutionMode,
+    ModelRole,
+    Provider,
+    resolve_model,
+    resolve_provider,
+    validate_model_config,
+)
+
+
+LOCAL_VARIABLES = {
+    ModelRole.FAST: "LOCAL_FAST_MODEL",
+    ModelRole.BASE: "LOCAL_BASE_MODEL",
+    ModelRole.VISION: "LOCAL_VISION_MODEL",
+    ModelRole.EXTRACTION: "LOCAL_EXTRACTION_MODEL",
+    ModelRole.EMBEDDING: "LOCAL_EMBEDDING_MODEL",
+    ModelRole.PREPARATION: "LOCAL_BASE_MODEL",
+    ModelRole.EXPERT: "LOCAL_BASE_MODEL",
+    ModelRole.CODING: "LOCAL_BASE_MODEL",
+    ModelRole.REVIEW: "LOCAL_BASE_MODEL",
+}
+HYBRID_VARIABLES = {
+    **LOCAL_VARIABLES,
+    ModelRole.PREPARATION: "CLOUD_PREPARATION_MODEL",
+    ModelRole.EXPERT: "CLOUD_EXPERT_MODEL",
+    ModelRole.CODING: "CLOUD_CODING_MODEL",
+    ModelRole.REVIEW: "CLOUD_REVIEW_MODEL",
+}
+CLOUD_VARIABLES = {
+    ModelRole.PREPARATION: "CLOUD_PREPARATION_MODEL",
+    ModelRole.EXPERT: "CLOUD_EXPERT_MODEL",
+    ModelRole.VISION: "CLOUD_VISION_MODEL",
+    ModelRole.CODING: "CLOUD_CODING_MODEL",
+    ModelRole.REVIEW: "CLOUD_REVIEW_MODEL",
+}
+
+
+def config_for(variables):
+    return {variable: f"model-for-{variable}" for variable in set(variables.values())}
+
+
+@pytest.mark.parametrize("role", list(ModelRole))
+def test_resolves_every_role_in_local_mode(role):
+    environ = config_for(LOCAL_VARIABLES)
+    assert resolve_model(role, "local", environ) == (
+        f"model-for-{LOCAL_VARIABLES[role]}"
+    )
+
+
+@pytest.mark.parametrize("role", list(ModelRole))
+def test_resolves_every_role_in_hybrid_mode(role):
+    environ = config_for(HYBRID_VARIABLES)
+    assert resolve_model(role, "hybrid", environ) == (
+        f"model-for-{HYBRID_VARIABLES[role]}"
+    )
+
+
+@pytest.mark.parametrize("role", list(CLOUD_VARIABLES))
+def test_resolves_supported_roles_in_cloud_mode(role):
+    environ = config_for(CLOUD_VARIABLES)
+    assert resolve_model(role, "cloud", environ) == (
+        f"model-for-{CLOUD_VARIABLES[role]}"
+    )
+
+
+@pytest.mark.parametrize(
+    "role",
+    [
+        ModelRole.FAST,
+        ModelRole.BASE,
+        ModelRole.EXTRACTION,
+        ModelRole.EMBEDDING,
+    ],
+)
+def test_cloud_mode_rejects_unsupported_roles(role):
+    with pytest.raises(ValueError, match="not supported"):
+        resolve_model(role, "cloud", {})
+
+
+def test_ai_mode_is_used_by_default():
+    environ = {"AI_MODE": "local", "LOCAL_FAST_MODEL": "configured-local"}
+    assert resolve_model("fast", environ=environ) == "configured-local"
+
+
+def test_explicit_mode_overrides_ai_mode():
+    environ = {"AI_MODE": "local", "CLOUD_EXPERT_MODEL": "configured-cloud"}
+    assert resolve_model("expert", "hybrid", environ) == "configured-cloud"
+
+
+def test_string_role_and_mode_are_accepted():
+    assert resolve_model(
+        "vision",
+        "local",
+        {"LOCAL_VISION_MODEL": "vision-model"},
+    ) == "vision-model"
+
+
+@pytest.mark.parametrize("retired_model", ["qwen2.5vl:7b", "qwen3.5:2b"])
+def test_retired_vision_models_are_rejected(retired_model):
+    with pytest.raises(ValueError, match="VISION_MODEL_NOT_CONFIGURED"):
+        resolve_model(
+            "vision",
+            "local",
+            {"LOCAL_VISION_MODEL": retired_model},
+        )
+
+
+@pytest.mark.parametrize("role", list(ModelRole))
+def test_retired_qwen35_is_rejected_for_every_local_role(role):
+    variable = LOCAL_VARIABLES[role]
+    error_code = (
+        "VISION_MODEL_NOT_CONFIGURED"
+        if role is ModelRole.VISION
+        else "MODEL_RETIRED"
+    )
+    with pytest.raises(ValueError, match=error_code):
+        resolve_model(role, "local", {variable: "qwen3.5:2b"})
+
+
+@pytest.mark.parametrize("environment", [{}, {"LOCAL_VISION_MODEL": ""}])
+def test_missing_or_empty_vision_model_has_explicit_error(environment):
+    with pytest.raises(ValueError, match="VISION_MODEL_NOT_CONFIGURED"):
+        resolve_model("vision", "local", environment)
+
+
+@pytest.mark.parametrize("role", ["unknown", None])
+def test_unknown_role_is_rejected(role):
+    with pytest.raises(ValueError, match="Unknown model role"):
+        resolve_model(role, "local", {})
+
+
+def test_unknown_mode_is_rejected():
+    with pytest.raises(ValueError, match="Unknown execution mode"):
+        resolve_model("fast", "unknown", {})
+
+
+@pytest.mark.parametrize("value", [None, ""])
+def test_missing_or_empty_model_variable_is_rejected(value):
+    environ = {} if value is None else {"LOCAL_FAST_MODEL": value}
+    with pytest.raises(ValueError, match="LOCAL_FAST_MODEL"):
+        resolve_model("fast", "local", environ)
+
+
+def test_empty_fast_model_fails_explicitly():
+    with pytest.raises(ValueError, match="LOCAL_FAST_MODEL"):
+        resolve_model("fast", "local", {"LOCAL_FAST_MODEL": ""})
+
+
+def test_image_agent_route_uses_central_vision_model(monkeypatch):
+    from router import analyze_prompt_complexity
+
+    monkeypatch.setenv("LOCAL_VISION_MODEL", "synthetic-vision-model")
+
+    route = analyze_prompt_complexity("analyse cette image", image_provided=True)
+
+    assert route["model"] == "synthetic-vision-model"
+
+
+def test_image_agent_route_fails_without_vision_model(monkeypatch):
+    from router import analyze_prompt_complexity
+
+    monkeypatch.delenv("LOCAL_VISION_MODEL", raising=False)
+
+    with pytest.raises(ValueError, match="VISION_MODEL_NOT_CONFIGURED"):
+        analyze_prompt_complexity("analyse cette image", image_provided=True)
+
+
+def test_providers_follow_role_mode_table():
+    assert resolve_provider(ModelRole.FAST, ExecutionMode.HYBRID) is Provider.OLLAMA
+    assert resolve_provider(ModelRole.EXPERT, ExecutionMode.HYBRID) is Provider.OPENROUTER
+    assert resolve_provider(ModelRole.VISION, ExecutionMode.CLOUD) is Provider.OPENROUTER
+
+
+def test_provider_rejects_unsupported_role_and_unknown_mode():
+    with pytest.raises(ValueError, match="not supported"):
+        resolve_provider("fast", "cloud")
+    with pytest.raises(ValueError, match="Unknown execution mode"):
+        resolve_provider("fast", "invalid")
+
+
+def test_config_issues_never_expose_key_value():
+    secret = "not-for-output-123456789"
+    issues = validate_model_config(
+        "hybrid",
+        {"OPENROUTER_API_KEY": secret},
+    )
+    assert issues
+    assert all(secret not in issue.message for issue in issues)
+    assert all(secret not in repr(issue) for issue in issues)
+
+
+def test_missing_key_issue_never_exposes_other_configuration_values():
+    secret = "do-not-leak-this-model-value"
+    environ = config_for(HYBRID_VARIABLES)
+    environ["LOCAL_FAST_MODEL"] = secret
+    environ["OPENROUTER_API_KEY"] = ""
+    issues = validate_model_config("hybrid", environ)
+    key_issues = [
+        issue for issue in issues if issue.variable == "OPENROUTER_API_KEY"
+    ]
+    assert len(key_issues) == 1
+    assert secret not in key_issues[0].message
+
+
+def test_supplied_environment_mapping_isolated_from_process_environment(monkeypatch):
+    monkeypatch.setenv("AI_MODE", "cloud")
+    monkeypatch.setenv("LOCAL_FAST_MODEL", "process-environment-model")
+    assert resolve_model(
+        "fast",
+        "local",
+        {"LOCAL_FAST_MODEL": "mapping-model"},
+    ) == "mapping-model"
+    issues = validate_model_config("local", {"LOCAL_FAST_MODEL": "mapping-model"})
+    assert any(issue.variable == "LOCAL_BASE_MODEL" for issue in issues)
+
+
+def test_local_validation_does_not_require_openrouter_key():
+    issues = validate_model_config("local", config_for(LOCAL_VARIABLES))
+    assert not any(issue.variable == "OPENROUTER_API_KEY" for issue in issues)
+
+
+def test_hybrid_validation_reports_missing_key():
+    environ = config_for(HYBRID_VARIABLES)
+    issues = validate_model_config("hybrid", environ)
+    assert [issue.variable for issue in issues if issue.variable == "OPENROUTER_API_KEY"]
+
+
+def test_hybrid_validation_accepts_complete_configuration():
+    environ = config_for(HYBRID_VARIABLES)
+    environ["OPENROUTER_API_KEY"] = "configured"
+    assert validate_model_config("hybrid", environ) == []
+
+
+def test_cloud_validation_accepts_complete_configuration_without_unsupported_roles():
+    environ = config_for(CLOUD_VARIABLES)
+    environ["OPENROUTER_API_KEY"] = "configured"
+    assert validate_model_config("cloud", environ) == []
+
+
+def test_cloud_validation_reports_missing_vision_model():
+    environ = config_for(CLOUD_VARIABLES)
+    environ.pop("CLOUD_VISION_MODEL")
+    environ["OPENROUTER_API_KEY"] = "configured"
+    issues = validate_model_config("cloud", environ)
+    assert [issue.variable for issue in issues] == ["CLOUD_VISION_MODEL"]
+
+
+def test_cloud_validation_does_not_report_unsupported_roles():
+    environ = config_for(CLOUD_VARIABLES)
+    environ["OPENROUTER_API_KEY"] = "configured"
+    issues = validate_model_config("cloud", environ)
+    unsupported = {
+        ModelRole.FAST,
+        ModelRole.BASE,
+        ModelRole.EXTRACTION,
+        ModelRole.EMBEDDING,
+    }
+    assert not any(issue.role in unsupported for issue in issues)
+
+
+@pytest.mark.parametrize(
+    "environ",
+    [{}, {"AI_MODE": ""}, {"AI_MODE": "invalid"}],
+)
+def test_validation_reports_missing_or_unknown_default_mode(environ):
+    issues = validate_model_config(environ=environ)
+    assert len(issues) == 1
+    assert issues[0].variable == "AI_MODE"
+
+
+def test_validation_rejects_unknown_explicit_mode():
+    with pytest.raises(ValueError, match="Unknown execution mode"):
+        validate_model_config("invalid", {})
+
+
+===== tests/test_routing_engine_model_selection.py =====
+from pathlib import Path
+from types import ModuleType, SimpleNamespace
+import sys
+
+import pytest
+
+for _module_name in ("pandas", "pymupdf", "ollama"):
+    _stub = sys.modules.setdefault(_module_name, ModuleType(_module_name))
+    if _module_name == "ollama" and not hasattr(_stub, "chat"):
+        def _ollama_unavailable(*args: object, **kwargs: object) -> None:
+            raise AssertionError("Ollama must not be called by model-free tests")
+
+        _stub.chat = _ollama_unavailable
+
+from services import routing_engine
+from services.routing_engine import RoutingEngine
+
+
+def _profile(profile_type: str) -> SimpleNamespace:
+    return SimpleNamespace(
+        profile_type=profile_type,
+        extension=".png",
+        word_count=0,
+        has_tables=False,
+        has_images=True,
+        is_scanned=True,
+    )
+
+
+def test_explicit_vision_model_is_returned_without_loading_it() -> None:
+    engine = RoutingEngine(vision_model="synthetic-vision-model")
+
+    assert engine.vision_model == "synthetic-vision-model"
+
+
+@pytest.mark.parametrize("retired_model", ["qwen2.5vl:7b", "qwen3.5:2b"])
+def test_routing_engine_rejects_retired_injected_models(retired_model: str) -> None:
+    with pytest.raises(ValueError, match="VISION_MODEL_NOT_CONFIGURED"):
+        RoutingEngine(vision_model=retired_model)
+
+
+def test_routing_engine_uses_central_local_vision_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("VISION_FAST", raising=False)
+    monkeypatch.setenv("LOCAL_VISION_MODEL", "synthetic-vision-model")
+    engine = RoutingEngine()
+    monkeypatch.setattr(engine, "_extract_vision", lambda path, model: "synthetic OCR text")
+
+    result = engine.extract(Path("synthetic-scan.png"), _profile("image"))
+
+    assert engine.vision_model is None
+    assert result.extraction_tool == "Local Vision (synthetic-vision-model)"
+    assert result.raw_text == "synthetic OCR text"
+
+
+def test_scanned_image_uses_vision_route_without_calling_ollama(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = RoutingEngine(vision_model="synthetic-vision-model")
+    monkeypatch.setattr(engine, "_extract_vision", lambda path, model: "synthetic OCR text")
+
+    def fail_if_called(*args: object, **kwargs: object) -> None:
+        pytest.fail("Ollama must not be called by the mocked routing test")
+
+    monkeypatch.setattr(routing_engine.ollama, "chat", fail_if_called, raising=False)
+    result = engine.extract(Path("synthetic-scan.png"), _profile("image"))
+
+    assert result.extraction_tool == "Local Vision (synthetic-vision-model)"
+    assert result.raw_text == "synthetic OCR text"
+    assert "autorotate_applied" in result.processing_notes
+
+
+def test_scan_without_vision_model_fails_before_ollama(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("LOCAL_VISION_MODEL", raising=False)
+    engine = RoutingEngine()
+
+    def fail_if_called(*args: object, **kwargs: object) -> None:
+        pytest.fail("Ollama must not be called before model configuration validation")
+
+    monkeypatch.setattr(routing_engine.ollama, "chat", fail_if_called, raising=False)
+    with pytest.raises(ValueError, match="VISION_MODEL_NOT_CONFIGURED"):
+        engine.extract(Path("synthetic-scan.png"), _profile("image"))
+
+
+@pytest.mark.parametrize("profile_type", ["handwritten", "handwriting", "manuscrit"])
+def test_handwritten_profiles_remain_unsupported(profile_type: str) -> None:
+    engine = RoutingEngine(vision_model="synthetic-vision-model")
+
+    with pytest.raises(ValueError, match="HANDWRITING_PATH_MISSING"):
+        engine.extract(Path("synthetic-handwritten.png"), _profile(profile_type))
+

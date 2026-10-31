@@ -1,24 +1,14 @@
 {
   "skill_name": "invoice_smtrt_sas",
+  "supplier_id": "SUP_0001",
   "domain": "invoice_processing",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "tenant": "GLOBAL",
   "lifecycle": {
     "confidence": 1.0,
-    "usage_count": 3
-  },
-  "match_signature": {
-    "siret": null,
-    "tva_intra": null,
-    "keywords": [
-      "SMTRT",
-      "SMTRT_SAS"
-    ]
-  },
-  "overrides": {
-    "fournisseur": "SMTRT SAS",
-    "type_tva": "NORMALE",
-    "type_piece": "FACTURE"
+    "usage_count": 1,
+    "last_used": "2026-10-30T12:29:24.496391+00:00",
+    "status": "candidate"
   },
   "extraction_rules": {
     "regex_numero_facture": "\\b(\\d{8})\\b",
@@ -28,12 +18,72 @@
       "ttc": "NET A PAYER"
     }
   },
-  "audit_trail": {
+  "layout_anchors": [
+    {
+      "field_key": "ht",
+      "anchor_text": "TOTAL H.T.",
+      "relative_position": "right_of",
+      "confidence": 0.95,
+      "page_index": 0
+    },
+    {
+      "field_key": "tva",
+      "anchor_text": "MT TVA",
+      "relative_position": "right_of",
+      "confidence": 0.95,
+      "page_index": 0
+    },
+    {
+      "field_key": "ttc",
+      "anchor_text": "NET A PAYER",
+      "relative_position": "right_of",
+      "confidence": 0.95,
+      "page_index": 0
+    },
+    {
+      "field_key": "numero_facture",
+      "anchor_text": "FACTURE N",
+      "relative_position": "right_of",
+      "confidence": 0.8,
+      "page_index": 0
+    }
+  ],
+  "visual_signature": {
+    "label_fingerprint": [
+      "TOTAL H.T.",
+      "MT TVA",
+      "NET A PAYER",
+      "FACTURE N"
+    ],
+    "aspect_ratio": 0.707,
+    "page_count": 1
+  },
+  "created_from": {
+    "raw_supplier": "RCSAIXENPROVENCE",
+    "raw_invoice_number": "3ZALESPIELETES",
     "corrected_fields": [
       "fournisseur",
-      "numero_facture"
+      "numero_facture",
+      "siret"
     ],
-    "source_error_supplier": "RCSAIXENPROVENCE",
-    "source_error_number": "3ZALESPIELETES"
+    "created_at": "2026-10-30T20:49:50.791337+00:00",
+    "teacher_model": "MiMo-V2.6-Pro",
+    "raw_annotations_seen": 0,
+    "filtered_annotations": 4,
+    "documents": [
+      "legacy:invoice_smtrt_sas.json"
+    ],
+    "audit_trail": {
+      "raw_annotations_seen": 0,
+      "dropped_no_target": 0,
+      "dropped_kind": 0,
+      "dropped_confidence": 0,
+      "deduped": 0,
+      "kept": 4
+    }
+  },
+  "overrides": {
+    "type_tva": "NORMALE",
+    "type_piece": "FACTURE"
   }
 }

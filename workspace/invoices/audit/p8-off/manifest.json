@@ -1,0 +1,73 @@
+{
+  "run_id": "p8-off",
+  "started_at": "2026-10-30T22:19:05+01:00",
+  "finished_at": "2026-10-30T22:19:07+01:00",
+  "config": {
+    "input_dir": "A:\\dsh-core\\workspace\\invoices\\input",
+    "rules_dir": "A:\\dsh-core\\knowledge\\rules\\accounting",
+    "output_dir": "A:\\dsh-core\\workspace\\invoices\\audit",
+    "vision": "none",
+    "vision_extractor": null,
+    "document_pipeline": false,
+    "pattern": "*",
+    "limit": null,
+    "simulate_zero_vat": false,
+    "fail_fast": false,
+    "cloud_escalation_budget_ratio": 0.05,
+    "max_cloud_escalations": 4
+  },
+  "corpus": {
+    "file_count": 72,
+    "supported_count": 72,
+    "selected_count": 72,
+    "fingerprint_sha256": "c6f0057234af95caa356442e8c2e6aeb3f7c7400c9534602e9f585e2fcc33bb0"
+  },
+  "rules_snapshot": {
+    "directory": "A:\\dsh-core\\knowledge\\rules\\accounting",
+    "files": [
+      {
+        "file": "RULE_TVA_ZERO_DISAMBIGUATION_001.md",
+        "sha256": "9f391780e4a80d63f0b87759dbb36e0ba3b5933a2cc1cde8183a335d1f1a80f5",
+        "rule_id": "RULE-TVA-ZERO-001",
+        "raw_status": "approved",
+        "has_frontmatter": true
+      }
+    ],
+    "approved": [
+      {
+        "rule_id": "RULE-TVA-ZERO-001",
+        "version": "1.0.0",
+        "file": "RULE_TVA_ZERO_DISAMBIGUATION_001.md",
+        "sha256": "9f391780e4a80d63f0b87759dbb36e0ba3b5933a2cc1cde8183a335d1f1a80f5",
+        "status": "approved"
+      }
+    ],
+    "ignored": []
+  },
+  "environment": {
+    "python": "3.11.9",
+    "platform": "Windows-10-10.0.26200-SP0",
+    "pymupdf": "1.28.2",
+    "git_commit": "f10de1e"
+  },
+  "deterministic": true,
+  "resumed": false,
+  "records_reused": 0,
+  "records_written": 69,
+  "record_count": 69,
+  "run_valid": true,
+  "aborted": false,
+  "rules_changed_during_run": false,
+  "escalation_guard": {
+    "count": 0,
+    "ratio": 0.0,
+    "threshold": 0.05,
+    "exceeded": false,
+    "budget": {
+      "max": 4,
+      "used": 0,
+      "exhausted": false,
+      "external_extractor": false
+    }
+  }
+}

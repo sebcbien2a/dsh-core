@@ -8,3 +8,6 @@ class DocumentProfile(BaseModel):
     has_images: bool
     is_scanned: bool
     profile_type: str = "unknown"
+    orientation_degrees: int | None = None
+    page_count: int = 0
+    business_family: str | None = None

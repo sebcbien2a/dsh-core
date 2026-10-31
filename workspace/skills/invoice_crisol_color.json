@@ -1,0 +1,88 @@
+{
+  "skill_name": "invoice_crisol_color",
+  "supplier_id": "SUP_0002",
+  "domain": "invoice_processing",
+  "version": "1.0.0",
+  "tenant": "GLOBAL",
+  "lifecycle": {
+    "confidence": 0.9,
+    "usage_count": 35,
+    "last_used": "2026-10-31T19:18:31.268725+00:00",
+    "status": "candidate"
+  },
+  "extraction_rules": {
+    "regex_numero_facture": "(?m)\\b([A-Z]{2}\\s*/\\s*\\d{2,}|\\d{4}\\s*/\\s*PI\\s*/\\s*\\d+)\\b",
+    "trusted_labels": {
+      "ht": "FACTURE HT",
+      "tva": "TOTAL T.V.A.",
+      "ttc": "NET A PAYER"
+    }
+  },
+  "layout_anchors": [
+    {
+      "field_key": "ht",
+      "anchor_text": "FACTURE HT",
+      "relative_position": "inside",
+      "confidence": 0.9,
+      "page_index": 0
+    },
+    {
+      "field_key": "tva",
+      "anchor_text": "TOTAL T.V.A.",
+      "relative_position": "inside",
+      "confidence": 0.9,
+      "page_index": 0
+    },
+    {
+      "field_key": "ttc",
+      "anchor_text": "NET A PAYER",
+      "relative_position": "inside",
+      "confidence": 0.9,
+      "page_index": 0
+    },
+    {
+      "field_key": "numero_facture",
+      "anchor_text": "FACTURA N",
+      "relative_position": "inside",
+      "confidence": 0.8,
+      "page_index": 0
+    }
+  ],
+  "visual_signature": {
+    "label_fingerprint": [
+      "CRISOL COLOR",
+      "FACTURE HT",
+      "TOTAL T.V.A.",
+      "NET A PAYER",
+      "FACTURA N"
+    ],
+    "aspect_ratio": 0.707,
+    "page_count": 1
+  },
+  "created_from": {
+    "teacher_model": "MiMo-V2.6-Pro",
+    "raw_annotations_seen": 11,
+    "filtered_annotations": 4,
+    "documents": [
+      "facture_paintcar.pdf",
+      "facture_paintcar (2).pdf",
+      "FACTURE PAINTCAR ILA49722 SEPT POUR 16 NOV 16.pdf",
+      "ILADBF12 paintcar janv pour fev.pdf",
+      "paintcar mars pour AVRIL 17 ILA23FB2.pdf",
+      "facture ha paintcar avril pour juin 16  ILAA0F41.pdf"
+    ],
+    "created_at": "2026-10-30T20:49:50.791337+00:00",
+    "audit_trail": {
+      "raw_annotations_seen": 11,
+      "dropped_no_target": 6,
+      "dropped_kind": 1,
+      "dropped_confidence": 0,
+      "deduped": 0,
+      "kept": 4
+    }
+  },
+  "overrides": {
+    "type_tva": "NORMALE",
+    "type_piece": "FACTURE"
+  }
+}

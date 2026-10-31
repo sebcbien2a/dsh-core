@@ -1,0 +1,429 @@
+{
+  "report": {
+    "generated_at": "2026-10-31T16:05:59.351292+00:00",
+    "contract_version": "1.0.1",
+    "expected_dimension": 768,
+    "tenant_allowlist": null,
+    "totals": {
+      "collections": 11,
+      "present": 9,
+      "points": 28,
+      "conforming": 0,
+      "non_conforming_collections": 7,
+      "purge_candidates": 28
+    },
+    "collections": [
+      {
+        "name": "invoice_documents",
+        "exists": true,
+        "blacklisted": false,
+        "dimension": 768,
+        "dimension_ok": true,
+        "points_count": 3,
+        "conforming_count": 0,
+        "invalid_points": [
+          "a27a03c8-22cf-428c-92d9-ec4e4b44db80",
+          "a70b38a3-ad95-4a9d-ad36-4aab9c86e905",
+          "bf3b111e-5588-4b1e-b15d-3fd90a7befab"
+        ],
+        "orphan_points": [
+          "a27a03c8-22cf-428c-92d9-ec4e4b44db80",
+          "a70b38a3-ad95-4a9d-ad36-4aab9c86e905",
+          "bf3b111e-5588-4b1e-b15d-3fd90a7befab"
+        ],
+        "missing_tenant": [
+          "a27a03c8-22cf-428c-92d9-ec4e4b44db80",
+          "a70b38a3-ad95-4a9d-ad36-4aab9c86e905",
+          "bf3b111e-5588-4b1e-b15d-3fd90a7befab"
+        ],
+        "invalid_source_sha": [
+          "a27a03c8-22cf-428c-92d9-ec4e4b44db80",
+          "a70b38a3-ad95-4a9d-ad36-4aab9c86e905",
+          "bf3b111e-5588-4b1e-b15d-3fd90a7befab"
+        ],
+        "tenant_leaks": [],
+        "duplicate_source_sha256": {},
+        "purge_candidates": [
+          "a27a03c8-22cf-428c-92d9-ec4e4b44db80",
+          "a70b38a3-ad95-4a9d-ad36-4aab9c86e905",
+          "bf3b111e-5588-4b1e-b15d-3fd90a7befab"
+        ],
+        "verdict": "NON_CONFORMING"
+      },
+      {
+        "name": "skills_catalog",
+        "exists": true,
+        "blacklisted": true,
+        "dimension": 768,
+        "dimension_ok": true,
+        "points_count": 0,
+        "conforming_count": 0,
+        "invalid_points": [],
+        "orphan_points": [],
+        "missing_tenant": [],
+        "invalid_source_sha": [],
+        "tenant_leaks": [],
+        "duplicate_source_sha256": {},
+        "purge_candidates": [],
+        "verdict": "BLACKLISTED"
+      },
+      {
+        "name": "agent_skills",
+        "exists": true,
+        "blacklisted": false,
+        "dimension": 768,
+        "dimension_ok": true,
+        "points_count": 4,
+        "conforming_count": 0,
+        "invalid_points": [
+          "07a74869-a856-484b-a7dd-b2e7f8628e3d",
+          "202d38b2-e9ff-4e61-8adf-f663c72e25ba",
+          "5e7ef402-d75f-49ec-94e9-8eb1f7fa4a05",
+          "6ed71560-fba0-4635-ac79-755cd5b534e5"
+        ],
+        "orphan_points": [
+          "07a74869-a856-484b-a7dd-b2e7f8628e3d",
+          "202d38b2-e9ff-4e61-8adf-f663c72e25ba",
+          "5e7ef402-d75f-49ec-94e9-8eb1f7fa4a05",
+          "6ed71560-fba0-4635-ac79-755cd5b534e5"
+        ],
+        "missing_tenant": [
+          "07a74869-a856-484b-a7dd-b2e7f8628e3d",
+          "202d38b2-e9ff-4e61-8adf-f663c72e25ba",
+          "5e7ef402-d75f-49ec-94e9-8eb1f7fa4a05",
+          "6ed71560-fba0-4635-ac79-755cd5b534e5"
+        ],
+        "invalid_source_sha": [
+          "07a74869-a856-484b-a7dd-b2e7f8628e3d",
+          "202d38b2-e9ff-4e61-8adf-f663c72e25ba",
+          "5e7ef402-d75f-49ec-94e9-8eb1f7fa4a05",
+          "6ed71560-fba0-4635-ac79-755cd5b534e5"
+        ],
+        "tenant_leaks": [],
+        "duplicate_source_sha256": {},
+        "purge_candidates": [
+          "07a74869-a856-484b-a7dd-b2e7f8628e3d",
+          "202d38b2-e9ff-4e61-8adf-f663c72e25ba",
+          "5e7ef402-d75f-49ec-94e9-8eb1f7fa4a05",
+          "6ed71560-fba0-4635-ac79-755cd5b534e5"
+        ],
+        "verdict": "NON_CONFORMING"
+      },
+      {
+        "name": "research_cache",
+        "exists": true,
+        "blacklisted": false,
+        "dimension": 768,
+        "dimension_ok": true,
+        "points_count": 0,
+        "conforming_count": 0,
+        "invalid_points": [],
+        "orphan_points": [],
+        "missing_tenant": [],
+        "invalid_source_sha": [],
+        "tenant_leaks": [],
+        "duplicate_source_sha256": {},
+        "purge_candidates": [],
+        "verdict": "OK"
+      },
+      {
+        "name": "teacher_student_metrics",
+        "exists": true,
+        "blacklisted": false,
+        "dimension": 768,
+        "dimension_ok": true,
+        "points_count": 16,
+        "conforming_count": 0,
+        "invalid_points": [
+          "0a1ad35b-cfd6-4238-8717-1c37a339bf49",
+          "0adf7f87-f20e-4a25-b62f-fa3f9376638c",
+          "12f872a1-1abe-435d-9d0a-a023cbad8073",
+          "17bbc095-b3e3-4485-8d37-98c6d2ff2c72",
+          "3ded7d53-19ad-4954-b650-19d7077fda4f",
+          "4627cbbe-6230-47a5-83ef-a5bdcfef98d8",
+          "4dc4d8d8-d821-4d16-854c-ed36c09a6a24",
+          "5af857e4-cb80-4128-92eb-7fb645ce920b",
+          "6c7de002-9bca-417f-861f-eb1fbabc59d5",
+          "6f2a0308-e1c0-4de8-87b2-7caac39f8b39",
+          "970c12ec-8b72-4048-9560-225678b67f1a",
+          "9b7d9eba-9382-4235-8cd2-7f8f565027a2",
+          "a77675b6-9734-4dbe-a68a-346e1890c705",
+          "aa2e0358-f17f-4ceb-92b7-35d775193209",
+          "df31e9a4-19f9-4bec-9093-2b9a4ab0f978",
+          "e72f0f1c-9dd1-4b83-99cb-3803ce43f5e4"
+        ],
+        "orphan_points": [
+          "0a1ad35b-cfd6-4238-8717-1c37a339bf49",
+          "0adf7f87-f20e-4a25-b62f-fa3f9376638c",
+          "12f872a1-1abe-435d-9d0a-a023cbad8073",
+          "17bbc095-b3e3-4485-8d37-98c6d2ff2c72",
+          "3ded7d53-19ad-4954-b650-19d7077fda4f",
+          "4627cbbe-6230-47a5-83ef-a5bdcfef98d8",
+          "4dc4d8d8-d821-4d16-854c-ed36c09a6a24",
+          "5af857e4-cb80-4128-92eb-7fb645ce920b",
+          "6c7de002-9bca-417f-861f-eb1fbabc59d5",
+          "6f2a0308-e1c0-4de8-87b2-7caac39f8b39",
+          "970c12ec-8b72-4048-9560-225678b67f1a",
+          "9b7d9eba-9382-4235-8cd2-7f8f565027a2",
+          "a77675b6-9734-4dbe-a68a-346e1890c705",
+          "aa2e0358-f17f-4ceb-92b7-35d775193209",
+          "df31e9a4-19f9-4bec-9093-2b9a4ab0f978",
+          "e72f0f1c-9dd1-4b83-99cb-3803ce43f5e4"
+        ],
+        "missing_tenant": [
+          "0a1ad35b-cfd6-4238-8717-1c37a339bf49",
+          "0adf7f87-f20e-4a25-b62f-fa3f9376638c",
+          "12f872a1-1abe-435d-9d0a-a023cbad8073",
+          "17bbc095-b3e3-4485-8d37-98c6d2ff2c72",
+          "3ded7d53-19ad-4954-b650-19d7077fda4f",
+          "4627cbbe-6230-47a5-83ef-a5bdcfef98d8",
+          "4dc4d8d8-d821-4d16-854c-ed36c09a6a24",
+          "5af857e4-cb80-4128-92eb-7fb645ce920b",
+          "6c7de002-9bca-417f-861f-eb1fbabc59d5",
+          "6f2a0308-e1c0-4de8-87b2-7caac39f8b39",
+          "970c12ec-8b72-4048-9560-225678b67f1a",
+          "9b7d9eba-9382-4235-8cd2-7f8f565027a2",
+          "a77675b6-9734-4dbe-a68a-346e1890c705",
+          "aa2e0358-f17f-4ceb-92b7-35d775193209",
+          "df31e9a4-19f9-4bec-9093-2b9a4ab0f978",
+          "e72f0f1c-9dd1-4b83-99cb-3803ce43f5e4"
+        ],
+        "invalid_source_sha": [
+          "0a1ad35b-cfd6-4238-8717-1c37a339bf49",
+          "0adf7f87-f20e-4a25-b62f-fa3f9376638c",
+          "12f872a1-1abe-435d-9d0a-a023cbad8073",
+          "17bbc095-b3e3-4485-8d37-98c6d2ff2c72",
+          "3ded7d53-19ad-4954-b650-19d7077fda4f",
+          "4627cbbe-6230-47a5-83ef-a5bdcfef98d8",
+          "4dc4d8d8-d821-4d16-854c-ed36c09a6a24",
+          "5af857e4-cb80-4128-92eb-7fb645ce920b",
+          "6c7de002-9bca-417f-861f-eb1fbabc59d5",
+          "6f2a0308-e1c0-4de8-87b2-7caac39f8b39",
+          "970c12ec-8b72-4048-9560-225678b67f1a",
+          "9b7d9eba-9382-4235-8cd2-7f8f565027a2",
+          "a77675b6-9734-4dbe-a68a-346e1890c705",
+          "aa2e0358-f17f-4ceb-92b7-35d775193209",
+          "df31e9a4-19f9-4bec-9093-2b9a4ab0f978",
+          "e72f0f1c-9dd1-4b83-99cb-3803ce43f5e4"
+        ],
+        "tenant_leaks": [],
+        "duplicate_source_sha256": {},
+        "purge_candidates": [
+          "0a1ad35b-cfd6-4238-8717-1c37a339bf49",
+          "0adf7f87-f20e-4a25-b62f-fa3f9376638c",
+          "12f872a1-1abe-435d-9d0a-a023cbad8073",
+          "17bbc095-b3e3-4485-8d37-98c6d2ff2c72",
+          "3ded7d53-19ad-4954-b650-19d7077fda4f",
+          "4627cbbe-6230-47a5-83ef-a5bdcfef98d8",
+          "4dc4d8d8-d821-4d16-854c-ed36c09a6a24",
+          "5af857e4-cb80-4128-92eb-7fb645ce920b",
+          "6c7de002-9bca-417f-861f-eb1fbabc59d5",
+          "6f2a0308-e1c0-4de8-87b2-7caac39f8b39",
+          "970c12ec-8b72-4048-9560-225678b67f1a",
+          "9b7d9eba-9382-4235-8cd2-7f8f565027a2",
+          "a77675b6-9734-4dbe-a68a-346e1890c705",
+          "aa2e0358-f17f-4ceb-92b7-35d775193209",
+          "df31e9a4-19f9-4bec-9093-2b9a4ab0f978",
+          "e72f0f1c-9dd1-4b83-99cb-3803ce43f5e4"
+        ],
+        "verdict": "NON_CONFORMING"
+      },
+      {
+        "name": "document_bus",
+        "exists": true,
+        "blacklisted": false,
+        "dimension": 768,
+        "dimension_ok": true,
+        "points_count": 4,
+        "conforming_count": 0,
+        "invalid_points": [
+          "103335a3-f8fa-46e9-b22c-2a7e51652ff8",
+          "2c548a63-3a02-47ab-9039-965cbd918d15",
+          "62e32be8-73c0-4561-924a-dafa5c62c171",
+          "de34bc98-3ffc-4343-af41-7489f20d6c8d"
+        ],
+        "orphan_points": [
+          "103335a3-f8fa-46e9-b22c-2a7e51652ff8",
+          "2c548a63-3a02-47ab-9039-965cbd918d15",
+          "62e32be8-73c0-4561-924a-dafa5c62c171",
+          "de34bc98-3ffc-4343-af41-7489f20d6c8d"
+        ],
+        "missing_tenant": [
+          "103335a3-f8fa-46e9-b22c-2a7e51652ff8",
+          "2c548a63-3a02-47ab-9039-965cbd918d15",
+          "62e32be8-73c0-4561-924a-dafa5c62c171",
+          "de34bc98-3ffc-4343-af41-7489f20d6c8d"
+        ],
+        "invalid_source_sha": [
+          "103335a3-f8fa-46e9-b22c-2a7e51652ff8",
+          "2c548a63-3a02-47ab-9039-965cbd918d15",
+          "62e32be8-73c0-4561-924a-dafa5c62c171",
+          "de34bc98-3ffc-4343-af41-7489f20d6c8d"
+        ],
+        "tenant_leaks": [],
+        "duplicate_source_sha256": {},
+        "purge_candidates": [
+          "103335a3-f8fa-46e9-b22c-2a7e51652ff8",
+          "2c548a63-3a02-47ab-9039-965cbd918d15",
+          "62e32be8-73c0-4561-924a-dafa5c62c171",
+          "de34bc98-3ffc-4343-af41-7489f20d6c8d"
+        ],
+        "verdict": "NON_CONFORMING"
+      },
+      {
+        "name": "mem0_memories",
+        "exists": true,
+        "blacklisted": true,
+        "dimension": 768,
+        "dimension_ok": true,
+        "points_count": 1,
+        "conforming_count": 0,
+        "invalid_points": [
+          "4436e7cf-55de-4d5c-ae0a-ca8c731ec3ca"
+        ],
+        "orphan_points": [
+          "4436e7cf-55de-4d5c-ae0a-ca8c731ec3ca"
+        ],
+        "missing_tenant": [
+          "4436e7cf-55de-4d5c-ae0a-ca8c731ec3ca"
+        ],
+        "invalid_source_sha": [
+          "4436e7cf-55de-4d5c-ae0a-ca8c731ec3ca"
+        ],
+        "tenant_leaks": [],
+        "duplicate_source_sha256": {},
+        "purge_candidates": [
+          "4436e7cf-55de-4d5c-ae0a-ca8c731ec3ca"
+        ],
+        "verdict": "BLACKLISTED"
+      },
+      {
+        "name": "mem0",
+        "exists": true,
+        "blacklisted": false,
+        "dimension": 768,
+        "dimension_ok": true,
+        "points_count": 0,
+        "conforming_count": 0,
+        "invalid_points": [],
+        "orphan_points": [],
+        "missing_tenant": [],
+        "invalid_source_sha": [],
+        "tenant_leaks": [],
+        "duplicate_source_sha256": {},
+        "purge_candidates": [],
+        "verdict": "OK"
+      },
+      {
+        "name": "mem0migrations",
+        "exists": true,
+        "blacklisted": true,
+        "dimension": 768,
+        "dimension_ok": true,
+        "points_count": 0,
+        "conforming_count": 0,
+        "invalid_points": [],
+        "orphan_points": [],
+        "missing_tenant": [],
+        "invalid_source_sha": [],
+        "tenant_leaks": [],
+        "duplicate_source_sha256": {},
+        "purge_candidates": [],
+        "verdict": "BLACKLISTED"
+      },
+      {
+        "name": "invoices",
+        "exists": false,
+        "blacklisted": false,
+        "dimension": null,
+        "dimension_ok": false,
+        "points_count": 0,
+        "conforming_count": 0,
+        "invalid_points": [],
+        "orphan_points": [],
+        "missing_tenant": [],
+        "invalid_source_sha": [],
+        "tenant_leaks": [],
+        "duplicate_source_sha256": {},
+        "purge_candidates": [],
+        "verdict": "ABSENT"
+      },
+      {
+        "name": "episodic_memory",
+        "exists": false,
+        "blacklisted": false,
+        "dimension": null,
+        "dimension_ok": false,
+        "points_count": 0,
+        "conforming_count": 0,
+        "invalid_points": [],
+        "orphan_points": [],
+        "missing_tenant": [],
+        "invalid_source_sha": [],
+        "tenant_leaks": [],
+        "duplicate_source_sha256": {},
+        "purge_candidates": [],
+        "verdict": "ABSENT"
+      }
+    ]
+  },
+  "sanitization": {
+    "applied": false,
+    "actions": [
+      {
+        "collection": "invoice_documents",
+        "points": [
+          "a27a03c8-22cf-428c-92d9-ec4e4b44db80",
+          "a70b38a3-ad95-4a9d-ad36-4aab9c86e905",
+          "bf3b111e-5588-4b1e-b15d-3fd90a7befab"
+        ]
+      },
+      {
+        "collection": "agent_skills",
+        "points": [
+          "07a74869-a856-484b-a7dd-b2e7f8628e3d",
+          "202d38b2-e9ff-4e61-8adf-f663c72e25ba",
+          "5e7ef402-d75f-49ec-94e9-8eb1f7fa4a05",
+          "6ed71560-fba0-4635-ac79-755cd5b534e5"
+        ]
+      },
+      {
+        "collection": "teacher_student_metrics",
+        "points": [
+          "0a1ad35b-cfd6-4238-8717-1c37a339bf49",
+          "0adf7f87-f20e-4a25-b62f-fa3f9376638c",
+          "12f872a1-1abe-435d-9d0a-a023cbad8073",
+          "17bbc095-b3e3-4485-8d37-98c6d2ff2c72",
+          "3ded7d53-19ad-4954-b650-19d7077fda4f",
+          "4627cbbe-6230-47a5-83ef-a5bdcfef98d8",
+          "4dc4d8d8-d821-4d16-854c-ed36c09a6a24",
+          "5af857e4-cb80-4128-92eb-7fb645ce920b",
+          "6c7de002-9bca-417f-861f-eb1fbabc59d5",
+          "6f2a0308-e1c0-4de8-87b2-7caac39f8b39",
+          "970c12ec-8b72-4048-9560-225678b67f1a",
+          "9b7d9eba-9382-4235-8cd2-7f8f565027a2",
+          "a77675b6-9734-4dbe-a68a-346e1890c705",
+          "aa2e0358-f17f-4ceb-92b7-35d775193209",
+          "df31e9a4-19f9-4bec-9093-2b9a4ab0f978",
+          "e72f0f1c-9dd1-4b83-99cb-3803ce43f5e4"
+        ]
+      },
+      {
+        "collection": "document_bus",
+        "points": [
+          "103335a3-f8fa-46e9-b22c-2a7e51652ff8",
+          "2c548a63-3a02-47ab-9039-965cbd918d15",
+          "62e32be8-73c0-4561-924a-dafa5c62c171",
+          "de34bc98-3ffc-4343-af41-7489f20d6c8d"
+        ]
+      },
+      {
+        "collection": "mem0_memories",
+        "points": [
+          "4436e7cf-55de-4d5c-ae0a-ca8c731ec3ca"
+        ]
+      }
+    ],
+    "total_points": 28
+  }
+}

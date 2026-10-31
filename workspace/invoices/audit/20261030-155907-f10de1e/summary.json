@@ -1,0 +1,212 @@
+{
+  "run_id": "20261030-155907-f10de1e",
+  "output_dir": "A:\\dsh-core\\workspace\\invoices\\audit\\20261030-155907-f10de1e",
+  "generated_at": "2026-10-30T16:34:35+01:00",
+  "record_count": 69,
+  "decisions": {
+    "VALIDATED": 40,
+    "HITL": 29,
+    "REJECTED": 0
+  },
+  "rule_outcomes": {
+    "NOT_TRIGGERED": 34,
+    "NO_RULE_REACHED": 0,
+    "RULE_EVALUATION_SKIPPED": 14,
+    "RULE_MISSING": 0,
+    "TRIGGERED_BLOCKED": 15,
+    "TRIGGERED_RESOLVED": 6,
+    "UNKNOWN": 0
+  },
+  "blocking_codes": [
+    {
+      "code": "MISSING_SIRET",
+      "layer": "extraction",
+      "severity": "warning",
+      "count": 49
+    },
+    {
+      "code": "MISSING_INVOICE_NUMBER",
+      "layer": "extraction",
+      "severity": "warning",
+      "count": 31
+    },
+    {
+      "code": "MISSING_VAT_NUMBER",
+      "layer": "extraction",
+      "severity": "warning",
+      "count": 29
+    },
+    {
+      "code": "MISSING_ISSUE_DATE",
+      "layer": "extraction",
+      "severity": "warning",
+      "count": 21
+    },
+    {
+      "code": "AMBIGUOUS_ZERO_VAT",
+      "layer": "rule",
+      "severity": "blocker",
+      "count": 15
+    },
+    {
+      "code": "INVOICE_NOT_VALIDATED",
+      "layer": "rule",
+      "severity": "blocker",
+      "count": 14
+    },
+    {
+      "code": "VISION_EXTRACTION_FAILED",
+      "layer": "production",
+      "severity": "blocker",
+      "count": 13
+    },
+    {
+      "code": "ESCALATION_BUDGET_EXCEEDED",
+      "layer": "vision",
+      "severity": "blocker",
+      "count": 12
+    },
+    {
+      "code": "MISSING_COUNTRY",
+      "layer": "extraction",
+      "severity": "warning",
+      "count": 7
+    },
+    {
+      "code": "ESCALATED_TO_CLOUD",
+      "layer": "vision",
+      "severity": "info",
+      "count": 3
+    },
+    {
+      "code": "SUPPLIER_UNKNOWN",
+      "layer": "extraction",
+      "severity": "warning",
+      "count": 3
+    },
+    {
+      "code": "IDENTITY_CONFLICT",
+      "layer": "supplier_memory",
+      "severity": "warning",
+      "count": 1
+    },
+    {
+      "code": "OCR_TEXT_UNAVAILABLE",
+      "layer": "production",
+      "severity": "blocker",
+      "count": 1
+    }
+  ],
+  "records_with_blockers": 67,
+  "file_types": {
+    "pdf": 68,
+    "image": 1
+  },
+  "extraction_field_coverage": {
+    "supplier_name": {
+      "present": 52,
+      "total": 69,
+      "ratio": 0.754
+    },
+    "siret": {
+      "present": 6,
+      "total": 69,
+      "ratio": 0.087
+    },
+    "vat_number": {
+      "present": 26,
+      "total": 69,
+      "ratio": 0.377
+    },
+    "country": {
+      "present": 48,
+      "total": 69,
+      "ratio": 0.696
+    },
+    "invoice_number": {
+      "present": 24,
+      "total": 69,
+      "ratio": 0.348
+    },
+    "issue_date": {
+      "present": 34,
+      "total": 69,
+      "ratio": 0.493
+    },
+    "net_amount": {
+      "present": 55,
+      "total": 69,
+      "ratio": 0.797
+    },
+    "tax_amount": {
+      "present": 55,
+      "total": 69,
+      "ratio": 0.797
+    },
+    "gross_amount": {
+      "present": 55,
+      "total": 69,
+      "ratio": 0.797
+    }
+  },
+  "top_suppliers": [
+    {
+      "name": "ASSISTANCE PEINTURES DIFFUSION",
+      "count": 9
+    },
+    {
+      "name": "ASSISTANCE PEINTURE DIFFUSION",
+      "count": 5
+    },
+    {
+      "name": "assistance peintures diffusion",
+      "count": 4
+    },
+    {
+      "name": "Autre S.A.S. Assistance Peintures Diffusion",
+      "count": 3
+    },
+    {
+      "name": "CRISOL COLOR, S.L.",
+      "count": 3
+    },
+    {
+      "name": "Assistance Peintures Diffusion",
+      "count": 3
+    },
+    {
+      "name": "Chronopost SAS est membre du Groupe TVA La Poste,",
+      "count": 2
+    },
+    {
+      "name": "CHRONOPOST SAS",
+      "count": 2
+    },
+    {
+      "name": "CORSICA FERRIES",
+      "count": 2
+    },
+    {
+      "name": "RESERVATION INTERNET",
+      "count": 1
+    }
+  ],
+  "durations_ms": {
+    "min": 22,
+    "median": 131,
+    "max": 100270,
+    "total": 2127088
+  },
+  "cloud_escalations": {
+    "count": 3,
+    "ratio": 0.043,
+    "threshold": 0.05,
+    "exceeded": false,
+    "budget": {
+      "max": 4,
+      "used": 4,
+      "exhausted": true,
+      "external_extractor": false
+    }
+  }
+}

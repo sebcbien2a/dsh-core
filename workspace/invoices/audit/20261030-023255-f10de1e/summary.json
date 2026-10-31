@@ -1,0 +1,200 @@
+{
+  "run_id": "20261030-023255-f10de1e",
+  "output_dir": "A:\\dsh-core\\workspace\\invoices\\audit\\20261030-023255-f10de1e",
+  "generated_at": "2026-10-30T11:19:57+01:00",
+  "record_count": 69,
+  "decisions": {
+    "VALIDATED": 48,
+    "HITL": 21,
+    "REJECTED": 0
+  },
+  "rule_outcomes": {
+    "NOT_TRIGGERED": 40,
+    "NO_RULE_REACHED": 0,
+    "RULE_EVALUATION_SKIPPED": 1,
+    "RULE_MISSING": 0,
+    "TRIGGERED_BLOCKED": 20,
+    "TRIGGERED_RESOLVED": 8,
+    "UNKNOWN": 0
+  },
+  "blocking_codes": [
+    {
+      "code": "MISSING_SIRET",
+      "layer": "extraction",
+      "severity": "warning",
+      "count": 61
+    },
+    {
+      "code": "MISSING_INVOICE_NUMBER",
+      "layer": "extraction",
+      "severity": "warning",
+      "count": 35
+    },
+    {
+      "code": "MISSING_VAT_NUMBER",
+      "layer": "extraction",
+      "severity": "warning",
+      "count": 35
+    },
+    {
+      "code": "MISSING_ISSUE_DATE",
+      "layer": "extraction",
+      "severity": "warning",
+      "count": 22
+    },
+    {
+      "code": "AMBIGUOUS_ZERO_VAT",
+      "layer": "rule",
+      "severity": "blocker",
+      "count": 20
+    },
+    {
+      "code": "MISSING_COUNTRY",
+      "layer": "extraction",
+      "severity": "warning",
+      "count": 6
+    },
+    {
+      "code": "NO_TEXT_LAYER",
+      "layer": "production",
+      "severity": "warning",
+      "count": 5
+    },
+    {
+      "code": "SUPPLIER_UNKNOWN",
+      "layer": "extraction",
+      "severity": "warning",
+      "count": 3
+    },
+    {
+      "code": "ESCALATED_TO_CLOUD",
+      "layer": "vision",
+      "severity": "info",
+      "count": 1
+    },
+    {
+      "code": "INVOICE_NOT_VALIDATED",
+      "layer": "rule",
+      "severity": "blocker",
+      "count": 1
+    },
+    {
+      "code": "MISSING_NET_AMOUNT",
+      "layer": "extraction",
+      "severity": "warning",
+      "count": 1
+    },
+    {
+      "code": "MISSING_TAX_AMOUNT",
+      "layer": "extraction",
+      "severity": "warning",
+      "count": 1
+    },
+    {
+      "code": "VISION_EXTRACTION_FAILED",
+      "layer": "production",
+      "severity": "blocker",
+      "count": 1
+    }
+  ],
+  "records_with_blockers": 67,
+  "file_types": {
+    "pdf": 68,
+    "image": 1
+  },
+  "extraction_field_coverage": {
+    "supplier_name": {
+      "present": 65,
+      "total": 69,
+      "ratio": 0.942
+    },
+    "siret": {
+      "present": 7,
+      "total": 69,
+      "ratio": 0.101
+    },
+    "vat_number": {
+      "present": 33,
+      "total": 69,
+      "ratio": 0.478
+    },
+    "country": {
+      "present": 62,
+      "total": 69,
+      "ratio": 0.899
+    },
+    "invoice_number": {
+      "present": 33,
+      "total": 69,
+      "ratio": 0.478
+    },
+    "issue_date": {
+      "present": 46,
+      "total": 69,
+      "ratio": 0.667
+    },
+    "net_amount": {
+      "present": 67,
+      "total": 69,
+      "ratio": 0.971
+    },
+    "tax_amount": {
+      "present": 67,
+      "total": 69,
+      "ratio": 0.971
+    },
+    "gross_amount": {
+      "present": 68,
+      "total": 69,
+      "ratio": 0.986
+    }
+  },
+  "top_suppliers": [
+    {
+      "name": "ASSISTANCE PEINTURES DIFFUSION",
+      "count": 9
+    },
+    {
+      "name": "CRISOL COLOR, S.L.",
+      "count": 6
+    },
+    {
+      "name": "ASSISTANCE PEINTURE DIFFUSION",
+      "count": 5
+    },
+    {
+      "name": "CHRONOPOST SAS",
+      "count": 5
+    },
+    {
+      "name": "assistance peintures diffusion",
+      "count": 4
+    },
+    {
+      "name": "Autre S.A.S. Assistance Peintures Diffusion",
+      "count": 3
+    },
+    {
+      "name": "Assistance Peintures Diffusion",
+      "count": 3
+    },
+    {
+      "name": "Chronopost SAS est membre du Groupe TVA La Poste,",
+      "count": 2
+    },
+    {
+      "name": "CORSICA FERRIES",
+      "count": 2
+    },
+    {
+      "name": "PATÀPAIN",
+      "count": 2
+    }
+  ],
+  "durations_ms": {
+    "min": 32,
+    "median": 114,
+    "max": 30181224,
+    "total": 31660638
+  }
+}

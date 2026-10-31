@@ -63,3 +63,13 @@ Ces variantes sont décrites pour une étape ultérieure et ne sont pas exécut�
 - Benchmark réalisé sur 10 documents : Top-1 = 40 %, Top-3 = 90 %.
 - La sélection par score OCR est insuffisante : LightOnOCR est conservé pour
   l’OCR, mais cette méthode n’est pas retenue pour l’orientation automatique.
+
+## Résultat du benchmark MiMo Vision
+
+- OpenRouter et MiMo-V2.6-Pro validés sur une planche synthétique.
+- `reasoning.enabled=false` requis pour obtenir une réponse finale dans le budget.
+- Benchmark Vision sur 10 documents : accuracy = 50 %.
+- Coût total : 0,0046284 USD ; coût moyen : 0,00046284 USD.
+- Temps moyen ≈ 3,66 s par document.
+- Meilleure accuracy obtenue jusqu’ici ; méthode prometteuse, mais non retenue
+  en production à ce stade.

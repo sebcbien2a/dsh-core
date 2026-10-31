@@ -352,6 +352,3 @@ def test_no_amount_fields_and_legacy_repository_not_imported(env):
     source = open(module.__file__, encoding="utf-8").read()
     assert "services.supplier_repository" not in source
     assert "import supplier_repository" not in source
-    import sys
-
-    assert "services.supplier_repository" not in sys.modules

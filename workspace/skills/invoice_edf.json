@@ -1,0 +1,76 @@
+{
+  "skill_name": "invoice_edf",
+  "supplier_id": "SUP_0003",
+  "domain": "invoice_processing",
+  "version": "1.0.0",
+  "tenant": "GLOBAL",
+  "lifecycle": {
+    "confidence": 0.8,
+    "usage_count": 0,
+    "last_used": "2026-10-30T20:50:58.058600+00:00",
+    "status": "candidate"
+  },
+  "extraction_rules": {
+    "regex_numero_facture": "N\\S*\\s*(?:de\\s*)?client\\s*:\\s*([\\d ]{8,})",
+    "trusted_labels": {
+      "ttc": "Budget total mensuel estimé",
+      "fournisseur": "EDF",
+      "numero_facture": "N° client"
+    }
+  },
+  "layout_anchors": [
+    {
+      "field_key": "ttc",
+      "anchor_text": "Budget total mensuel estimé",
+      "relative_position": "inside",
+      "confidence": 0.8,
+      "page_index": 0
+    },
+    {
+      "field_key": "numero_facture",
+      "anchor_text": "N° client",
+      "relative_position": "inside",
+      "confidence": 0.8,
+      "page_index": 0
+    },
+    {
+      "field_key": "fournisseur",
+      "anchor_text": "EDF",
+      "relative_position": "inside",
+      "confidence": 0.8,
+      "page_index": 0
+    }
+  ],
+  "visual_signature": {
+    "label_fingerprint": [
+      "EDF",
+      "Budget total mensuel estimé",
+      "N° client"
+    ],
+    "aspect_ratio": 0.707,
+    "page_count": 2
+  },
+  "created_from": {
+    "teacher_model": "MiMo-V2.6-Pro",
+    "raw_annotations_seen": 24,
+    "filtered_annotations": 4,
+    "documents": [
+      "ABONNEMENT.pdf",
+      "Votre document edf.pdf",
+      "facture électricité.pdf"
+    ],
+    "created_at": "2026-10-30T20:50:58.058600+00:00",
+    "audit_trail": {
+      "raw_annotations_seen": 24,
+      "dropped_no_target": 17,
+      "dropped_kind": 3,
+      "dropped_confidence": 0,
+      "deduped": 0,
+      "kept": 4
+    }
+  },
+  "overrides": {
+    "type_tva": "NORMALE",
+    "type_piece": "FACTURE"
+  }
+}

@@ -1,3 +1,10 @@
-{
-    "python.terminal.useEnvFile": true
+﻿{
+  "terminal.integrated.profiles.windows": {
+    "opencode": {
+      "path": "opencode",
+      "icon": "terminal-cmd",
+      "args": []
+    }
+  },
+  "terminal.integrated.defaultProfile.windows": "opencode"
 }

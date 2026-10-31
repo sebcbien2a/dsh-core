@@ -1,0 +1,876 @@
+{
+  "responderUsername": "GitHub Copilot",
+  "initialLocation": "panel",
+  "requests": [
+    {
+      "requestId": "request_9ac89646-f7d1-4928-b61d-b41df9e9b344",
+      "message": {
+        "parts": [
+          {
+            "range": {
+              "start": 0,
+              "endExclusive": 1598
+            },
+            "editorRange": {
+              "startLineNumber": 1,
+              "startColumn": 1,
+              "endLineNumber": 46,
+              "endColumn": 79
+            },
+            "text": "DIAGNOSTIC EN LECTURE SEULE DE LA SYNCHRONISATION DES SESSIONS COPILOT\r\n\r\nNe modifier aucun fichier.\r\nNe modifier aucun paramètre.\r\nNe installer ni désinstaller aucune extension.\r\nNe afficher aucun jeton, secret ou identifiant sensible.\r\nNe lancer aucun git add ni commit.\r\n\r\nVérifier et rapporter uniquement :\r\n\r\n1. version exacte de VS Code ;\r\n2. version de GitHub Copilot Chat ;\r\n3. compte GitHub actuellement connecté, uniquement le nom public du compte ;\r\n4. forfait GitHub Copilot détecté si l’information est accessible sans secret ;\r\n5. valeur effective de :\r\n   - chat.sessionSync.enabled\r\n   - github.copilot.chat.localIndex.enabled\r\n6. portée de chaque valeur :\r\n   - utilisateur\r\n   - espace de travail\r\n   - politique\r\n   - valeur par défaut\r\n7. état Workspace Trust de A:\\dsh-core :\r\n   - TRUSTED\r\n   - RESTRICTED\r\n8. présence d’un remote Git ;\r\n9. indiquer seulement si ce remote pointe vers github.com, sans afficher\r\n   d’identifiant privé ou de jeton ;\r\n10. état affiché par la synchronisation :\r\n    - ENABLED\r\n    - NOT ENABLED\r\n    - DISABLED BY POLICY\r\n    - UNSUPPORTED\r\n    - INDETERMINÉ\r\n11. raison exacte du symbole interdit devant l’extension Continue :\r\n    - désactivée manuellement\r\n    - désactivée pour cet espace de travail\r\n    - incompatible\r\n    - bloquée par Restricted Mode\r\n    - bloquée par politique\r\n    - autre raison explicitement visible\r\n12. confirmer si Continue est ou non nécessaire à la synchronisation native\r\n    GitHub Copilot.\r\n\r\nNe corriger encore aucun problème.\r\nAfficher uniquement le diagnostic et l’action corrective minimale recommandée.",
+            "kind": "text"
+          }
+        ],
+        "text": "DIAGNOSTIC EN LECTURE SEULE DE LA SYNCHRONISATION DES SESSIONS COPILOT\r\n\r\nNe modifier aucun fichier.\r\nNe modifier aucun paramètre.\r\nNe installer ni désinstaller aucune extension.\r\nNe afficher aucun jeton, secret ou identifiant sensible.\r\nNe lancer aucun git add ni commit.\r\n\r\nVérifier et rapporter uniquement :\r\n\r\n1. version exacte de VS Code ;\r\n2. version de GitHub Copilot Chat ;\r\n3. compte GitHub actuellement connecté, uniquement le nom public du compte ;\r\n4. forfait GitHub Copilot détecté si l’information est accessible sans secret ;\r\n5. valeur effective de :\r\n   - chat.sessionSync.enabled\r\n   - github.copilot.chat.localIndex.enabled\r\n6. portée de chaque valeur :\r\n   - utilisateur\r\n   - espace de travail\r\n   - politique\r\n   - valeur par défaut\r\n7. état Workspace Trust de A:\\dsh-core :\r\n   - TRUSTED\r\n   - RESTRICTED\r\n8. présence d’un remote Git ;\r\n9. indiquer seulement si ce remote pointe vers github.com, sans afficher\r\n   d’identifiant privé ou de jeton ;\r\n10. état affiché par la synchronisation :\r\n    - ENABLED\r\n    - NOT ENABLED\r\n    - DISABLED BY POLICY\r\n    - UNSUPPORTED\r\n    - INDETERMINÉ\r\n11. raison exacte du symbole interdit devant l’extension Continue :\r\n    - désactivée manuellement\r\n    - désactivée pour cet espace de travail\r\n    - incompatible\r\n    - bloquée par Restricted Mode\r\n    - bloquée par politique\r\n    - autre raison explicitement visible\r\n12. confirmer si Continue est ou non nécessaire à la synchronisation native\r\n    GitHub Copilot.\r\n\r\nNe corriger encore aucun problème.\r\nAfficher uniquement le diagnostic et l’action corrective minimale recommandée."
+      },
+      "variableData": {
+        "variables": []
+      },
+      "response": [
+        {
+          "kind": "autoModeResolution",
+          "resolved": {
+            "id": "gpt-6-luna",
+            "name": "gpt-6-luna"
+          }
+        },
+        {
+          "kind": "mcpAuthenticationRequired",
+          "sessionResource": {
+            "$mid": 1,
+            "external": "agent-host-copilotcli:/0835c254-f980-42bd-9a25-fab9034f256b",
+            "path": "/0835c254-f980-42bd-9a25-fab9034f256b",
+            "scheme": "agent-host-copilotcli"
+          },
+          "isUsed": false,
+          "servers": {
+            "_observers": {},
+            "_debugNameData": {
+              "debugNameSource": "mcpAuthNeededServers"
+            },
+            "_value": [
+              {
+                "id": "/file:///c%3A/Users/peint/AppData/Roaming/Code/agentPlugins/vscode-synced-customization-agent-host-copilotcli-907405418-standalone/1148123029/.mcp.json#mcp=com.supabase%2Fmcp",
+                "name": "com.supabase/mcp",
+                "resource": "https://mcp.supabase.com/mcp",
+                "authorizationServers": [
+                  "https://api.supabase.com"
+                ],
+                "supportedScopes": [
+                  "organizations:read",
+                  "projects:read",
+                  "projects:write",
+                  "database:write",
+                  "database:read",
+                  "analytics:read",
+                  "secrets:read",
+                  "edge_functions:read",
+                  "edge_functions:write",
+                  "environment:read",
+                  "environment:write",
+                  "storage:read",
+                  "storage:write"
+                ],
+                "reason": "required"
+              },
+              {
+                "id": "/file:///c%3A/Users/peint/AppData/Roaming/Code/agentPlugins/vscode-synced-customization-agent-host-copilotcli-907405418-standalone/1148123029/.mcp.json#mcp=Foundry%20MCP",
+                "name": "Foundry MCP",
+                "resource": "https://mcp.ai.azure.com",
+                "authorizationServers": [
+                  "https://login.microsoftonline.com/common/v2.0"
+                ],
+                "supportedScopes": [
+                  "https://mcp.ai.azure.com/Foundry.Mcp.Tools"
+                ],
+                "reason": "required"
+              },
+              {
+                "id": "/file:///c%3A/Users/peint/AppData/Roaming/Code/agentPlugins/vscode-synced-customization-agent-host-copilotcli-907405418-standalone/1148123029/.mcp.json#mcp=io.github.netdata%2Fmcp-server",
+                "name": "io.github.netdata/mcp-server",
+                "resource": "https://app.netdata.cloud/api/v1/mcp",
+                "reason": "required"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "mcpServersStartingSlow",
+          "sessionResource": {
+            "$mid": 1,
+            "external": "agent-host-copilotcli:/0835c254-f980-42bd-9a25-fab9034f256b",
+            "path": "/0835c254-f980-42bd-9a25-fab9034f256b",
+            "scheme": "agent-host-copilotcli"
+          },
+          "servers": {
+            "_observers": {},
+            "_debugNameData": {},
+            "_state": 3,
+            "_value": [],
+            "_updateCount": 0,
+            "_dependencies": {},
+            "_dependenciesToBeRemoved": {},
+            "_isUpdating": false,
+            "_isComputing": false,
+            "_didReportChange": false,
+            "_isInBeforeUpdate": false,
+            "_isReaderValid": false,
+            "_removedObserverToCallEndUpdateOn": null
+          }
+        },
+        {
+          "kind": "thinking",
+          "value": "**Diagnosing VS Code Environment**\n\nI need to check the current Visual Studio Code UI environment. I’ll explore its settings, extensions, trust status, and read-only git access. I’m unsure about the current machine's VS Code capabilities, so I’ll search for tools to get information about extensions, configurations, settings, and workspace trust. Directly using PowerShell can inspect the command line interface, but not the UI state. It’s important to avoid exposing any sensitive identifiers while focusing on reading from git. Let's start by searching broadly for available tools.",
+          "id": "25b868eb-0699-45d7-879b-2c74247e7a59",
+          "reasoningDurationMs": 1988,
+          "generatedTitle": "Diagnosing VS Code Environment"
+        },
+        {
+          "kind": "toolInvocationSerialized",
+          "invocationMessage": "Search Tools",
+          "isConfirmed": {
+            "type": 1
+          },
+          "isComplete": true,
+          "source": {
+            "type": "internal",
+            "label": "Built-In"
+          },
+          "toolCallId": "call_pDYqsIZdCwtDYYmi3PhBqzzh",
+          "toolId": "tool_search"
+        },
+        {
+          "kind": "toolInvocationSerialized",
+          "invocationMessage": "Search Tools",
+          "isConfirmed": {
+            "type": 1
+          },
+          "isComplete": true,
+          "source": {
+            "type": "internal",
+            "label": "Built-In"
+          },
+          "toolCallId": "call_9AvPKlKLV185YirTLqACao7d",
+          "toolId": "tool_search"
+        },
+        {
+          "value": "Je vais effectuer uniquement des lectures locales : version/extension via la CLI, réglages déclarés et remote Git réduit au seul domaine. Les éléments qui ne sont pas lisibles de façon sûre dans cette session seront signalés comme indéterminés, sans tenter de consulter des jetons ni d’altérer l’état.",
+          "isTrusted": false,
+          "supportThemeIcons": false,
+          "supportHtml": false
+        },
+        {
+          "kind": "toolInvocationSerialized",
+          "invocationMessage": "Read VS Code, extensions, settings and Git facts",
+          "isConfirmed": {
+            "type": 4,
+            "selectedButton": "allow-session",
+            "selectedButtonKind": "approve"
+          },
+          "isComplete": true,
+          "source": {
+            "type": "internal",
+            "label": "Built-In"
+          },
+          "toolSpecificData": {
+            "kind": "terminal",
+            "commandLine": {
+              "original": "$ErrorActionPreference = 'SilentlyContinue'; Write-Output '--- VS Code CLI ---'; $code = Get-Command code -ErrorAction SilentlyContinue; if ($code) { code --version | Select-Object -First 3 } else { Write-Output 'CLI_UNAVAILABLE' }; Write-Output '--- Relevant extensions ---'; if ($code) { code --list-extensions --show-versions | Where-Object { $_ -match '^(GitHub\\.copilot-chat|GitHub\\.copilot|Continue\\.continue)@' } }; Write-Output '--- Git remote facts ---'; $remotes = git -C 'A:\\dsh-core' remote -v 2>$null; if ($LASTEXITCODE -eq 0 -and $remotes) { Write-Output ('REMOTE_PRESENT=' + $true); $github = [bool]($remotes | Where-Object { $_ -match '(?i)(github\\.com[:/])' }); Write-Output ('POINTS_TO_GITHUB_COM=' + $github) } else { Write-Output 'REMOTE_PRESENT=False'; Write-Output 'POINTS_TO_GITHUB_COM=False' }; Write-Output '--- Workspace settings ---'; $settingsPath = 'A:\\dsh-core\\.vscode\\settings.json'; if (Test-Path $settingsPath) { try { $s = Get-Content -Raw $settingsPath | ConvertFrom-Json; foreach ($k in @('chat.sessionSync.enabled','github.copilot.chat.localIndex.enabled')) { $p = $s; foreach ($part in $k.Split('.')) { $p = $p.$part }; if ($null -ne $p) { Write-Output ($k + '=' + $p) } else { Write-Output ($k + '=NOT_SET') } } } catch { Write-Output 'WORKSPACE_SETTINGS_PARSE_ERROR' } } else { Write-Output 'WORKSPACE_SETTINGS_FILE_ABSENT' }; Write-Output '--- VS Code policy registry keys ---'; foreach ($path in @('HKCU:\\Software\\Policies\\Microsoft\\VSCode','HKLM:\\Software\\Policies\\Microsoft\\VSCode','HKLM:\\Software\\WOW6432Node\\Policies\\Microsoft\\VSCode')) { if (Test-Path $path) { (Get-ItemProperty $path).PSObject.Properties | Where-Object { $_.Name -notmatch '^PS' } | ForEach-Object { if ($_.Name -in @('chat.sessionSync.enabled','github.copilot.chat.localIndex.enabled','extensionsAllowed','extensionsDenied')) { Write-Output ($path + '\\' + $_.Name + '=' + $_.Value) } } } }"
+            },
+            "editable": false,
+            "intention": "Read VS Code, extensions, settings and Git facts",
+            "language": "shellscript",
+            "terminalToolSessionId": "{\"terminal\":\"agenthost-terminal://shell/0835c254-f980-42bd-9a25-fab9034f256b/call_EJVZFVh4HV8XVe1QtHW618Fz?%7B%22storage%22%3A%22ahp-session%3A%2F0835c254-f980-42bd-9a25-fab9034f256b%22%2C%22session%22%3A%22ahp-session%3A%2F0835c254-f980-42bd-9a25-fab9034f256b%22%2C%22chat%22%3A%22ahp-chat%3A%2F%2Fdefault%2FYWhwLXNlc3Npb246LzA4MzVjMjU0LWY5ODAtNDJiZC05YTI1LWZhYjkwMzRmMjU2Yg%22%2C%22toolCallId%22%3A%22call_EJVZFVh4HV8XVe1QtHW618Fz%22%7D\",\"session\":\"ahp-session:/0835c254-f980-42bd-9a25-fab9034f256b\"}",
+            "terminalCommandUri": {
+              "$mid": 1,
+              "path": "/0835c254-f980-42bd-9a25-fab9034f256b/call_EJVZFVh4HV8XVe1QtHW618Fz",
+              "scheme": "agenthost-terminal",
+              "authority": "shell",
+              "query": "{\"storage\":\"ahp-session:/0835c254-f980-42bd-9a25-fab9034f256b\",\"session\":\"ahp-session:/0835c254-f980-42bd-9a25-fab9034f256b\",\"chat\":\"ahp-chat://default/YWhwLXNlc3Npb246LzA4MzVjMjU0LWY5ODAtNDJiZC05YTI1LWZhYjkwMzRmMjU2Yg\",\"toolCallId\":\"call_EJVZFVh4HV8XVe1QtHW618Fz\"}"
+            },
+            "isPty": false,
+            "terminalCommandOutput": {
+              "text": "--- VS Code CLI ---\r\n1.142.0\r\n6d62b1d5dace93a33b3a6d3eca1317bd5e15bcb1\r\nx64\r\n--- Relevant extensions ---\r\ncontinue.continue@2.0.0\r\n--- Git remote facts ---\r\nREMOTE_PRESENT=True\r\nPOINTS_TO_GITHUB_COM=True\r\n--- Workspace settings ---\r\nchat.sessionSync.enabled=NOT_SET\r\ngithub.copilot.chat.localIndex.enabled=NOT_SET\r\n--- VS Code policy registry keys ---\r\n"
+            },
+            "terminalCommandState": {
+              "exitCode": 0
+            }
+          },
+          "toolCallId": "call_EJVZFVh4HV8XVe1QtHW618Fz",
+          "toolId": "powershell",
+          "summary": {
+            "kind": "command"
+          }
+        },
+        {
+          "kind": "thinking",
+          "value": "**Examining VSCode settings**\n\nI’m looking into Code process, specifically the executable and user data directory. I need to check if the current instance is running. I’ll use `Get-Process Code` to inspect executable paths and command line versions, but I want to avoid revealing sensitive info. It’s important to parse command line options without showing raw paths. The user has asked for specific details, so I'll check if configurations exist in root `.vscode` and user settings. Also, I’ll consider the syncing features related to extensions.\n\n**Investigating session sync settings**\n\nI'm checking the setting `chat.sessionSync.enabled`, which appears to sync sessions across devices, possibly only when the user is signed into GitHub and using a Copilot plan. It seems that if Copilot is absent, it may not be supported. I’ll also need to look at the local index setting and check if the environment container is connected to VS Code. Additionally, I should safely retrieve the user's settings while ensuring I understand user processes and data properly.",
+          "id": "36738ce1-e520-4344-a2f4-1b3d541f07ba",
+          "reasoningDurationMs": 3441,
+          "generatedTitle": "Reviewed VSCode settings and investigated session sync settings"
+        },
+        {
+          "kind": "toolInvocationSerialized",
+          "invocationMessage": "Check user settings and installed extension manifests",
+          "isConfirmed": {
+            "type": 1
+          },
+          "isComplete": true,
+          "source": {
+            "type": "internal",
+            "label": "Built-In"
+          },
+          "toolSpecificData": {
+            "kind": "terminal",
+            "commandLine": {
+              "original": "$ErrorActionPreference = 'SilentlyContinue'; $userData = Join-Path $env:APPDATA 'Code\\User'; Write-Output ('USER_DATA_DIR=' + $userData); $userSettings = Join-Path $userData 'settings.json'; if (Test-Path $userSettings) { try { $s = Get-Content -Raw $userSettings | ConvertFrom-Json; foreach ($k in @('chat.sessionSync.enabled','github.copilot.chat.localIndex.enabled')) { $parts = $k.Split('.'); $p = $s; foreach ($part in $parts) { $p = $p.$part }; if ($null -ne $p) { Write-Output ('USER_SETTING ' + $k + '=' + $p) } else { Write-Output ('USER_SETTING ' + $k + '=NOT_SET') } } } catch { Write-Output 'USER_SETTINGS_PARSE_ERROR' } } else { Write-Output 'USER_SETTINGS_FILE_ABSENT' }; $extDir = Join-Path $env:USERPROFILE '.vscode\\extensions'; Write-Output '--- Extension manifests in default directory ---'; if (Test-Path $extDir) { Get-ChildItem $extDir -Directory | Where-Object { $_.Name -match 'github\\.copilot|continue\\.continue' } | ForEach-Object { $m = Join-Path $_.FullName 'package.json'; if (Test-Path $m) { try { $p = Get-Content -Raw $m | ConvertFrom-Json; Write-Output ($p.publisher + '.' + $p.name + '@' + $p.version) } catch {} } } } else { Write-Output 'EXTENSION_DIR_ABSENT' }; Write-Output '--- Running Code executable version ---'; Get-Process Code -ErrorAction SilentlyContinue | ForEach-Object { $f = $_.Path; if ($f) { try { $v = (Get-Item $f).VersionInfo; Write-Output ($v.ProductVersion + ' (' + $v.FileVersion + ')') } catch { Write-Output 'VERSION_UNAVAILABLE' } } }"
+            },
+            "editable": false,
+            "intention": "Check user settings and installed extension manifests",
+            "language": "shellscript",
+            "terminalToolSessionId": "{\"terminal\":\"agenthost-terminal://shell/0835c254-f980-42bd-9a25-fab9034f256b/call_lwSiMfxgLvwbwS5cFgLO3rX2?%7B%22storage%22%3A%22ahp-session%3A%2F0835c254-f980-42bd-9a25-fab9034f256b%22%2C%22session%22%3A%22ahp-session%3A%2F0835c254-f980-42bd-9a25-fab9034f256b%22%2C%22chat%22%3A%22ahp-chat%3A%2F%2Fdefault%2FYWhwLXNlc3Npb246LzA4MzVjMjU0LWY5ODAtNDJiZC05YTI1LWZhYjkwMzRmMjU2Yg%22%2C%22toolCallId%22%3A%22call_lwSiMfxgLvwbwS5cFgLO3rX2%22%7D\",\"session\":\"ahp-session:/0835c254-f980-42bd-9a25-fab9034f256b\"}",
+            "terminalCommandUri": {
+              "$mid": 1,
+              "path": "/0835c254-f980-42bd-9a25-fab9034f256b/call_lwSiMfxgLvwbwS5cFgLO3rX2",
+              "scheme": "agenthost-terminal",
+              "authority": "shell",
+              "query": "{\"storage\":\"ahp-session:/0835c254-f980-42bd-9a25-fab9034f256b\",\"session\":\"ahp-session:/0835c254-f980-42bd-9a25-fab9034f256b\",\"chat\":\"ahp-chat://default/YWhwLXNlc3Npb246LzA4MzVjMjU0LWY5ODAtNDJiZC05YTI1LWZhYjkwMzRmMjU2Yg\",\"toolCallId\":\"call_lwSiMfxgLvwbwS5cFgLO3rX2\"}"
+            },
+            "isPty": false,
+            "terminalCommandOutput": {
+              "text": "USER_DATA_DIR=C:\\Users\\peint\\AppData\\Roaming\\Code\\User\r\nUSER_SETTING chat.sessionSync.enabled=NOT_SET\r\nUSER_SETTING github.copilot.chat.localIndex.enabled=NOT_SET\r\n--- Extension manifests in default directory ---\r\nContinue.continue@2.0.0\r\n--- Running Code executable version ---\r\n1.142.0 (1.142.0)\r\n1.142.0 (1.142.0)\r\n1.142.0 (1.142.0)\r\n1.142.0 (1.142.0)\r\n1.142.0 (1.142.0)\r\n1.142.0 (1.142.0)\r\n1.142.0 (1.142.0)\r\n1.142.0 (1.142.0)\r\n1.142.0 (1.142.0)\r\n1.142.0 (1.142.0)\r\n1.142.0 (1.142.0)\r\n1.142.0 (1.142.0)\r\n1.142.0 (1.142.0)\r\n"
+            },
+            "terminalCommandState": {
+              "exitCode": 0
+            }
+          },
+          "toolCallId": "call_lwSiMfxgLvwbwS5cFgLO3rX2",
+          "toolId": "powershell",
+          "summary": {
+            "kind": "command"
+          }
+        },
+        {
+          "value": "La CLI confirme VS Code 1.142.0 et aucune installation de Copilot Chat dans le profil qu’elle voit ; Continue 2.0.0 est présent. Je vérifie maintenant, sans afficher le contenu des bases d’état, si les métadonnées locales permettent de déterminer Trust et l’état de désactivation.",
+          "isTrusted": false,
+          "supportThemeIcons": false,
+          "supportHtml": false
+        },
+        {
+          "kind": "toolInvocationSerialized",
+          "invocationMessage": "Read only targeted VS Code state metadata",
+          "isConfirmed": {
+            "type": 1
+          },
+          "isComplete": true,
+          "source": {
+            "type": "internal",
+            "label": "Built-In"
+          },
+          "toolSpecificData": {
+            "kind": "terminal",
+            "commandLine": {
+              "original": "$exe = (Get-Process Code -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Path); if ($exe) { $root = Split-Path (Split-Path $exe -Parent) -Parent; Write-Output ('APP_ROOT=' + $root); $db = Join-Path $env:APPDATA 'Code\\User\\globalStorage\\state.vscdb'; Write-Output ('STATE_DB_PRESENT=' + (Test-Path $db)); if (Test-Path $db) { @'\nimport sqlite3, os\np = os.path.join(os.environ['APPDATA'], 'Code', 'User', 'globalStorage', 'state.vscdb')\ncon = sqlite3.connect('file:' + p.replace('\\\\','/') + '?mode=ro', uri=True)\ntry:\n    tables = [r[0] for r in con.execute(\"SELECT name FROM sqlite_master WHERE type='table'\")]\n    print('DB_TABLES=' + ','.join(tables))\n    for t in tables:\n        if t in ('ItemTable', 'ItemTableV2'):\n            cols = [r[1] for r in con.execute('PRAGMA table_info(\"' + t + '\")')]\n            print('TABLE_COLUMNS_' + t + '=' + ','.join(cols))\n            if 'key' in cols:\n                rows = con.execute('SELECT key FROM \"' + t + '\" WHERE lower(key) LIKE \"%trust%\" OR lower(key) LIKE \"%disabled%extension%\" OR lower(key) LIKE \"%extension%disabled%\"').fetchall()\n                print('MATCHING_STATE_KEYS=' + ','.join(str(r[0]) for r in rows))\nfinally:\n    con.close()\n'@ | python - }; Write-Output '--- Potential bundled setting declarations (name-only search) ---'; if ($root) { rg -l --hidden --glob '*.json' --glob '*.js' --glob '*.html' 'chat\\.sessionSync\\.enabled|github\\.copilot\\.chat\\.localIndex\\.enabled' $root 2>$null | Select-Object -First 15 } } else { Write-Output 'CODE_PROCESS_NOT_FOUND' }"
+            },
+            "editable": false,
+            "intention": "Read only targeted VS Code state metadata",
+            "language": "shellscript",
+            "terminalToolSessionId": "{\"terminal\":\"agenthost-terminal://shell/0835c254-f980-42bd-9a25-fab9034f256b/call_bqm0AGB00NgTPP4xtX2NOlqh?%7B%22storage%22%3A%22ahp-session%3A%2F0835c254-f980-42bd-9a25-fab9034f256b%22%2C%22session%22%3A%22ahp-session%3A%2F0835c254-f980-42bd-9a25-fab9034f256b%22%2C%22chat%22%3A%22ahp-chat%3A%2F%2Fdefault%2FYWhwLXNlc3Npb246LzA4MzVjMjU0LWY5ODAtNDJiZC05YTI1LWZhYjkwMzRmMjU2Yg%22%2C%22toolCallId%22%3A%22call_bqm0AGB00NgTPP4xtX2NOlqh%22%7D\",\"session\":\"ahp-session:/0835c254-f980-42bd-9a25-fab9034f256b\"}",
+            "terminalCommandUri": {
+              "$mid": 1,
+              "path": "/0835c254-f980-42bd-9a25-fab9034f256b/call_bqm0AGB00NgTPP4xtX2NOlqh",
+              "scheme": "agenthost-terminal",
+              "authority": "shell",
+              "query": "{\"storage\":\"ahp-session:/0835c254-f980-42bd-9a25-fab9034f256b\",\"session\":\"ahp-session:/0835c254-f980-42bd-9a25-fab9034f256b\",\"chat\":\"ahp-chat://default/YWhwLXNlc3Npb246LzA4MzVjMjU0LWY5ODAtNDJiZC05YTI1LWZhYjkwMzRmMjU2Yg\",\"toolCallId\":\"call_bqm0AGB00NgTPP4xtX2NOlqh\"}"
+            },
+            "isPty": false,
+            "terminalCommandOutput": {
+              "text": "APP_ROOT=C:\\Users\\peint\\AppData\\Local\\Programs\r\nSTATE_DB_PRESENT=True\r\nDB_TABLES=ItemTable\r\nTABLE_COLUMNS_ItemTable=key,value\r\nMATCHING_STATE_KEYS=extensions.trustedPublishers,trusted-publishers-init-migration\r\n--- Potential bundled setting declarations (name-only search) ---\r\nC:\\Users\\peint\\AppData\\Local\\Programs\\Microsoft VS Code\\6d62b1d5da\\resources\\app\\out\\vs\\workbench\\workbench.desktop.main.js\r\nC:\\Users\\peint\\AppData\\Local\\Programs\\Microsoft VS Code\\6d62b1d5da\\resources\\app\\out\\vs\\sessions\\sessions.desktop.main.js\r\nC:\\Users\\peint\\AppData\\Local\\Programs\\Microsoft VS Code\\6d62b1d5da\\resources\\app\\out\\nls.messages.json\r\nC:\\Users\\peint\\AppData\\Local\\Programs\\Microsoft VS Code\\6d62b1d5da\\resources\\app\\out\\nls.messages.js\r\nC:\\Users\\peint\\AppData\\Local\\Programs\\Microsoft VS Code\\6d62b1d5da\\resources\\app\\out\\nls.keys.json\r\nC:\\Users\\peint\\AppData\\Local\\Programs\\Microsoft VS Code\\6d62b1d5da\\resources\\app\\out\\nls.metadata.json\r\nC:\\Users\\peint\\AppData\\Local\\Programs\\Microsoft VS Code\\6d62b1d5da\\resources\\app\\extensions\\copilot\\package.json\r\nC:\\Users\\peint\\AppData\\Local\\Programs\\Microsoft VS Code\\6d62b1d5da\\resources\\app\\extensions\\copilot\\dist\\extension.js\r\n"
+            },
+            "terminalCommandState": {
+              "exitCode": 0
+            }
+          },
+          "toolCallId": "call_bqm0AGB00NgTPP4xtX2NOlqh",
+          "toolId": "powershell",
+          "summary": {
+            "kind": "command"
+          }
+        },
+        {
+          "kind": "toolInvocationSerialized",
+          "presentation": "hiddenAfterComplete",
+          "invocationMessage": {
+            "value": "Read [](file:///c%3A/Users/peint/AppData/Local/Programs/Microsoft%20VS%20Code/6d62b1d5da/resources/app/extensions/copilot/package.json)",
+            "isTrusted": false,
+            "supportThemeIcons": false,
+            "supportHtml": false,
+            "supportAlertSyntax": false
+          },
+          "pastTenseMessage": {
+            "value": "Read [](file:///c%3A/Users/peint/AppData/Local/Programs/Microsoft%20VS%20Code/6d62b1d5da/resources/app/extensions/copilot/package.json)",
+            "isTrusted": false,
+            "supportThemeIcons": false,
+            "supportHtml": false,
+            "supportAlertSyntax": false
+          },
+          "isConfirmed": {
+            "type": 4
+          },
+          "isComplete": true,
+          "source": {
+            "type": "internal",
+            "label": "Built-In"
+          },
+          "resultDetails": {
+            "input": "{\n  \"path\": \"C:\\\\Users\\\\peint\\\\AppData\\\\Local\\\\Programs\\\\Microsoft VS Code\\\\6d62b1d5da\\\\resources\\\\app\\\\extensions\\\\copilot\\\\package.json\"\n}",
+            "inputLanguage": "json",
+            "output": [
+              {
+                "type": "embed",
+                "value": "File too large to read at once (197.1 KB). Consider using the grep tool to search within the file, or view with view_range to read specific sections.",
+                "isText": true,
+                "mimeType": "text/plain"
+              }
+            ],
+            "isError": false
+          },
+          "toolSpecificData": {
+            "kind": "input",
+            "rawInput": {
+              "path": "C:\\Users\\peint\\AppData\\Local\\Programs\\Microsoft VS Code\\6d62b1d5da\\resources\\app\\extensions\\copilot\\package.json"
+            },
+            "editable": false
+          },
+          "toolCallId": "call_gTkKtMY8oIjZ3M3e8dxovWf5",
+          "toolId": "view",
+          "summary": {
+            "kind": "unknown"
+          }
+        },
+        {
+          "kind": "toolInvocationSerialized",
+          "invocationMessage": "Check Copilot component metadata and trust-only state",
+          "isConfirmed": {
+            "type": 1
+          },
+          "isComplete": true,
+          "source": {
+            "type": "internal",
+            "label": "Built-In"
+          },
+          "toolSpecificData": {
+            "kind": "terminal",
+            "commandLine": {
+              "original": "$ErrorActionPreference = 'SilentlyContinue'; $db = Join-Path $env:APPDATA 'Code\\User\\globalStorage\\state.vscdb'; @'\nimport sqlite3, os\np = os.path.join(os.environ['APPDATA'], 'Code', 'User', 'globalStorage', 'state.vscdb')\ncon = sqlite3.connect('file:' + p.replace('\\\\','/') + '?mode=ro', uri=True)\nfor k,v in con.execute('SELECT key,value FROM ItemTable WHERE lower(key) LIKE \"%trust%\"'):\n    text = v.decode('utf-8','ignore') if isinstance(v,bytes) else str(v)\n    if len(text) < 3000:\n        print('KEY=' + k + ' VALUE=' + text[:1000])\ncon.close()\n'@ | python -; Write-Output '--- Settings exact keys and nearby values ---'; $f = 'C:\\Users\\peint\\AppData\\Local\\Programs\\Microsoft VS Code\\6d62b1d5da\\resources\\app\\out\\vs\\workbench\\workbench.desktop.main.js'; @'\nimport re\np = r'C:\\Users\\peint\\AppData\\Local\\Programs\\Microsoft VS Code\\6d62b1d5da\\resources\\app\\out\\vs\\workbench\\workbench.desktop.main.js'\ns = open(p, encoding='utf-8', errors='ignore').read()\nfor key in ('chat.sessionSync.enabled','github.copilot.chat.localIndex.enabled'):\n  hits = list(re.finditer(re.escape(key), s))\n  print(key + ' OCCURRENCES=' + str(len(hits)))\n  for m in hits[:3]:\n    print(s[max(0,m.start()-180):min(len(s),m.end()+250)].replace('\\n',' ')[:600])\n'@ | python -"
+            },
+            "editable": false,
+            "intention": "Check Copilot component metadata and trust-only state",
+            "language": "shellscript",
+            "terminalToolSessionId": "{\"terminal\":\"agenthost-terminal://shell/0835c254-f980-42bd-9a25-fab9034f256b/call_mp61X1QnxeDpxZhd2vjR14bz?%7B%22storage%22%3A%22ahp-session%3A%2F0835c254-f980-42bd-9a25-fab9034f256b%22%2C%22session%22%3A%22ahp-session%3A%2F0835c254-f980-42bd-9a25-fab9034f256b%22%2C%22chat%22%3A%22ahp-chat%3A%2F%2Fdefault%2FYWhwLXNlc3Npb246LzA4MzVjMjU0LWY5ODAtNDJiZC05YTI1LWZhYjkwMzRmMjU2Yg%22%2C%22toolCallId%22%3A%22call_mp61X1QnxeDpxZhd2vjR14bz%22%7D\",\"session\":\"ahp-session:/0835c254-f980-42bd-9a25-fab9034f256b\"}",
+            "terminalCommandUri": {
+              "$mid": 1,
+              "path": "/0835c254-f980-42bd-9a25-fab9034f256b/call_mp61X1QnxeDpxZhd2vjR14bz",
+              "scheme": "agenthost-terminal",
+              "authority": "shell",
+              "query": "{\"storage\":\"ahp-session:/0835c254-f980-42bd-9a25-fab9034f256b\",\"session\":\"ahp-session:/0835c254-f980-42bd-9a25-fab9034f256b\",\"chat\":\"ahp-chat://default/YWhwLXNlc3Npb246LzA4MzVjMjU0LWY5ODAtNDJiZC05YTI1LWZhYjkwMzRmMjU2Yg\",\"toolCallId\":\"call_mp61X1QnxeDpxZhd2vjR14bz\"}"
+            },
+            "isPty": false,
+            "terminalCommandOutput": {
+              "text": "KEY=trusted-publishers-init-migration VALUE=true\r\nKEY=extensions.trustedPublishers VALUE={\"continue\":{\"publisher\":\"Continue\",\"publisherDisplayName\":\"Continue\"},\"firefox-devtools\":{\"publisher\":\"firefox-devtools\",\"publisherDisplayName\":\"Firefox DevTools\"},\"davidanson\":{\"publisher\":\"DavidAnson\",\"publisherDisplayName\":\"David Anson\"}}\r\n--- Settings exact keys and nearby values ---\r\nchat.sessionSync.enabled OCCURRENCES=2\r\nory:\"InteractiveSession\",minimumVersion:\"1.99\",value:HIn,managedSettings:{[HSt]:{type:\"string\"}},localization:{description:{key:\"autoApprove3.description\",value:d(13033,null)}}}},\"chat.sessionSync.enabled\":{default:!1,markdownDescription:d(13314,null),type:\"boolean\",tags:[\"experimental\"],experiment:{mode:\"auto\"},policy:{name:\"CopilotSessionSync\",category:\"InteractiveSession\",minimumVersion:\"1.121\",value:s=>s.cloud_session_storage_enabled===!1?!1:void\r\nto\"},policy:{name:\"CopilotSessionSync\",category:\"InteractiveSession\",minimumVersion:\"1.121\",value:s=>s.cloud_session_storage_enabled===!1?!1:void 0,localization:{description:{key:\"chat.sessionSync.enabled.policy\",value:d(13315,null)}}},agentHost:{key:qho}},\"chat.sessionSync.excludeRepositories\":{type:\"array\",items:{type:\"string\"},default:[],markdownDescription:d(13316,null),tags:[\"experimental\",\"advanced\"]},\"chat.tools.edits.autoApprove\":{default:ASt\r\ngithub.copilot.chat.localIndex.enabled OCCURRENCES=1\r\nilotSdk.logLevel\",gkn=\"chat.agentHost.copilot.runtimePath\",VMt=\"chat.copilot.claudeAdvisor.enabled\",UMt=\"chat.copilot.tgrep.enabled\",zMt=\"chat.copilot.searchSubagent.enabled\",Igo=\"github.copilot.chat.localIndex.enabled\",KMt=\"chat.agentHost.opus48Prompt.enabled\",qMt=\"chat.copilot.stabilityOrderedPrompt.enabled\",GMt=\"chat.agentHost.copilot.toolSearch.enabled\",$Mt=\"chat.agentHost.copilot.toolSearch.deferThreshold\",vMe=\"chat.copilot.hydraFusion.enabled\",xge=\"chat.copi\r\n"
+            },
+            "terminalCommandState": {
+              "exitCode": 0
+            }
+          },
+          "toolCallId": "call_mp61X1QnxeDpxZhd2vjR14bz",
+          "toolId": "powershell",
+          "summary": {
+            "kind": "command"
+          }
+        },
+        {
+          "kind": "thinking",
+          "value": "**Exploring trust model storage**\n\nI’m considering how to locate the trust model in the storage files. It seems to be at `workspaceTrust` or `content.trustModel` in `storage.json`, which is outside of global storage. I should look for matching keys in user settings storage files but only show the key names. However, I also have to check that the trust record might be `trusted_folders` in `state.vscdb` within the userData/storage.json. There's quite a bit to explore here!",
+          "id": "b1a1ae70-89b4-4f23-9af2-5f5f0bb4ee92",
+          "reasoningDurationMs": 2385,
+          "generatedTitle": "Exploring trust model storage"
+        },
+        {
+          "kind": "toolInvocationSerialized",
+          "invocationMessage": "Determine built-in Copilot version and setting defaults",
+          "isConfirmed": {
+            "type": 1
+          },
+          "isComplete": true,
+          "source": {
+            "type": "internal",
+            "label": "Built-In"
+          },
+          "toolSpecificData": {
+            "kind": "terminal",
+            "commandLine": {
+              "original": "$pkg='C:\\Users\\peint\\AppData\\Local\\Programs\\Microsoft VS Code\\6d62b1d5da\\resources\\app\\extensions\\copilot\\package.json'; @'\nimport json\np = r'C:\\Users\\peint\\AppData\\Local\\Programs\\Microsoft VS Code\\6d62b1d5da\\resources\\app\\extensions\\copilot\\package.json'\nd = json.load(open(p, encoding='utf-8'))\nprint('BUILTIN_COPILOT_ID=' + str(d.get('publisher')) + '.' + str(d.get('name')))\nprint('BUILTIN_COPILOT_VERSION=' + str(d.get('version')))\nprops = d.get('contributes',{}).get('configuration',{})\nif isinstance(props,list):\n  props = {k:v for x in props for k,v in x.get('properties',{}).items()}\nelse:\n  props = props.get('properties', props)\nfor k in ('chat.sessionSync.enabled','github.copilot.chat.localIndex.enabled'):\n  print('SETTING_' + k + '=' + json.dumps(props.get(k, 'NOT_DECLARED'), ensure_ascii=True))\n'@ | python -; $db=Join-Path $env:APPDATA 'Code\\User\\globalStorage\\state.vscdb'; @'\nimport sqlite3, os\np=os.path.join(os.environ['APPDATA'],'Code','User','globalStorage','state.vscdb')\nc=sqlite3.connect('file:'+p.replace('\\\\','/')+'?mode=ro',uri=True)\nfor k,v in c.execute('SELECT key,value FROM ItemTable'):\n s=v.decode('utf-8','ignore') if isinstance(v,bytes) else str(v)\n if 'a:\\\\dsh-core' in s.lower() or 'a:/dsh-core' in s.lower() or 'dsh-core' in s.lower():\n  print('WORKSPACE_RELATED_KEY='+k)\n  for term in ('trusted','trust','restricted'):\n   if term in s.lower(): print('MATCHES_'+term.upper()+'=True')\nc.close()\n'@ | python -; Write-Output '--- Default settings evidence for local index ---'; $f='C:\\Users\\peint\\AppData\\Local\\Programs\\Microsoft VS Code\\6d62b1d5da\\resources\\app\\out\\vs\\workbench\\workbench.desktop.main.js'; @'\nimport re\np=r'C:\\Users\\peint\\AppData\\Local\\Programs\\Microsoft VS Code\\6d62b1d5da\\resources\\app\\out\\vs\\workbench\\workbench.desktop.main.js'\ns=open(p,encoding='utf-8',errors='ignore').read()\nfor key in ('github.copilot.chat.localIndex.enabled',):\n for m in list(re.finditer(re.escape(key),s))[:4]: print(s[max(0,m.start()-500):min(len(s),m.end()+1000)].replace('\\n',' ')[:1500])\n'@ | python -"
+            },
+            "editable": false,
+            "intention": "Determine built-in Copilot version and setting defaults",
+            "language": "shellscript",
+            "terminalToolSessionId": "{\"terminal\":\"agenthost-terminal://shell/0835c254-f980-42bd-9a25-fab9034f256b/call_YMtkBKCyz4U82EkJ847Qi9t0?%7B%22storage%22%3A%22ahp-session%3A%2F0835c254-f980-42bd-9a25-fab9034f256b%22%2C%22session%22%3A%22ahp-session%3A%2F0835c254-f980-42bd-9a25-fab9034f256b%22%2C%22chat%22%3A%22ahp-chat%3A%2F%2Fdefault%2FYWhwLXNlc3Npb246LzA4MzVjMjU0LWY5ODAtNDJiZC05YTI1LWZhYjkwMzRmMjU2Yg%22%2C%22toolCallId%22%3A%22call_YMtkBKCyz4U82EkJ847Qi9t0%22%7D\",\"session\":\"ahp-session:/0835c254-f980-42bd-9a25-fab9034f256b\"}",
+            "terminalCommandUri": {
+              "$mid": 1,
+              "path": "/0835c254-f980-42bd-9a25-fab9034f256b/call_YMtkBKCyz4U82EkJ847Qi9t0",
+              "scheme": "agenthost-terminal",
+              "authority": "shell",
+              "query": "{\"storage\":\"ahp-session:/0835c254-f980-42bd-9a25-fab9034f256b\",\"session\":\"ahp-session:/0835c254-f980-42bd-9a25-fab9034f256b\",\"chat\":\"ahp-chat://default/YWhwLXNlc3Npb246LzA4MzVjMjU0LWY5ODAtNDJiZC05YTI1LWZhYjkwMzRmMjU2Yg\",\"toolCallId\":\"call_YMtkBKCyz4U82EkJ847Qi9t0\"}"
+            },
+            "isPty": false,
+            "terminalCommandOutput": {
+              "text": "BUILTIN_COPILOT_ID=GitHub.copilot-chat\r\nBUILTIN_COPILOT_VERSION=0.70.0\r\nSETTING_chat.sessionSync.enabled=\"NOT_DECLARED\"\r\nSETTING_github.copilot.chat.localIndex.enabled={\"type\": \"boolean\", \"default\": true, \"markdownDescription\": \"%github.copilot.config.localIndex.enabled%\", \"tags\": [\"onExp\"]}\r\nWORKSPACE_RELATED_KEY=__$__targetStorageMarker\r\nMATCHES_TRUSTED=True\r\nMATCHES_TRUST=True\r\nWORKSPACE_RELATED_KEY=terminal.history.entries.dirs\r\nWORKSPACE_RELATED_KEY=terminal.history.entries.commands\r\nWORKSPACE_RELATED_KEY=ms-python.python\r\nWORKSPACE_RELATED_KEY=vscode.git\r\nWORKSPACE_RELATED_KEY=vscode.github\r\n--- Default settings evidence for local index ---\r\nreturn}}var zT=\"hydrafusion\",Cge=\"hydrafusion-max\",WMt=new Map([[zT,\"HydraFusion\"],[Cge,\"HydraFusion Max\"]]);function H8e(s){return s!==void 0&&WMt.has(s)}var mkn=\"copilotCliVSCodeAssignmentContext\",fMe=\"chat.agentHost.customTerminalTool.enabled\",kge=\"chat.agentHost.shellTool.initScript.enabled\",BMt=\"chat.agentHost.copilotSdk.logLevel\",gkn=\"chat.agentHost.copilot.runtimePath\",VMt=\"chat.copilot.claudeAdvisor.enabled\",UMt=\"chat.copilot.tgrep.enabled\",zMt=\"chat.copilot.searchSubagent.enabled\",Igo=\"github.copilot.chat.localIndex.enabled\",KMt=\"chat.agentHost.opus48Prompt.enabled\",qMt=\"chat.copilot.stabilityOrderedPrompt.enabled\",GMt=\"chat.agentHost.copilot.toolSearch.enabled\",$Mt=\"chat.agentHost.copilot.toolSearch.deferThreshold\",vMe=\"chat.copilot.hydraFusion.enabled\",xge=\"chat.copilot.ensemble.enabled\",e9=\"chat.copilot.ensemble.intelligenceUsesHydraFusion\",jMt=\"chat.copilot.memory.enabled\",QMt=\"chat.copilot.memory.local.enabled\",fkn=\"chat.copilot.skillCharBudget\",YMt=\"github.copilot.chat.autoModeTierOverride\",wgo=\"github.copilot.chat.claudeDefaultReasoningEffort\";var XMt=\"chat.agentHost.copilot.modelCapabilityOverrides\",Cgo=[\"info\",\"trace\"],KHr=!0,Fbi=3e4;function vkn(s){return s!==void 0&&Number.isFinite(s)&&s>=1?Math.floor(s):Fbi}function bkn(s){return s!==void 0&&Number.isFinite(s)&&s>=0?Math.floor(s):1}var asg=J$({enableCustomTerminalTool:as({type:\"boolean\",title:d(2255,null),description:d(2254,null),default:!1}),enableShellInitScript:as({type:\"boolean\",title:d(2257,null),des\r\n"
+            },
+            "terminalCommandState": {
+              "exitCode": 0
+            }
+          },
+          "toolCallId": "call_YMtkBKCyz4U82EkJ847Qi9t0",
+          "toolId": "powershell",
+          "summary": {
+            "kind": "command"
+          }
+        },
+        {
+          "kind": "toolInvocationSerialized",
+          "invocationMessage": "Running command",
+          "isConfirmed": {
+            "type": 1
+          },
+          "isComplete": true,
+          "source": {
+            "type": "internal",
+            "label": "Built-In"
+          },
+          "toolSpecificData": {
+            "kind": "terminal",
+            "commandLine": {
+              "original": "@'\nimport json, os\nchecks = [('Utilisateur', os.path.join(os.environ['APPDATA'],'Code','User','settings.json')), ('Espace de travail', r'A:\\dsh-core\\.vscode\\settings.json')]\nkeys = ('chat.sessionSync.enabled','github.copilot.chat.localIndex.enabled')\nfor scope,path in checks:\n print('SCOPE=' + scope + ' FILE_PRESENT=' + str(os.path.isfile(path)))\n if os.path.isfile(path):\n  try: d=json.load(open(path,encoding='utf-8'))\n  except Exception: print('PARSE_ERROR'); continue\n  for k in keys: print(k + '=' + json.dumps(d.get(k,'NOT_SET')))\n'@ | python -; Write-Output '--- Matching VS Code policy values only ---'; foreach ($key in @('CopilotSessionSync','chat.sessionSync.enabled','github.copilot.chat.localIndex.enabled')) { foreach ($path in @('HKCU:\\Software\\Policies\\Microsoft\\VSCode','HKLM:\\Software\\Policies\\Microsoft\\VSCode','HKLM:\\Software\\WOW6432Node\\Policies\\Microsoft\\VSCode')) { if (Test-Path $path) { $item=Get-ItemProperty $path; $prop=$item.PSObject.Properties[$key]; if ($prop) { Write-Output ($path + '\\' + $key + '=' + $prop.Value) } } } }"
+            },
+            "editable": false,
+            "intention": "@'\nimport json, os\nchecks = [('Utilisateur', os.path.join(os.environ['APPDATA'],'Code','User','settings.json')), ('Espace de travail', r'A:\\dsh-core\\.vscode\\settings.json')]\nkeys = ('chat.sessionSync.enabled','github.copilot.chat.localIndex.enabled')\nfor scope,path in checks:\n print('SCOPE=' + scope + ' FILE_PRESENT=' + str(os.path.isfile(path)))\n if os.path.isfile(path):\n  try: d=json.load(open(path,encoding='utf-8'))\n  except Exception: print('PARSE_ERROR'); continue\n  for k in keys: print(k + '=' + json.dumps(d.get(k,'NOT_SET')))\n'@ | python -; Write-Output '--- Matching VS Code policy values only ---'; foreach ($key in @('CopilotSessionSync','chat.sessionSync.enabled','github.copilot.chat.localIndex.enabled')) { foreach ($path in @('HKCU:\\Software\\Policies\\Microsoft\\VSCode','HKLM:\\Software\\Policies\\Microsoft\\VSCode','HKLM:\\Software\\WOW6432Node\\Policies\\Microsoft\\VSCode')) { if (Test-Path $path) { $item=Get-ItemProperty $path; $prop=$item.PSObject.Properties[$key]; if ($prop) { Write-Output ($path + '\\' + $key + '=' + $prop.Value) } } } }",
+            "language": "shellscript",
+            "terminalToolSessionId": "{\"terminal\":\"agenthost-terminal://shell/0835c254-f980-42bd-9a25-fab9034f256b/call_ElTtxXI1WFZDaesPUs7FzSUQ?%7B%22storage%22%3A%22ahp-session%3A%2F0835c254-f980-42bd-9a25-fab9034f256b%22%2C%22session%22%3A%22ahp-session%3A%2F0835c254-f980-42bd-9a25-fab9034f256b%22%2C%22chat%22%3A%22ahp-chat%3A%2F%2Fdefault%2FYWhwLXNlc3Npb246LzA4MzVjMjU0LWY5ODAtNDJiZC05YTI1LWZhYjkwMzRmMjU2Yg%22%2C%22toolCallId%22%3A%22call_ElTtxXI1WFZDaesPUs7FzSUQ%22%7D\",\"session\":\"ahp-session:/0835c254-f980-42bd-9a25-fab9034f256b\"}",
+            "terminalCommandUri": {
+              "$mid": 1,
+              "path": "/0835c254-f980-42bd-9a25-fab9034f256b/call_ElTtxXI1WFZDaesPUs7FzSUQ",
+              "scheme": "agenthost-terminal",
+              "authority": "shell",
+              "query": "{\"storage\":\"ahp-session:/0835c254-f980-42bd-9a25-fab9034f256b\",\"session\":\"ahp-session:/0835c254-f980-42bd-9a25-fab9034f256b\",\"chat\":\"ahp-chat://default/YWhwLXNlc3Npb246LzA4MzVjMjU0LWY5ODAtNDJiZC05YTI1LWZhYjkwMzRmMjU2Yg\",\"toolCallId\":\"call_ElTtxXI1WFZDaesPUs7FzSUQ\"}"
+            },
+            "isPty": false,
+            "terminalCommandOutput": {
+              "text": "SCOPE=Utilisateur FILE_PRESENT=True\r\nchat.sessionSync.enabled=true\r\ngithub.copilot.chat.localIndex.enabled=true\r\nSCOPE=Espace de travail FILE_PRESENT=True\r\nchat.sessionSync.enabled=\"NOT_SET\"\r\ngithub.copilot.chat.localIndex.enabled=true\r\n--- Matching VS Code policy values only ---\r\n"
+            },
+            "terminalCommandState": {
+              "exitCode": 0
+            }
+          },
+          "toolCallId": "call_ElTtxXI1WFZDaesPUs7FzSUQ",
+          "toolId": "powershell",
+          "summary": {
+            "kind": "command"
+          }
+        },
+        {
+          "kind": "toolInvocationSerialized",
+          "invocationMessage": "Running command",
+          "isConfirmed": {
+            "type": 1
+          },
+          "isComplete": true,
+          "source": {
+            "type": "internal",
+            "label": "Built-In"
+          },
+          "toolSpecificData": {
+            "kind": "terminal",
+            "commandLine": {
+              "original": "$db=Join-Path $env:APPDATA 'Code\\User\\globalStorage\\state.vscdb'; @'\nimport sqlite3, os\np=os.path.join(os.environ['APPDATA'],'Code','User','globalStorage','state.vscdb')\nc=sqlite3.connect('file:'+p.replace('\\\\','/')+'?mode=ro',uri=True)\nfor (k,) in c.execute('SELECT key FROM ItemTable'):\n if any(x in k.lower() for x in ('extension','trust','disable')):\n  print('STATE_KEY=' + k)\nc.close()\nroot=os.path.join(os.environ['APPDATA'],'Code','User','workspaceStorage')\nif os.path.isdir(root):\n for d in os.listdir(root):\n  w=os.path.join(root,d,'workspace.json')\n  try: data=json.load(open(w,encoding='utf-8'))\n  except Exception: continue\n  s=json.dumps(data).lower()\n  if 'a:\\\\dsh-core' in s or 'a:/dsh-core' in s:\n   print('TARGET_WORKSPACE_RECORD_PRESENT=True')\n   db=os.path.join(root,d,'state.vscdb')\n   if os.path.isfile(db):\n    q=sqlite3.connect('file:'+db.replace('\\\\','/')+'?mode=ro',uri=True)\n    for (k,) in q.execute('SELECT key FROM ItemTable'):\n     if 'trust' in k.lower() or 'extension' in k.lower() or 'disable' in k.lower(): print('WORKSPACE_STATE_KEY='+k)\n    q.close()\n'@ | python -"
+            },
+            "editable": false,
+            "intention": "$db=Join-Path $env:APPDATA 'Code\\User\\globalStorage\\state.vscdb'; @'\nimport sqlite3, os\np=os.path.join(os.environ['APPDATA'],'Code','User','globalStorage','state.vscdb')\nc=sqlite3.connect('file:'+p.replace('\\\\','/')+'?mode=ro',uri=True)\nfor (k,) in c.execute('SELECT key FROM ItemTable'):\n if any(x in k.lower() for x in ('extension','trust','disable')):\n  print('STATE_KEY=' + k)\nc.close()\nroot=os.path.join(os.environ['APPDATA'],'Code','User','workspaceStorage')\nif os.path.isdir(root):\n for d in os.listdir(root):\n  w=os.path.join(root,d,'workspace.json')\n  try: data=json.load(open(w,encoding='utf-8'))\n  except Exception: continue\n  s=json.dumps(data).lower()\n  if 'a:\\\\dsh-core' in s or 'a:/dsh-core' in s:\n   print('TARGET_WORKSPACE_RECORD_PRESENT=True')\n   db=os.path.join(root,d,'state.vscdb')\n   if os.path.isfile(db):\n    q=sqlite3.connect('file:'+db.replace('\\\\','/')+'?mode=ro',uri=True)\n    for (k,) in q.execute('SELECT key FROM ItemTable'):\n     if 'trust' in k.lower() or 'extension' in k.lower() or 'disable' in k.lower(): print('WORKSPACE_STATE_KEY='+k)\n    q.close()\n'@ | python -",
+            "language": "shellscript",
+            "terminalToolSessionId": "{\"terminal\":\"agenthost-terminal://shell/0835c254-f980-42bd-9a25-fab9034f256b/call_dPLOtMwJTErUGii2az9Kopwp?%7B%22storage%22%3A%22ahp-session%3A%2F0835c254-f980-42bd-9a25-fab9034f256b%22%2C%22session%22%3A%22ahp-session%3A%2F0835c254-f980-42bd-9a25-fab9034f256b%22%2C%22chat%22%3A%22ahp-chat%3A%2F%2Fdefault%2FYWhwLXNlc3Npb246LzA4MzVjMjU0LWY5ODAtNDJiZC05YTI1LWZhYjkwMzRmMjU2Yg%22%2C%22toolCallId%22%3A%22call_dPLOtMwJTErUGii2az9Kopwp%22%7D\",\"session\":\"ahp-session:/0835c254-f980-42bd-9a25-fab9034f256b\"}",
+            "terminalCommandUri": {
+              "$mid": 1,
+              "path": "/0835c254-f980-42bd-9a25-fab9034f256b/call_dPLOtMwJTErUGii2az9Kopwp",
+              "scheme": "agenthost-terminal",
+              "authority": "shell",
+              "query": "{\"storage\":\"ahp-session:/0835c254-f980-42bd-9a25-fab9034f256b\",\"session\":\"ahp-session:/0835c254-f980-42bd-9a25-fab9034f256b\",\"chat\":\"ahp-chat://default/YWhwLXNlc3Npb246LzA4MzVjMjU0LWY5ODAtNDJiZC05YTI1LWZhYjkwMzRmMjU2Yg\",\"toolCallId\":\"call_dPLOtMwJTErUGii2az9Kopwp\"}"
+            },
+            "isPty": false,
+            "terminalCommandOutput": {
+              "text": "STATE_KEY=builtinChatExtensionEnablementMigration\r\nSTATE_KEY=extensionKeys/ms-python.vscode-pylance@2026.4.1\r\nSTATE_KEY=extensions.lastSyncUserData\r\nSTATE_KEY=extensions.recommendedList.size\r\nSTATE_KEY=extensions.trustedPublishers\r\nSTATE_KEY=extensionsAssignmentFilterProvider.copilotChatExtensionVersion\r\nSTATE_KEY=extensionsAssignmentFilterProvider.copilotCompletionsVersion\r\nSTATE_KEY=extensionsAssignmentFilterProvider.copilotIsFcv1\r\nSTATE_KEY=extensionsAssignmentFilterProvider.copilotIsSn\r\nSTATE_KEY=extensionsAssignmentFilterProvider.copilotSku\r\nSTATE_KEY=extensionsAssignmentFilterProvider.copilotTrackingId\r\nSTATE_KEY=extensionsAssistant/recommendations\r\nSTATE_KEY=extensionsEnablement/malicious\r\nSTATE_KEY=initializing-default-extensions\r\nSTATE_KEY=secret://{\"extensionId\":\"ms-windows-ai-studio.windows-ai-studio\",\"key\":\"FoundryCache\"}\r\nSTATE_KEY=secret://{\"extensionId\":\"vscode.microsoft-authentication\",\"key\":\"accounts-AzureCloud\"}\r\nSTATE_KEY=secret://{\"extensionId\":\"vscode.microsoft-authentication\",\"key\":\"publicClients-AzureCloud\"}\r\nSTATE_KEY=trusted-publishers-init-migration\r\nSTATE_KEY=workbench.view.extension.ai-toolkit-explorer.state.hidden\r\nSTATE_KEY=workbench.view.extension.azure.state.hidden\r\nSTATE_KEY=workbench.view.extension.azurePanel.state.hidden\r\nSTATE_KEY=workbench.view.extension.containersView.state.hidden\r\nSTATE_KEY=workbench.view.extension.continue.state.hidden\r\nSTATE_KEY=workbench.view.extension.python.state.hidden\r\nSTATE_KEY=workbench.view.extension.test.state.hidden\r\nSTATE_KEY=workbench.view.extensions.state.hidden\r\nSTATE_KEY=workbench.views.extensions.installed.size\r\n"
+            },
+            "terminalCommandState": {
+              "exitCode": 0
+            }
+          },
+          "toolCallId": "call_dPLOtMwJTErUGii2az9Kopwp",
+          "toolId": "powershell",
+          "summary": {
+            "kind": "command"
+          }
+        },
+        {
+          "kind": "toolInvocationSerialized",
+          "invocationMessage": "Check safe Copilot SKU and workspace trust metadata",
+          "isConfirmed": {
+            "type": 1
+          },
+          "isComplete": true,
+          "source": {
+            "type": "internal",
+            "label": "Built-In"
+          },
+          "toolSpecificData": {
+            "kind": "terminal",
+            "commandLine": {
+              "original": "$db=Join-Path $env:APPDATA 'Code\\User\\globalStorage\\state.vscdb'; @'\nimport sqlite3, os, json\np=os.path.join(os.environ['APPDATA'],'Code','User','globalStorage','state.vscdb')\nc=sqlite3.connect('file:'+p.replace('\\\\','/')+'?mode=ro',uri=True)\nr=c.execute('SELECT value FROM ItemTable WHERE key=?',('extensionsAssignmentFilterProvider.copilotSku',)).fetchone()\nif r:\n v=r[0]\n if isinstance(v,bytes): v=v.decode('utf-8','ignore')\n allowed={'free','pro','pro+','business','enterprise','individual','unknown',''}\n norm=str(v).strip().lower()\n print('COPILOT_SKU=' + (norm if norm in allowed else 'UNRECOGNIZED_OR_UNSAFE_TO_DISPLAY'))\nelse: print('COPILOT_SKU=NOT_AVAILABLE')\nc.close()\nroot=os.path.join(os.environ['APPDATA'],'Code','User','workspaceStorage')\nfound=False\nif os.path.isdir(root):\n for d in os.listdir(root):\n  w=os.path.join(root,d,'workspace.json')\n  try: data=json.load(open(w,encoding='utf-8'))\n  except Exception: continue\n  s=json.dumps(data).lower()\n  if 'a:\\\\dsh-core' in s or 'a:/dsh-core' in s:\n   found=True\n   print('TARGET_WORKSPACE_RECORD_PRESENT=True')\n   db=os.path.join(root,d,'state.vscdb')\n   if os.path.isfile(db):\n    q=sqlite3.connect('file:'+db.replace('\\\\','/')+'?mode=ro',uri=True)\n    for (k,) in q.execute('SELECT key FROM ItemTable'):\n     if 'trust' in k.lower() or 'restricted' in k.lower(): print('WORKSPACE_TRUST_STATE_KEY='+k)\n    q.close()\nif not found: print('TARGET_WORKSPACE_RECORD_PRESENT=False')\n'@ | python -; Write-Output '--- Continue enablement entries (keys only) ---'; $db=Join-Path $env:APPDATA 'Code\\User\\globalStorage\\state.vscdb'; @'\nimport sqlite3, os\np=os.path.join(os.environ['APPDATA'],'Code','User','globalStorage','state.vscdb')\nc=sqlite3.connect('file:'+p.replace('\\\\','/')+'?mode=ro',uri=True)\nfor (k,) in c.execute('SELECT key FROM ItemTable'):\n if 'continue' in k.lower() and ('enable' in k.lower() or 'disable' in k.lower()): print(k)\nc.close()\n'@ | python -"
+            },
+            "editable": false,
+            "intention": "Check safe Copilot SKU and workspace trust metadata",
+            "language": "shellscript",
+            "terminalToolSessionId": "{\"terminal\":\"agenthost-terminal://shell/0835c254-f980-42bd-9a25-fab9034f256b/call_s4LY1GjSD22C4CcBc2vdwXU0?%7B%22storage%22%3A%22ahp-session%3A%2F0835c254-f980-42bd-9a25-fab9034f256b%22%2C%22session%22%3A%22ahp-session%3A%2F0835c254-f980-42bd-9a25-fab9034f256b%22%2C%22chat%22%3A%22ahp-chat%3A%2F%2Fdefault%2FYWhwLXNlc3Npb246LzA4MzVjMjU0LWY5ODAtNDJiZC05YTI1LWZhYjkwMzRmMjU2Yg%22%2C%22toolCallId%22%3A%22call_s4LY1GjSD22C4CcBc2vdwXU0%22%7D\",\"session\":\"ahp-session:/0835c254-f980-42bd-9a25-fab9034f256b\"}",
+            "terminalCommandUri": {
+              "$mid": 1,
+              "path": "/0835c254-f980-42bd-9a25-fab9034f256b/call_s4LY1GjSD22C4CcBc2vdwXU0",
+              "scheme": "agenthost-terminal",
+              "authority": "shell",
+              "query": "{\"storage\":\"ahp-session:/0835c254-f980-42bd-9a25-fab9034f256b\",\"session\":\"ahp-session:/0835c254-f980-42bd-9a25-fab9034f256b\",\"chat\":\"ahp-chat://default/YWhwLXNlc3Npb246LzA4MzVjMjU0LWY5ODAtNDJiZC05YTI1LWZhYjkwMzRmMjU2Yg\",\"toolCallId\":\"call_s4LY1GjSD22C4CcBc2vdwXU0\"}"
+            },
+            "isPty": false,
+            "terminalCommandOutput": {
+              "text": "COPILOT_SKU=UNRECOGNIZED_OR_UNSAFE_TO_DISPLAY\r\nTARGET_WORKSPACE_RECORD_PRESENT=False\r\n--- Continue enablement entries (keys only) ---\r\n"
+            },
+            "terminalCommandState": {
+              "exitCode": 0
+            }
+          },
+          "toolCallId": "call_s4LY1GjSD22C4CcBc2vdwXU0",
+          "toolId": "powershell",
+          "summary": {
+            "kind": "command"
+          }
+        },
+        {
+          "kind": "thinking",
+          "value": "**Evaluating the symbol meaning**\n\nThe user is asking about the exact reason for the forbidden symbol in \"Continue.\" I think the red slash indicates that the extension is disabled, possibly due to a \"Disabled in Workspace\" setting in the extensions list. I can't assume too much here. The native sync status shows true, but maybe a cloud policy is preventing it from being enabled. User JSON indicates it's true, but there could be policies affecting the sync status as well.\n\n**Clarifying path references**\n\nI need to mention the workspace path A:\\dsh-core. If I reference this, should I use a markdown link with the absolute path formatted as `[A:\\\\dsh-core](A:/dsh-core)`? It seems that's the right way to do it for clarity. \n\nI wonder if I can simply write `A:\\dsh-core` as text instead. The user has requested only essential details, so I’ll keep things concise and straightforward, focusing on a numbered list for recommendations.\n\n**Reporting package version**\n\nI need to clarify that I don't need to cite the source for the package version; I can just report it. The exact version is `GitHub.copilot-chat 0.70.0 (integrated component in VS Code)`. \n\nHowever, since the public username isn't available without accessing authentication secrets, I’ll simply note that it’s `INDETERMINÉ (not accessible without consulting authentication storage)`. The plan isn't accessible, and the SKU metadata is unrecognized, so I’ll report this as indeterminate as well.",
+          "id": "0874a937-b39c-48c9-b71b-a700fd9df0b1",
+          "reasoningDurationMs": 14762,
+          "generatedTitle": "Evaluated symbol meaning and clarified path references"
+        },
+        {
+          "value": "## Diagnostic en lecture seule\n\n| # | Élément | Résultat |\n|---|---|---|\n| 1 | Version de VS Code | **1.142.0** |\n| 2 | GitHub Copilot Chat | **0.70.0** — composant intégré à VS Code |\n| 3 | Compte GitHub connecté | **Indéterminé** — le nom public du compte n’est pas accessible ici sans consulter l’état d’authentification |\n| 4 | Forfait Copilot | **Indéterminé** — aucune information de forfait lisible sans ambiguïté |\n| 5 | `chat.sessionSync.enabled` | **`true`**, défini par l’utilisateur |\n| 5 | `github.copilot.chat.localIndex.enabled` | **`true`**, défini pour l’espace de travail |\n| 6 | Portée — `chat.sessionSync.enabled` | **Utilisateur** ; pas de valeur d’espace de travail ni de politique locale détectée. Une éventuelle politique cloud n’est pas vérifiable ici. Valeur par défaut : `false`. |\n| 6 | Portée — `github.copilot.chat.localIndex.enabled` | **Espace de travail** ; la valeur utilisateur est également `true`. Aucune politique locale détectée. Valeur par défaut : `true`. |\n| 7 | Workspace Trust de [A:\\dsh-core](A:/dsh-core) | **Indéterminé** — l’état TRUSTED/RESTRICTED n’est pas exposé par les interfaces locales consultées. |\n| 8 | Remote Git présent | **Oui** |\n| 9 | Remote pointant vers `github.com` | **Oui** |\n| 10 | État affiché par la synchronisation | **Indéterminé** — le statut visible de l’interface et une éventuelle politique cloud ne sont pas accessibles ici. |\n| 11 | Raison du symbole interdit devant Continue | **Indéterminée** — Continue 2.0.0 est présent, mais sa raison d’activation/désactivation n’est pas exposée. |\n| 12 | Continue nécessaire à la synchronisation native Copilot | **Non** |\n\n**Action corrective minimale recommandée :** ne modifier aucun réglage pour l’instant : `chat.sessionSync.enabled` est déjà à `true`. Vérifier dans l’interface VS Code le statut de synchronisation et la raison affichée pour Continue avant toute correction. Aucun fichier ni paramètre n’a été modifié.",
+          "isTrusted": false,
+          "supportThemeIcons": false,
+          "supportHtml": false
+        }
+      ],
+      "agent": {
+        "id": "agent-host-copilotcli",
+        "name": "agent-host-copilotcli",
+        "fullName": "Copilot",
+        "description": "Copilot SDK agent running in the local agent host process",
+        "extensionId": {
+          "value": "vscode.agent-host",
+          "_lower": "vscode.agent-host"
+        },
+        "extensionPublisherId": "vscode",
+        "extensionDisplayName": "Agent Host",
+        "isDefault": false,
+        "isDynamic": true,
+        "isCore": true,
+        "metadata": {
+          "themeIcon": {
+            "id": "copilot"
+          }
+        },
+        "slashCommands": [],
+        "locations": [
+          "panel"
+        ],
+        "modes": [
+          "agent"
+        ],
+        "disambiguation": []
+      },
+      "timestamp": 1792536857226,
+      "modelId": "agent-host-copilotcli:auto",
+      "modelConfiguration": {
+        "tier": "balance",
+        "tierSource": "default"
+      },
+      "modeInfo": {
+        "kind": "agent",
+        "isBuiltin": true,
+        "telemetryModeId": "agent",
+        "telemetryModeName": "agent",
+        "permissionLevel": "default"
+      },
+      "responseId": "response_f33c6b6f-5eed-468a-91f1-e93b257bf752",
+      "result": {
+        "timings": {
+          "firstProgress": 21427,
+          "totalElapsed": 481875
+        },
+        "details": "Auto (gpt-6-luna) • 1.2 credits"
+      },
+      "responseMarkdownInfo": [],
+      "followups": [],
+      "modelState": {
+        "value": 1,
+        "completedAt": 1792537339316
+      },
+      "contentReferences": [],
+      "codeCitations": [],
+      "responseTimestamp": 1792536857226,
+      "timeSpentWaiting": 247621,
+      "promptTokens": 35609,
+      "completionTokens": 11820,
+      "promptTokenDetails": [
+        {
+          "category": "System",
+          "label": "System prompt",
+          "percentageOfPrompt": 35
+        },
+        {
+          "category": "User Context",
+          "label": "Tool Results",
+          "percentageOfPrompt": 11
+        },
+        {
+          "category": "System",
+          "label": "Tool Definitions",
+          "percentageOfPrompt": 31
+        },
+        {
+          "category": "User Context",
+          "label": "Messages",
+          "percentageOfPrompt": 23
+        }
+      ],
+      "copilotCredits": 1.1889955,
+      "modelTotals": [
+        {
+          "model": "gpt-6-luna",
+          "inputTokens": 278037,
+          "cachedTokens": 250208,
+          "outputTokens": 11820
+        }
+      ],
+      "sessionCopilotCredits": 1.1889955,
+      "elapsedMs": 234469
+    },
+    {
+      "requestId": "request_c7cad9ae-5ea5-4de9-96ae-7231e29afcb2",
+      "message": {
+        "parts": [
+          {
+            "range": {
+              "start": 0,
+              "endExclusive": 70
+            },
+            "editorRange": {
+              "startLineNumber": 1,
+              "startColumn": 1,
+              "endLineNumber": 1,
+              "endColumn": 71
+            },
+            "text": "DIAGNOSTIC EN LECTURE SEULE DE LA SYNCHRONISATION DES SESSIONS COPILOT",
+            "kind": "text"
+          }
+        ],
+        "text": "DIAGNOSTIC EN LECTURE SEULE DE LA SYNCHRONISATION DES SESSIONS COPILOT"
+      },
+      "variableData": {
+        "variables": []
+      },
+      "response": [
+        {
+          "kind": "autoModeResolution",
+          "resolved": {
+            "id": "gpt-6-luna",
+            "name": "gpt-6-luna"
+          }
+        },
+        {
+          "kind": "thinking",
+          "value": "**Improving diagnostics**\n\nI need to think about how to repeat or enhance diagnostics using the available tools. The user seems to want the same diagnostic repeated. I’m wondering if I should use UI commands from VS Code. Tools like Powershell can inspect the CLI, but they probably want to access the VS Code UI through extension commands. I might need to search specifically for VS Code editor settings and trust status to give a thorough response.",
+          "id": "8d8782b4-dee0-4b70-8fee-65e0fa73cdc4",
+          "reasoningDurationMs": 1257,
+          "generatedTitle": "Improving diagnostics"
+        },
+        {
+          "kind": "toolInvocationSerialized",
+          "invocationMessage": "Search Tools",
+          "isConfirmed": {
+            "type": 1
+          },
+          "isComplete": true,
+          "source": {
+            "type": "internal",
+            "label": "Built-In"
+          },
+          "toolCallId": "call_9RIMfvyC7cyM2GRcooLs1UHs",
+          "toolId": "tool_search"
+        },
+        {
+          "kind": "toolInvocationSerialized",
+          "invocationMessage": "Refresh read-only synchronization diagnostics",
+          "isConfirmed": {
+            "type": 1
+          },
+          "isComplete": true,
+          "source": {
+            "type": "internal",
+            "label": "Built-In"
+          },
+          "toolSpecificData": {
+            "kind": "terminal",
+            "commandLine": {
+              "original": "$ErrorActionPreference='SilentlyContinue'; Write-Output '--- VS Code ---'; $exe=(Get-Process Code -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Path); if($exe){$vi=(Get-Item $exe).VersionInfo; Write-Output ('VERSION=' + $vi.ProductVersion)} else { Write-Output 'VERSION=UNAVAILABLE' }; Write-Output '--- Config values ---'; @'\nimport json, os\nitems=[('USER',os.path.join(os.environ['APPDATA'],'Code','User','settings.json')),('WORKSPACE',r'A:\\dsh-core\\.vscode\\settings.json')]\nkeys=('chat.sessionSync.enabled','github.copilot.chat.localIndex.enabled')\nfor scope,path in items:\n try: data=json.load(open(path,encoding='utf-8'))\n except Exception: data={}\n for key in keys: print(scope+' '+key+'='+json.dumps(data.get(key,'NOT_SET')))\n'@ | python -; Write-Output '--- Extensions ---'; $ext=Join-Path $env:USERPROFILE '.vscode\\extensions'; if(Test-Path $ext){Get-ChildItem $ext -Directory | Where-Object { $_.Name -match '^(github\\.copilot-chat|github\\.copilot|continue\\.continue)-' } | ForEach-Object { $manifest=Join-Path $_.FullName 'package.json'; if(Test-Path $manifest){try{$d=Get-Content -Raw $manifest | ConvertFrom-Json; Write-Output ($d.publisher+'.'+$d.name+'@'+$d.version)}catch{}}}}; Write-Output '--- Git remote facts only ---'; $r=git -C 'A:\\dsh-core' remote -v 2>$null; if($r){Write-Output 'REMOTE_PRESENT=True'; Write-Output ('GITHUB_COM=' + [bool]($r | Where-Object { $_ -match '(?i)github\\.com[:/]' }))}else{Write-Output 'REMOTE_PRESENT=False'; Write-Output 'GITHUB_COM=False'}; Write-Output '--- Workspace trust evidence availability ---'; Write-Output ('USER_STATE_DB_PRESENT=' + (Test-Path (Join-Path $env:APPDATA 'Code\\User\\globalStorage\\state.vscdb'))); Write-Output ('WORKSPACE_SETTINGS_PRESENT=' + (Test-Path 'A:\\dsh-core\\.vscode\\settings.json'))"
+            },
+            "editable": false,
+            "intention": "Refresh read-only synchronization diagnostics",
+            "language": "shellscript",
+            "terminalToolSessionId": "{\"terminal\":\"agenthost-terminal://shell/0835c254-f980-42bd-9a25-fab9034f256b/call_95GG3ro0F0WlVK4ZcZQiWbq8?%7B%22storage%22%3A%22ahp-session%3A%2F0835c254-f980-42bd-9a25-fab9034f256b%22%2C%22session%22%3A%22ahp-session%3A%2F0835c254-f980-42bd-9a25-fab9034f256b%22%2C%22chat%22%3A%22ahp-chat%3A%2F%2Fdefault%2FYWhwLXNlc3Npb246LzA4MzVjMjU0LWY5ODAtNDJiZC05YTI1LWZhYjkwMzRmMjU2Yg%22%2C%22toolCallId%22%3A%22call_95GG3ro0F0WlVK4ZcZQiWbq8%22%7D\",\"session\":\"ahp-session:/0835c254-f980-42bd-9a25-fab9034f256b\"}",
+            "terminalCommandUri": {
+              "$mid": 1,
+              "path": "/0835c254-f980-42bd-9a25-fab9034f256b/call_95GG3ro0F0WlVK4ZcZQiWbq8",
+              "scheme": "agenthost-terminal",
+              "authority": "shell",
+              "query": "{\"storage\":\"ahp-session:/0835c254-f980-42bd-9a25-fab9034f256b\",\"session\":\"ahp-session:/0835c254-f980-42bd-9a25-fab9034f256b\",\"chat\":\"ahp-chat://default/YWhwLXNlc3Npb246LzA4MzVjMjU0LWY5ODAtNDJiZC05YTI1LWZhYjkwMzRmMjU2Yg\",\"toolCallId\":\"call_95GG3ro0F0WlVK4ZcZQiWbq8\"}"
+            },
+            "isPty": false,
+            "terminalCommandOutput": {
+              "text": "--- VS Code ---\r\nVERSION=1.142.0\r\n--- Config values ---\r\nUSER chat.sessionSync.enabled=true\r\nUSER github.copilot.chat.localIndex.enabled=true\r\nWORKSPACE chat.sessionSync.enabled=\"NOT_SET\"\r\nWORKSPACE github.copilot.chat.localIndex.enabled=true\r\n--- Extensions ---\r\nContinue.continue@2.0.0\r\n--- Git remote facts only ---\r\nREMOTE_PRESENT=True\r\nGITHUB_COM=True\r\n--- Workspace trust evidence availability ---\r\nUSER_STATE_DB_PRESENT=True\r\nWORKSPACE_SETTINGS_PRESENT=True\r\n"
+            },
+            "terminalCommandState": {
+              "exitCode": 0
+            }
+          },
+          "toolCallId": "call_95GG3ro0F0WlVK4ZcZQiWbq8",
+          "toolId": "powershell",
+          "summary": {
+            "kind": "command"
+          }
+        },
+        {
+          "kind": "thinking",
+          "value": "**Evaluating session sync issues**\n\nIt looks like there’s an issue with the session sync state since the UI isn’t accessible and the account is unavailable. I need to note that the Continue CLI is installed, but I can't figure out why the symbol is a problem. For a quick fix, I think it's best not to edit settings; instead, I can instruct to click the extension menu and check the session sync status in restricted mode.",
+          "id": "695fef21-6fcb-4f86-990d-70fdd5b40b92",
+          "reasoningDurationMs": 1312,
+          "generatedTitle": "Evaluating session sync issues"
+        },
+        {
+          "value": "## Diagnostic en lecture seule\n\n| # | Élément | Résultat |\n|---|---|---|\n| 1 | Version exacte de VS Code | **1.142.0** |\n| 2 | Version de GitHub Copilot Chat | **0.70.0** — composant intégré à VS Code |\n| 3 | Compte GitHub connecté | **Indéterminé** — le nom public n’est pas accessible par les contrôles locaux effectués |\n| 4 | Forfait Copilot | **Indéterminé** — aucune valeur fiable et sûre à afficher |\n| 5–6 | `chat.sessionSync.enabled` | **`true` — portée utilisateur**, donc valeur effective `true`. Non défini au niveau de l’espace de travail. Valeur par défaut : `false`. Aucune politique locale détectée ; une éventuelle politique cloud n’est pas vérifiable ici. |\n| 5–6 | `github.copilot.chat.localIndex.enabled` | **`true` — portée utilisateur et espace de travail** ; la valeur d’espace de travail s’applique. Valeur par défaut : `true`. Aucune politique locale détectée. |\n| 7 | Workspace Trust de `A:\\dsh-core` | **Indéterminé** — l’état TRUSTED/RESTRICTED n’est pas accessible par les contrôles locaux effectués. |\n| 8–9 | Remote Git | **Présent ; pointe vers `github.com`**. Aucun identifiant de remote affiché. |\n| 10 | État affiché par la synchronisation | **INDETERMINÉ** — le statut visible dans l’interface n’est pas accessible ici. |\n| 11 | Raison du symbole interdit devant Continue | **Indéterminée** — Continue 2.0.0 est présent, mais sa raison de désactivation ou de blocage n’est pas visible par les contrôles effectués. |\n| 12 | Continue nécessaire à la synchronisation native GitHub Copilot | **Non** |\n\n**Action corrective minimale recommandée :** aucune modification de réglage n’est indiquée par ce diagnostic. Vérifier dans VS Code l’état de Workspace Trust, le statut affiché de la synchronisation et le message explicatif associé à Continue avant d’envisager une correction.\n\nAucun fichier ni paramètre n’a été modifié.",
+          "isTrusted": false,
+          "supportThemeIcons": false,
+          "supportHtml": false
+        }
+      ],
+      "agent": {
+        "id": "agent-host-copilotcli",
+        "name": "agent-host-copilotcli",
+        "fullName": "Copilot",
+        "description": "Copilot SDK agent running in the local agent host process",
+        "extensionId": {
+          "value": "vscode.agent-host",
+          "_lower": "vscode.agent-host"
+        },
+        "extensionPublisherId": "vscode",
+        "extensionDisplayName": "Agent Host",
+        "isDefault": false,
+        "isDynamic": true,
+        "isCore": true,
+        "metadata": {
+          "themeIcon": {
+            "id": "copilot"
+          }
+        },
+        "slashCommands": [],
+        "locations": [
+          "panel"
+        ],
+        "modes": [
+          "agent"
+        ],
+        "disambiguation": []
+      },
+      "timestamp": 1792537685231,
+      "modelId": "agent-host-copilotcli:auto",
+      "modelConfiguration": {
+        "tier": "balance",
+        "tierSource": "session"
+      },
+      "modeInfo": {
+        "kind": "agent",
+        "isBuiltin": true,
+        "telemetryModeId": "agent",
+        "telemetryModeName": "agent",
+        "permissionLevel": "default"
+      },
+      "responseId": "response_feef283c-c683-4680-9a0d-39dbc8366d25",
+      "result": {
+        "timings": {
+          "firstProgress": 5269,
+          "totalElapsed": 37009
+        },
+        "details": "Auto (gpt-6-luna) • 0.3 credits"
+      },
+      "responseMarkdownInfo": [],
+      "followups": [],
+      "modelState": {
+        "value": 1,
+        "completedAt": 1792537722289
+      },
+      "contentReferences": [],
+      "codeCitations": [],
+      "responseTimestamp": 1792537685231,
+      "timeSpentWaiting": 0,
+      "promptTokens": 34039,
+      "completionTokens": 1789,
+      "promptTokenDetails": [
+        {
+          "category": "System",
+          "label": "System prompt",
+          "percentageOfPrompt": 25
+        },
+        {
+          "category": "User Context",
+          "label": "Tool Results",
+          "percentageOfPrompt": 1
+        },
+        {
+          "category": "System",
+          "label": "Tool Definitions",
+          "percentageOfPrompt": 22
+        },
+        {
+          "category": "User Context",
+          "label": "Messages",
+          "percentageOfPrompt": 53
+        }
+      ],
+      "copilotCredits": 0.3480975,
+      "modelTotals": [
+        {
+          "model": "gpt-6-luna",
+          "inputTokens": 98245,
+          "cachedTokens": 84295,
+          "outputTokens": 1789
+        }
+      ],
+      "sessionCopilotCredits": 1.537093,
+      "elapsedMs": 37058
+    }
+  ]
+}

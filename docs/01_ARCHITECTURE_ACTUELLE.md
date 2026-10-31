@@ -1,3 +1,13 @@
+---
+master_doc: PROJECT_HANDOVER.md
+branch_domain: Annexe historique — Archives numérotées
+contract_version: 1.0.1
+status: FROZEN
+upstream_dependencies: []
+downstream_consumers: []
+verification_tests: []
+---
+
 # 01 - ARCHITECTURE RÉELLEMENT BRANCHÉE
 
 Ce document décrit le flux de données *réel* exécuté par le code existant à ce jour, sans présumer des intentions futures.

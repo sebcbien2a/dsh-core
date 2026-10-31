@@ -33,7 +33,7 @@ def test_explicit_vision_model_is_returned_without_loading_it() -> None:
     assert engine.vision_model == "synthetic-vision-model"
 
 
-@pytest.mark.parametrize("retired_model", ["qwen2.5vl:7b", "qwen3.5:2b"])
+@pytest.mark.parametrize("retired_model", ["qwen2.5vl:7b", "qwen2.5-coder:7b", "qwen3.5:2b"])
 def test_routing_engine_rejects_retired_injected_models(retired_model: str) -> None:
     with pytest.raises(ValueError, match="VISION_MODEL_NOT_CONFIGURED"):
         RoutingEngine(vision_model=retired_model)

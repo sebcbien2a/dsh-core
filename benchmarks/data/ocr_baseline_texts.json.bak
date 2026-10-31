@@ -1,0 +1,334 @@
+{
+  "dataset_version": "ocr-baseline-real-v1",
+  "description": "Textes OCR fig?s issus des sources locales du manifeste ; v?rit? terrain ? v?rifier humainement.",
+  "fields": [
+    "fournisseur",
+    "date",
+    "ht",
+    "tva",
+    "ttc",
+    "siret"
+  ],
+  "cases": [
+    {
+      "id": "DOC-001",
+      "ocr_text": "PATÀPAIN\ntel: 02.48.70.31.73\n54 bis RN76\n18230 ST DOUIL CHARD\nCLIENT : 207942848\nTICKET/FACTURE\nARTICLES QTE EUR\nandwich sicilien 4,90\nan Pellegrino 50cl 1,70\nart de flan aux oeufs frais 2,00\nandwich jambon emmental 3,40\nan Pellegrino 50cl 1,70\nartelette feuilletée poires 2,40\nPROMOTIONS EUR\nenu classique 0,80\nenu saveur 0,70\nTOTAL EUR 14,60\nRTE BANCAIRE 14,60\nPOINTS FIDELITE\narte Fidelité Menu\npoints Acquis 2\nolde Points 2\nTVA H.T. Brut TVA\n10.00 13,27 14,60 1,33\n2/07/2016 13:37 Num: 18925 Caisse: 68101\nB 330 319 260 RCS BOURGES\nN° TVA INTRACOMMUNAUTAIRE : FR69330319260\nFRR SASU au capital de 2.000.000 euros\nRejoignez-nous\nsur la page officielle\nPatàpain",
+      "ground_truth": {
+        "fournisseur": "PATAPAIN",
+        "date": "02/07/2016",
+        "ht": "13,27",
+        "tva": "1,33",
+        "ttc": "14,6",
+        "siret": null
+      },
+      "metadata": {
+        "source_sha256": "d260fb88bc6f8053f898872e7bdf4f4e8fc31b3cc669b953e637b925cf8928f0",
+        "source_type": "application/pdf",
+        "acquisition_method": "glm_ocr_q8_0",
+        "engine_version": "ollama version is 0.40.4; glm-ocr:q8_0",
+        "resolution_dpi": 170,
+        "orientation_applied": 180,
+        "language": "fr",
+        "reviewed_by_human": true,
+        "handwriting_status": "unverified",
+        "ground_truth_status": {
+          "fournisseur": "known",
+          "date": "known",
+          "ht": "known",
+          "tva": "known",
+          "ttc": "known",
+          "siret": "absent"
+        },
+        "ground_truth_validated_at": "2026-10-25T04:20:20"
+      }
+    },
+    {
+      "id": "DOC-002",
+      "ocr_text": "PATÀPAIN\ntel: 02.48.70.31.73\n54 bis RN76\n18230 ST DOUIL CHARD\nCLIENT : 207942848\nTICKET/FACTURE\nARTICLES QTE EUR\nhandwich sicilien 4,90\nan Pellegrino 50cl 1,70\nart de flan aux oeufs frais 2,00\nhandwich jambon emmental 3,40\nan Pellegrino 50cl 1,70\nartelette feuilletee poires 2,40\nPROMOTIONS EUR\nmenu classique 0,80\nmenu saveur 0,70\nTOTAL EUR 14,60\nRTE BANCAIRE 14,60\nPOINTS FIDELITE\nurte Fidelité Menu\npoints Acquis 2\nbolde Points 2\nTVA H.T. Brut TVA\n10.00 13,27 14,60 1,33\n2/07/2016 13:37 Num: 18925 Caisse: 68101\nB 330 319 260 RCS BOURGES\nN* TVA INTRACOMMUNAUTAIRE : 1R69330319260\nFRR SASU au capital de 2.000.000 euros\nRejoignez-nous\nsur la page officielle\nPatàpain",
+      "ground_truth": {
+        "fournisseur": "PATÀPAIN",
+        "date": "02/07/2016",
+        "ht": "13,27",
+        "tva": "1,33",
+        "ttc": "14,60",
+        "siret": null
+      },
+      "metadata": {
+        "source_sha256": "52b016ca4c93d308c0868914584c8989f2af0614d179fd51979c9b76402f18eb",
+        "source_type": "image/jpeg",
+        "acquisition_method": "glm_ocr_q8_0",
+        "engine_version": "ollama version is 0.40.4; glm-ocr:q8_0",
+        "resolution_dpi": null,
+        "orientation_applied": 270,
+        "language": "fr",
+        "reviewed_by_human": true,
+        "handwriting_status": "unverified",
+        "ground_truth_status": {
+          "fournisseur": "known",
+          "date": "known",
+          "ht": "known",
+          "tva": "known",
+          "ttc": "known",
+          "siret": "absent"
+        },
+        "ground_truth_validated_at": "2026-10-25T04:24:02"
+      }
+    },
+    {
+      "id": "DOC-003",
+      "ocr_text": "FACTURE\nSite Internet : http://www.emauxatlantique.fr/\nPeintures & Vernis pour l'industrie\nLes Emaux de l'Atlantique\n177 Rue de l'Industrie - La Guyonnière\n85600 Montaigu - Vendée\nTél : 02 51 41 75 02\nFax : 02 51 41 75 16\nEM'A Les Emaux de l'Atlantique\nFACTURE\nSAS ASSISTANCE PEINTURES DIFFUSION\n145 CHEMIN DES ROCHES\n41350 VINEUIL\nFR\nContact : MR SEBASTIEN PAUL\nTel :\nFax :\nVotre commercial :  Edouard EBENER \nCode Client : C000836\nNuméro de TVA : FR11810908392\nRéférence commande client : CMDE MAIL DU 21/09/2026\nUnité monétaire :  : EUR\nFacture N°263075\nDate d'émission : 30/09/2026\nMail :\npeinturediffusion@hotmail.fr\n06.19.40.32.54\nRemarques : COMMANDE NON SOLDEE\nCode Produit\nLibellé\nQte Unit.\nNb \nEmb\nQte Totale.\nTotal\nPrix\nRem.\nPrix \nRemisé\nBL n°263278\nPÂTE BLANC TITANIUM\n18,00\n 275,22\n6.00\n 27.80\nEMA-084.130-K6\n3\n 45,00\n 15,29000\nPÂTE NEUTRE\n12,00\n 94,05\n6.00\n 14.25\nEMA-084.005-K6\n2\n 45,00\n 7,83750\nPÂTE JAUNE OCRE\n5,00\n 67,38\n5.00\n 24.50\nEMA-084.125-K5\n1\n 45,00\n 13,47500\nLIANT ACRYLIQUE SO DTM\n64,00\n 751,52\n4.00\n 21.35\nEMA-62.3.K1-K4\n16\n 45,00\n 11,74250\nLIANT ACRYLIQUE DTM MAT\n32,00\n 371,36\n16.00\n 21.10\nEMA-62.4.K1-K16\n2\n 45,00\n 11,60500\nLIANT ACRYLIQUE L DTM\n14,00\n 197,89\n3.50\n 25.70\nEMA-62.1.K1-K3.5\n4\n 45,00\n 14,13500\n 145.00\nTotal :\n 1 757.42\n 28,00\nAdresse de facturation : 145 CHEMIN DES ROCHES  41350 VINEUIL FR\nAdresse de livraison : 145 CHEMIN DES ROCHES  41350 VINEUIL FR\nPersonne à contacter : MR SEBASTIEN PAUL\nMotant H.T\nMontant TVA\nTVA\n 1 757,42\n351,48 EUR\n 20,00%\nTotal brut H.T.\n 1 757,42 €\n 0,00 €\nRemise 0,00%\n Net H.T.\n 1 757,42 €\n 351,48 €\nTVA\n 2 108,90 €\nNET A PAYER\nMode de règlement :  LCR Directe\nDomiciliation : CREDIT MUTUEL OCEAN - Compte n° 15519 39005 00020707401 13\nIBAN : FR7615519390050002070740113 - BIC : CMCIFR2A\nTransport :  KUEHNE + NAGEL\néchéance : 45 jrs NET - 14/11/2026\nFERMETURE DE NOTRE USINE POUR CONGES DU 29/07/2026 A 12H00 AU  24/08/2026 A 8H30\nPage : 1 sur 1\nSAS au capital de 64 000 € - RC B401 381 363 95B382 - N° TVA FR 69 401 381 363 - CODE APE 2030Z - SIRET 401 381 363 00019\n",
+      "ground_truth": {
+        "fournisseur": "Les Emaux de l'Atlantique",
+        "date": "30/09/2026",
+        "ht": "1 757,42",
+        "tva": "351,48",
+        "ttc": "2 108,90",
+        "siret": "40138136300019"
+      },
+      "metadata": {
+        "source_sha256": "f7f7d145cd60b84c5632b6cbf2ca0fdaf4ab0b3b9b078884142e7e0acc39f156",
+        "source_type": "application/pdf",
+        "acquisition_method": "pymupdf_native_text",
+        "engine_version": "PyMuPDF 2.0",
+        "resolution_dpi": null,
+        "orientation_applied": 0,
+        "language": "fr",
+        "reviewed_by_human": true,
+        "handwriting_status": "unverified",
+        "ground_truth_status": {
+          "fournisseur": "known",
+          "date": "known",
+          "ht": "known",
+          "tva": "known",
+          "ttc": "known",
+          "siret": "known"
+        },
+        "ground_truth_validated_at": "2026-10-25T04:26:05"
+      }
+    },
+    {
+      "id": "DOC-004",
+      "ocr_text": "Le\n2909\n2909\n22285\nCodeclient\n713465\nTOTAL 193,5\nN/référence\n3ZALESPIELETES\n60900194\nRCSAIXENPROVENCE\nTVAFR82671620813 Tél:0491468686\nFax:0491468687\nEUR\nSiret6716208130103\nSASCAPITAL38.60EURO\n13740LEROVE-FRANCE\nPapilonàjoindreauréglement.\nINFOFACT:facture@smtrt.fr\nV/référence\nDes. Exp.\nSPPV\nSoustotal\nTOTALTRS\n154,29\nTotalgénéral\nJour\nECOPARTICIPATION\nSÉCURITEPORTUAIRE\nASISTANCEPEI\n7,00\nMAJORATIONCOUTGASOIL\n20 41\nDr.FIXES\nExpéditeur/Destinataire\n1\nAJACCIO VINEUIL\nTSE/CONTRIBUTIONTAXECARBONE\n1\n13740\nTVACQUITESURLESENCAISEMENTS\nPayableà\nAutr.TAXES\nLocalité\nPosition(s)\nSGIBANFR76303050020371514BICSOGEFRP\nEchéanceau\nEUR\nLE ROVE\nPosition(s)\nEXONERE\n3ZALESPIELETES\nConditionsgénéralesNATIONALcontratstypesINTERNATIONALCMR\nConditionsderèglement\n31/10/26\nVIRTBANCAIREA30J\n1\n1\nColis\n1\nMONTANTINDEMNITEFORFAITAIRE40EUROSFRAISDERECOUVREMENTPOURETARD casdelitigeseulslesTribunauxd'AIXENPROVENCEsontcompétents.\nPAIEMENT:CEPACIBANFR76131501080289613940BICEPAFRP131\nretard=3foisletauxlégal.Aucunescomptepourpaiementanticipé.\n30joursdatedefactureMAXIMUM\n4900\nNouvelesconditionsderèglement\n4900\n4900\nPdsréel\nPaiements30jours:ConformémentàlaloiN°208-76du04/08/08lespénalités\nTOTALH.T.\n161,29\nV/L\nATENTIONArt.L41-6duCodeduComerce\n20,00 Tx TVA\nUnitax\n0,40\n41350\nID TVA\n292,18\n32,26\nMT TVA\nPx/100kg\nFACTUREEN\nN°Compte:\nVINEUIL\nEURO\n154,29\n17,01\n8,77\n1,64\n116,87\n10,00\n116,87\n22285\nTrsTaxa.\nprestationtransportlogistiqueconfiéeàsociétéimpliquel'adhésionsansréservenosConditionsGénéralesVentefiguranthtp:/w.smtrt.net.\nFR1810908392\n145CHEMINDESROCHES\nTrs Exo\nN°60900194\nASISTANCEPEINTURESDIFUSION\ndu\nT.taxable\n7,00\n7,00\n7,00\nEUR 193,55\nNET A PAYER\nP.\n30/09/26\nT.exo\n1\nCAV\n1 1\n1\n:TaxeCRContre-RemboursementATaxeAsignéVD\n",
+      "ground_truth": {
+        "fournisseur": null,
+        "date": null,
+        "ht": null,
+        "tva": null,
+        "ttc": "193,55",
+        "siret": null
+      },
+      "metadata": {
+        "source_sha256": "eb14c1ed80a9b646bc5abaec98f2acf9ddb30d339a6deda1aece4214759dd1d3",
+        "source_type": "application/pdf",
+        "acquisition_method": "pymupdf_native_text",
+        "engine_version": "PyMuPDF 2.0",
+        "resolution_dpi": null,
+        "orientation_applied": 0,
+        "language": "fr",
+        "reviewed_by_human": true,
+        "handwriting_status": "unverified",
+        "ground_truth_status": {
+          "fournisseur": "unreadable",
+          "date": "unreadable",
+          "ht": "unreadable",
+          "tva": "unreadable",
+          "ttc": "known",
+          "siret": "unreadable"
+        },
+        "ground_truth_validated_at": "2026-10-25T04:30:49"
+      }
+    },
+    {
+      "id": "DOC-005",
+      "ocr_text": "CATROUX TRANSPORTS\n3 Rue du Clos Thomas\nSiret : 71202305000057\nAPE : 4941A\n41330 FOSSE\n712 023 050 RCS BLOIS\nFACTURE N°\nCT26090094\nDate\n23.09.2026\nCompte\nAPD41VI\nASSISTANCE PEINTURES DIFFUSION\n145 CHEMIN DES ROCHES\n41350 VINEUIL\nIdentification TVA Société : FR55712023050\nIdentification TVA Client : FR11810908392\nPage: 1/2\nMontant H.T.\nTVA\nPU HT\nUnité\nQté\nDésignation\nDate\n20031166\n 160,26\n25/09/2026\nASSISTANCE PEINTURES DIF\n41-Vineuil\nSMTRT\n13-Le Rove\nCO2 693,71\nRéférence facturation :\n 495,00\nKgs\n 1,00\nPal Sol\n 160,26\n160,26\nTRANSPORT\n1\nLieu de paiement :\nCATROUX TRANSPORTS - 3 Rue du Clos Thomas\nTRANSPORTS CATROUX\nIBAN : FR7618707007890222151220189\nBIC CCBPFRPPVER\nExonération de TVA, article 283-2 du Code général des impôts\nTVA acquitée sur les encaissements\nBase H.T.\nTaux %\nMontant TVA\nNET A PAYER\nID TVA\n1\n 32,05\n20,00 \n 160,26\n 160,26\n 32,05\n 192,31\nRéférences à rappeler\nFacture : \nDate :\nCompte :\nNet à payer :\nAPD41VI\n23.09.2026\nCT26090094\n192,31 EURO\nMode de règlement : Virement au 23/10/2026\nCONDITIONS GENERALES DE VENTE\nToutes les opérations qui nous sont confiées, sont effectuées suivant les conditions générales \nmentionnées au verso\n- Zéro % escompte pour règlement anticipé -Pénalités de retard : 3 fois le taux légal en vigueur avec un \nminimum de 40 Euros - Indemnités forfaitaire de 40 Euros en case de retard de paiement. (article L441.3 \net L441.6 du code du commerce).\n\nCONDITIONS GENERALES\nARTICLE 1 :\nA) La remise de marchandises constitue de la part de nos clients \nl'acceptation expresse des présentes conditions de vente et équivaut \nà une confirmation écrite de la commande.\nB) Lorsque la garantie de l'acheteur se détériore, nous nous \nréservons le droit, même après exécution ou exécution partielle d'une \ncommande ou d'une prestation d'exiger de l'acheteur les garanties que \nnous jugerons convenables en vue de la bonne exécution des \nengagements pris. Le refus d'y satisfaire nous donne le droit \nd'annuler tout ou partie du marché.\nARTICLE 2 : Acheminement des marchandises\nNous nous réservons le droit d'employer tous moyens à notre \nconvenance pour l'acheminement des marchandises qui nous sont \nconfiées ainsi que tout mandataire commissionnaire transporteur \ndivers qui est par avance agréé par les clients, à moins de \nnotifications contraires de leur part motivées par courrier.\nARTICLE 3 : Frais de transports - Modalités de paiement - \nPénalités.\nA) Le paiement des prix de transport et des prestations accessoires \net complémentaires, sauf conventions contraires, sont exigibles à leur \nenlèvement (port payé), à la livraison (port dû), sur présentation de la \nfacture ou d'un document en tenant lieu, établi au lieu d'émission.\nLe non-paiement, à l'échéance accordée qui dans tous les cas ne \npourra excéder 30 jours à dater de l'émission de la facture, d'une \nseule de nos factures rendra exigible l'intégralité de celles en compte \net des frais des prestations en cours, et ce, quelle que soit l'échéance \ninitialement mentionnée et entraînera le paiement comptant des \nprestations à facturer.\nB) Tout retard de règlement entraînera de plein droit et sans aucune \nformalité l'application d'une pénalité égale à 3 fois le taux de l'intérêt \nlégal calculé sur le montant total de la facture TTC à dater de \nl'échéance de paiement accordé et fixé sur facture avec un minimum \nde 40 euros, plus une indemnité forfaitaire pour frais de recouvrement \nde 40 euros.\nARTICLE 4 : Opération par commissionnaire de transport.\nLes opérations de transports intérieurs assurés par nous dans ce \ndomaine sont régies par le droit français par référence au Code du \nCommerce, au Code des Transports et au contrat type commission.\nARTICLE 5 : Transports internationaux.\nCes transports sont régis par la Convention de Genève C.M.R. du \n19/05/56 et avenants éventuels.\nPour les transports par route, qu'ils soient assurés par un seul \ntransporteur ou par des transporteurs successifs, notre \nresponsabilité est limitée et déterminée par les prescriptions de la \nConvention ci-dessus à laquelle les contractants ont convenu de se \nreporter pour régler les litiges éventuels.\nARTICLE 6 : Acceptation des envois.\nIl incombe au donneur d'ordre de fournir au transporteur, par écrit \npréalablement à la présentation du véhicule au chargement, toutes les \nindications utiles au chargement pour sa bonne exécution. Le donneur \nd'ordre supportera seul les conséquences dommageables d'une \nfausse déclaration tendant à dissimuler le caractère dangereux ou \nfrauduleux des marchandises transportées, ou plus généralement \nd'une déclaration insuffisante.\nARTICLE 7 : Responsabilité, pertes et avaries pour les \ntransports de 3 tonnes et plus.\nCes transports sont régis par le Contrat type général, décret du 6 avril \n99 - article 21 et avenants éventuels.\nARTICLE 8 : Responsabilité, pertes et avaries pour les \ntransports de - 3 tonnes.\nCes transports sont régis par le Contrat type général, décret du 6 avril \n99 - article 21 et avenants éventuels.\nARTICLE 9 : En tant que commissionnaire de transport, la \nresponsabilité que nous assumons du fait d'autrui ne peut dépasser \nles limites qu'assument personnellement les transporteurs ou \nmandataires substitués.\nARTICLE 10 : Responsabilité, pertes, avaries et retards pour \nles transports type masse indivisible en transport \nexceptionnel.\nCes transports sont régis par le contrat type pour le transport routier \nd'objets indivisibles - Décret du 16 juin 2000 et ses avenants.\nARTICLE 11 : Réserves.\nAucune action ne pourra être exercée contre nous pour quelque \ncause que ce soit, si le destinataire n'a pas fait procéder aux \nconstatations nécessaires et accompli les formalités prévues par la loi \npour la conservation du recours contre le ou les responsables du \ndommage, conformément aux articles L133-3 et L133-4 du Code du \nCommerce dans le cadre d'un transport national et en application de la \nconvention de Genève CMR dans le cadre d'un transport de type \ninternational.\nPrivilèges :\nLorsque nous agissons en qualité de commissionnaire de transport, \nnous avons privilège sur la valeur des marchandises qui nous sont \nconfiées et sur les documents qui s'y rapportent conformément à \nl'article L132-2 du Code de Commerce. Lorsque nous agissons en \nqualité de voiturier, nous avons privilège sur la valeur des \nmarchandises qui nous sont confiées et sur les documents qui s'y \nrapportent conformément à l'article L133-7 du Code de Commerce.\nIndemnisation pour retard à la livraison :\nEn cas de préjudice prouvé résultant d'un retard à la livraison du fait \ndu transporteur, indépendant du respect des temps de conduite et de \nrepos des conducteurs et après mise en demeure, le transporteur est \ntenu de verser une indemnité qui ne peut excéder le prix du transport.\nSauf convention expresse, le retard dans les délais de livraison ne \npeut donner lieu à indemnité ou annulation de la commande et \nnotamment dans les cas suivants les conditions de paiement n'ont pas \nété observées, force majeure ou événement propre à retarder ou \nsuspendre la livraison des marchandises.\nEn aucun cas, la société PRISMEO n'acceptera des contraintes de \ndélai ou de conditions de transport visant à violer les règlementations \nsociales et routières ou mettant en danger la sécurité des biens et des \npersonnes.\nARTICLE 12 :\nL'acceptation des règlements n'opèrent ni novation, ni dérogations au \nlieu de paiement qui est HOUPLINES (Nord) de convention expresse, \ntoutes difficultés relatives aux présentes conventions relèveront de la \ncompétence du Tribunal de Commerce de LILLE, même en cas d'appel \nen garantie ou de pluralité de défendeurs.\nARTICLE 13 :\nTout ordre de transport doit faire l'objet d'une confirmation écrite \nidentifiant précisément toutes les mentions requises au contrat type \napplicable, notamment les lieux de chargement et de déchargement, \nnoms et adresses des expéditeurs et destinataires, dates et heures \nde livraison, poids, et le cas échéant, le volume de la marchandise, les \ntemps prévus de mise à disposition du véhicule et de son équipage, \nles prestations annexes demandées et toute autre stipulation \nparticulière nécessaire à la bonne exécution du contrat de transport.\nARTICLE 14 :\nLa gestion des palettes et tout autre support de charge est l' affaire de \nleur propriétaire sauf convention expresse contraire entre les parties \net notre responsabilité ne peut être engagée à ce titre.\nARTICLE 15 :\nNous attirons votre attention sur le fait que votre responsabilité \nnotamment pénale, peut être engagée en cas d'instructions contraires \nà la règlementation applicable au transport dont le respect est pris en \ncompte lors de la définition de notre prestation au vu des éléments qui \nnous sont transmis.\n",
+      "ground_truth": {
+        "fournisseur": "CATROUX TRANSPORTS",
+        "date": null,
+        "ht": "160,26",
+        "tva": "32,05",
+        "ttc": "192,31",
+        "siret": "71202305000057"
+      },
+      "metadata": {
+        "source_sha256": "e31cc858f215a53583febe2fb8b0ab4c4a06a85a4a8e852edc7a1a215316ce60",
+        "source_type": "application/pdf",
+        "acquisition_method": "pymupdf_native_text",
+        "engine_version": "PyMuPDF 2.0",
+        "resolution_dpi": null,
+        "orientation_applied": 0,
+        "language": "fr",
+        "reviewed_by_human": true,
+        "handwriting_status": "unverified",
+        "ground_truth_status": {
+          "fournisseur": "known",
+          "date": "unreadable",
+          "ht": "known",
+          "tva": "known",
+          "ttc": "known",
+          "siret": "known"
+        },
+        "ground_truth_validated_at": "2026-10-25T04:33:25"
+      }
+    },
+    {
+      "id": "DOC-006",
+      "ocr_text": "PAGE\n1\nF. RECTIFICATIVE\nDATE\nF. RECTIFICATIVE\n14/09/2026\nAB/53\nCódigo de productor de producto ENV/2023/000002697\nCRISOL COLOR, S.L.\nN.I.F.:\nB17443482\n4301233\nCLIENT\nASSISTANCE PEINTURES DIFFUSION\nCR GIRONA - BANYOLES, km 10,8   \n17843 - PALOL DE REVARDIT\n145, CHEMIN DES ROCHES \nGIRONA - ESPAÑA\nTéléphone: +34 972 596 919 / +34 972 596 920\n41350 - VINEUIL\n info@paint-car.com / jbuxeda@crisolcolor.com\nE-mail.:\nFRANCE\nVAT Nº : 11810908392\nFACTURA RECTIFICADA:\nPI/51\nRotura Transporte\nMOTIVO RECTIFICACION:\nMONTANT\nUNITÉS\nPRIX\nEMBALLAGE\nCODE\nDESCRIPTION\nDTO\nAB / 53          14/09/2026\nBL :\n-6,00\n-56,99\nMASILLA EPOXY 2K INDUMIX NAUTIFILL \"A\"\n50,00\n25,3300\n2 Kg\n3318170\n25,00\n%Dto. 2:\n-6,00\n-26,44\nDS 150 DISOLVENTE MULTIVALENTE\n50,00\n11,7500\n1 L\n3313108\n25,00\n%Dto. 2:\nFACTURE HT\n-83,43\nOperación asegurada por CESCE seguros de crédito\n14505 00002 ** 080014****\nRemesa bancaria\n29/10/2026\n-83,43\nTOTAL T.V.A.\n-83,43\nDELIVERY TERMS: \nCIP\n-83,43\nEntrega intracomunitaria exenta por aplicación del art. 25 de la ley 37/1992\nNET A PAYER\nEUR\nRegistro  de DE GIRONA, Tomo 802, Libro , Sección , Folio 214, Hoja GI15373, Inscripción 1º - Registro de productor de productos: ENV/2023/000002697\nSe le informa que los datos que facilita: nombre, apellidos, dirección, DNI y número de cuenta bancaria   serán incluidos en el Fichero denominado GESTION de la empresa CRISOL COLOR, SL, con la\nfinalidad de poder llevar a cabo la prestación de los servicios, facturación y  cobro de los mismos.\nTambién se le ha informado de que si lo desea puede ejercer sus derechos de acceso, rectificación, cancelación y oposición indicándolo por escrito a la empresa CRISOL COLOR, SL dirección Crta Girona a\nBanyoles, km 10,8 17843 - Palol de Revardit, o per correo electrónico a la dirección: crisolcolor@totcolor.es (Llei Orgànica 15/1999, de 13 de desembre)\nwww.paint-car.com - www.eurocampi.es\n",
+      "ground_truth": {
+        "fournisseur": null,
+        "date": "14/09/2026",
+        "ht": "-83,43",
+        "tva": null,
+        "ttc": null,
+        "siret": null
+      },
+      "metadata": {
+        "source_sha256": "6973d9e35a98086323a7088016f4ace0b71a599e2880f9abb253497414246501",
+        "source_type": "application/pdf",
+        "acquisition_method": "pymupdf_native_text",
+        "engine_version": "PyMuPDF 2.0",
+        "resolution_dpi": null,
+        "orientation_applied": 0,
+        "language": "fr",
+        "reviewed_by_human": true,
+        "handwriting_status": "unverified",
+        "ground_truth_status": {
+          "fournisseur": "unreadable",
+          "date": "known",
+          "ht": "known",
+          "tva": "absent",
+          "ttc": "unreadable",
+          "siret": "unreadable"
+        },
+        "ground_truth_validated_at": "2026-10-25T04:42:51"
+      }
+    },
+    {
+      "id": "DOC-007",
+      "ocr_text": "Pour toute question, vous pouvez nous contacter\ndu lundi au samedi de 8h30 à 19h30 via :\nN° de téléphone : 01 88 24 70 70\nE-mail: contact.ecommerce@lidl.fr\nWhatsApp et Messenger\nCommande du :\n30.08.2024\nDate de facture :\n03.09.2024\nLivraison à partir du : \n05.09.2024\nN° de commande :\n2604725828\nN° de client :\n1535793446\nN° de facture : \nF004768628\nLIDL SNC - 1 rue de Hanovre - CS 21313 – 92298 CHATENAY-MALABRY CEDEX \n \nEntreprise\nAssistance Peintures diffusion\nSebastien Paul\n145 Chemin des roches\nF-41350 VINEUIL\nFR11810908392/810908392\nFacture\nPage 1 sur 2\nLIDL - SNC au Capital 458 000 000 €\nSiège social: 1 rue de Hanovre - CS 21313 – 92298 CHATENAY-MALABRY CEDEX\nRCS Créteil: 343 262 622 - Code APE: 7010 Z - Numéro d'identification TVA: FR 85 343 262 622\nNous vous remercions pour votre commande!\n \n \nBonjour Sebastien Paul,\n \nMerci pour votre commande et pour la confiance que vous nous avez accordée.\nVous trouverez ci-dessous le détail de votre facture.\n \nLivraison :  \nMonsieur Sebastien Paul\nLAINE BERGERE DE FRANCE\n081566\n17 ROUTE NATIONAL\nF-41260 LA CHAUSSEE ST VICTOR\n \nRéférence article Désignation Article\nTVA    \n (en %)  \nQuantité\nPrix\nunitaire\nEUR (HT)\nPrix unitaire\nEUR (TTC)\nMontant\nTTC par\narticle\n100378921001 GRILLMEISTER Pierre à pizza (rond)\nIAN: 459949\n  \n20,00 %\n 2 \n8,33\n 9,99\n 19,98\n \nFrais de livraison TTC\n20,00 %\n1\n3,07\n3,69\n3,69\nTOTAL EUR (TTC)\n \n \n \n23,67\n \nTVA (%)\nSous-total EUR (HT)\nTVA EUR\nMontant Total\nEUR (TTC)\n 20,00\n 19,72\n 3,95\n 23,67\nDéjà payé par Carte Bancaire  \n                               23,67\n \n \n\nPage 2 sur 2\nLIDL - SNC au Capital 458 000 000 €\nSiège social: 1 rue de Hanovre - CS 21313 – 92298 CHATENAY-MALABRY CEDEX\nRCS Créteil: 343 262 622 - Code APE: 7010 Z - Numéro d'identification TVA: FR 85 343 262 622\n \n \nPour les professionnels : En cas de retard de paiement des pénalités égales à trois fois le taux d'intérêt légal vous\nseront décomptées. Indemnisation forfaitaire des frais de recouvrement en cas de retard de paiement : 40 euros. Aucun\nescompte en cas de paiement anticipé.\nEchu le: 03.09.2024\n \n \n \nLe montant de la facture a été acquitté au moyen de Carte Bancaire\n \n \n \nCordialement,\nVotre équipe Lidl\n",
+      "ground_truth": {
+        "fournisseur": "LIDL",
+        "date": "03/09/2024",
+        "ht": "19,72",
+        "tva": "3,95",
+        "ttc": "23,67",
+        "siret": null
+      },
+      "metadata": {
+        "source_sha256": "d88a54c90af9d7095b665fb708a962fe492c8559e8dbf74dcdaa393238da7587",
+        "source_type": "application/pdf",
+        "acquisition_method": "pymupdf_native_text",
+        "engine_version": "PyMuPDF 2.0",
+        "resolution_dpi": null,
+        "orientation_applied": 0,
+        "language": "fr",
+        "reviewed_by_human": true,
+        "handwriting_status": "unverified",
+        "ground_truth_status": {
+          "fournisseur": "known",
+          "date": "known",
+          "ht": "known",
+          "tva": "known",
+          "ttc": "known",
+          "siret": "absent"
+        },
+        "ground_truth_validated_at": "2026-10-25T04:48:00"
+      }
+    },
+    {
+      "id": "DOC-008",
+      "ocr_text": "FACTURE\n\nFacture N° : 1025 001\nDate : 05/10/2025\n\nYASMIN CONSULTING\n203 rue André Karman 93300 Aubervilliers - France\nSIREN : 892706961 – APE : 7022Z\nÉmise par YASMIN CONSULTING pour le CABINET YASMIN (RIB BNP Paribas)\n\nClient :\nASSISTANT PEINTURE ET DIFFUSION\n\nDESCRIPTION QTE PRIX UNIT. MONTANT H.T.\nCréation de holding : dossier complet comprenant la rédaction des statuts, l'établissement des procès-verbaux, la constitution du dossier complet, ainsi que les frais de greffe et d'annonce légale inclus. 1 850,00 € 850,00 €\nTOTAL H.T. 850,00 €\nTVA (Autoliquidation) 0,00 €\nTOTAL TTC 850,00 €\n\nAutoliquidation de la TVA, conformément au 2 nonies de l'article 283 du CGI.\n\nRèglement à réception de la facture, avant envoi du dossier au tribunal compétent.\n\nCoordonnées bancaires - RIB\nIBAN : FR76 3000 4028 4200 0073 6451 070\nBIC : BNPAFRPPXXX\nBanque : BNP Paribas – Agence en ligne (02842)\nTitulaire du compte : CABINET YASMIN",
+      "ground_truth": {
+        "fournisseur": "YASMIN CONSULTING",
+        "date": "05/10/2025",
+        "ht": "850",
+        "tva": "0",
+        "ttc": "850",
+        "siret": null
+      },
+      "metadata": {
+        "source_sha256": "8df03d469575ade57ef5ef95c542348d28d3ae1eaf14207bbbdc6e3414ad1a60",
+        "source_type": "application/pdf",
+        "acquisition_method": "glm_ocr_q8_0",
+        "engine_version": "ollama version is 0.40.4; glm-ocr:q8_0",
+        "resolution_dpi": 170,
+        "orientation_applied": 0,
+        "language": "fr",
+        "reviewed_by_human": true,
+        "handwriting_status": "unverified",
+        "ground_truth_status": {
+          "fournisseur": "known",
+          "date": "known",
+          "ht": "known",
+          "tva": "known",
+          "ttc": "known",
+          "siret": "absent"
+        },
+        "ground_truth_validated_at": "2026-10-25T04:15:05"
+      }
+    },
+    {
+      "id": "DOC-009",
+      "ocr_text": "free\n\nPAUL SEBASTIEN\n145 CHEMIN DES ROCHES\n41350 VINEUIL\n\nFacture Freebox\nn°1259455038 du 02 Janvier 2024\n\nOffre : Abonnement Freebox Pop\nIdentifiant abonné : 30827543\nRéférence prise fibre : FI-3766-6542\nEmail : peinturediffusion@hotmail.fr\n\nAdresse d'installation :\n145 CHEMIN DES ROCHES\n41350 VINEUIL\n\nHT TTC\nServices de Free (Abonnements, forfaits et options/Communications/Autres services et produits)\n25,00€ 29,99€\n\nTotal\n25,00€ 29,99€\nDont TVA 20%: 4,99€\n\nSomme à payer le 04 Janvier 2024\n29,99€\n\nMontant prélevé sur le compte bancaire FR76 1450 5000 0208 0014 09***** à partir du 04 Janvier 2024\n\nBesoin d'info sur votre facture ou nos tarifs ?\nScannez le guide !\nassistance.free.fr\n24h/24 7j/7\ndepuis l'Espace Abonné\nFreebox sur le web ou l'appli\nau 3244\n7j/7 de 8h à 21h\n(appel gratuit depuis une ligne Free)\n\nFree Service Abonné 75371 Paris Cedex 8",
+      "ground_truth": {
+        "fournisseur": "free",
+        "date": "02/01/2024",
+        "ht": "25",
+        "tva": "4,99",
+        "ttc": "29,99",
+        "siret": null
+      },
+      "metadata": {
+        "source_sha256": "45a574fd80c614ada35e4d2fd9cabf09b56dd63a13c3319a0fdfb4b9f4d7625b",
+        "source_type": "application/pdf",
+        "acquisition_method": "glm_ocr_q8_0",
+        "engine_version": "ollama version is 0.40.4; glm-ocr:q8_0",
+        "resolution_dpi": 170,
+        "orientation_applied": 0,
+        "language": "fr",
+        "reviewed_by_human": true,
+        "handwriting_status": "unverified",
+        "ground_truth_status": {
+          "fournisseur": "known",
+          "date": "known",
+          "ht": "known",
+          "tva": "known",
+          "ttc": "known",
+          "siret": "absent"
+        },
+        "ground_truth_validated_at": "2026-10-25T04:08:59"
+      }
+    },
+    {
+      "id": "DOC-010",
+      "ocr_text": "Facture N°\nFA5421\nDate\n29/09/2015\nClient\nCLI0001\n\nS.A.R.L. CORSINI AUTOMOBILES\nTRAVO\n20240 VENTISERI\nTél : 0495578623\nSIRET : 50366108400015\nN/ld CEE : FR05503661084\nASSISTANCE PEINTURE DIFFUSION\n145 CHEMIN DES ROCHES\n41350 Vineuil\n\nRéférence\nDésignation\nQuantité\nP.U. HT\n% REM\nRemise HT\nMontant HT\nTVA\n706\nLOCATION VEHICULE DU\n25/09/2015 AU 29/09/2015\nPaye Pau Cheque\nCE N° 000003\ndu 25/09/2015\nPAYÉ\n\nCode\nBase HT\nTaux TVA\nMontant TVA\n8\n235,00\n20,00\n47,00\n\nTotal HT\n235,00\nNet HT\n235,00\nTotal TVA\n47,00\nTotal TTC\n282,00\nNET A PAYER\n282,00\n\nFacture payable le 29/09/2015 pour la somme de 282,00 Euros.\n\nPénéalités de retard (taux annuel) : 11,00% - Escompte pour paiement anticipé (taux mensuel) : 1,50%\n\nRESERVE DE PROPRIÈTE : Nous nous réservons la propriété des marchandises jusqu'au paiement du prix par l'acheteur. Notre droit de reventation porte aussi bien sur les marchandises que sur leur prix et ont délai été revendues (Loi du 12 mai 1990).",
+      "ground_truth": {
+        "fournisseur": "S.A.R.L. CORSINI AUTOMOBILES",
+        "date": "29/09/2015",
+        "ht": "235",
+        "tva": "47",
+        "ttc": "282",
+        "siret": "50366108400015"
+      },
+      "metadata": {
+        "source_sha256": "6dfdcab23d93a3591ddc59705601b1b3a1d0b517217e8562fa6bf77ff6ca119f",
+        "source_type": "application/pdf",
+        "acquisition_method": "glm_ocr_q8_0",
+        "engine_version": "ollama version is 0.40.4; glm-ocr:q8_0",
+        "resolution_dpi": 170,
+        "orientation_applied": 0,
+        "language": "fr",
+        "reviewed_by_human": true,
+        "handwriting_status": "unverified",
+        "ground_truth_status": {
+          "fournisseur": "known",
+          "date": "known",
+          "ht": "known",
+          "tva": "known",
+          "ttc": "known",
+          "siret": "known"
+        },
+        "ground_truth_validated_at": "2026-10-25T04:11:07"
+      }
+    }
+  ]
+}

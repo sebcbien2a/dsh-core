@@ -1,7 +1,7 @@
 import hashlib
 import importlib
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import UUID
 
@@ -14,7 +14,7 @@ from repositories.canonical_skill_repository import CanonicalSkillRepository
 from schemas.skill_manifest_schema import SkillManifest, SkillStatus
 
 
-NOW = datetime(2026, 10, 21, 12, 0, tzinfo=timezone.utc)
+NOW = datetime.now(timezone.utc) + timedelta(hours=1)
 SKILL_ID = UUID("2b19a1d2-80c1-4c91-a121-9bd1d920c421")
 
 

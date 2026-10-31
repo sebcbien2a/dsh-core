@@ -1,0 +1,72 @@
+{
+  "run_id": "20261030-143237-f10de1e",
+  "started_at": "2026-10-30T14:32:37+01:00",
+  "finished_at": "2026-10-30T14:42:33+01:00",
+  "config": {
+    "input_dir": "A:\\dsh-core\\workspace\\invoices\\input",
+    "rules_dir": "A:\\dsh-core\\knowledge\\rules\\accounting",
+    "output_dir": "A:\\dsh-core\\workspace\\invoices\\audit",
+    "vision": "hybrid",
+    "vision_extractor": "HybridVisionExtractor",
+    "pattern": "*paintcar*",
+    "limit": null,
+    "simulate_zero_vat": false,
+    "fail_fast": false,
+    "cloud_escalation_budget_ratio": 0.05,
+    "max_cloud_escalations": 5
+  },
+  "corpus": {
+    "file_count": 7,
+    "supported_count": 7,
+    "selected_count": 7,
+    "fingerprint_sha256": "e6c54d570a51d9e035a4ed60cecc285d3a59bf93e0c67c40994233ae3c2b37c7"
+  },
+  "rules_snapshot": {
+    "directory": "A:\\dsh-core\\knowledge\\rules\\accounting",
+    "files": [
+      {
+        "file": "RULE_TVA_ZERO_DISAMBIGUATION_001.md",
+        "sha256": "9f391780e4a80d63f0b87759dbb36e0ba3b5933a2cc1cde8183a335d1f1a80f5",
+        "rule_id": "RULE-TVA-ZERO-001",
+        "raw_status": "approved",
+        "has_frontmatter": true
+      }
+    ],
+    "approved": [
+      {
+        "rule_id": "RULE-TVA-ZERO-001",
+        "version": "1.0.0",
+        "file": "RULE_TVA_ZERO_DISAMBIGUATION_001.md",
+        "sha256": "9f391780e4a80d63f0b87759dbb36e0ba3b5933a2cc1cde8183a335d1f1a80f5",
+        "status": "approved"
+      }
+    ],
+    "ignored": []
+  },
+  "environment": {
+    "python": "3.11.9",
+    "platform": "Windows-10-10.0.26200-SP0",
+    "pymupdf": "1.28.2",
+    "git_commit": "f10de1e"
+  },
+  "deterministic": false,
+  "resumed": false,
+  "records_reused": 0,
+  "records_written": 6,
+  "record_count": 6,
+  "run_valid": true,
+  "aborted": false,
+  "rules_changed_during_run": false,
+  "escalation_guard": {
+    "count": 5,
+    "ratio": 0.833,
+    "threshold": 0.05,
+    "exceeded": true,
+    "budget": {
+      "max": 5,
+      "used": 5,
+      "exhausted": true,
+      "external_extractor": false
+    }
+  }
+}

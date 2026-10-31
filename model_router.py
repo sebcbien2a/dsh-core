@@ -1,5 +1,6 @@
 """Central model selection without loading dotenv files or contacting providers."""
 
+import fnmatch
 import os
 from dataclasses import dataclass
 from enum import Enum
@@ -78,16 +79,20 @@ _CLOUD_VARIABLES = frozenset(
     for variable in variables.values()
     if variable.startswith("CLOUD_")
 )
-_RETIRED_MODELS = frozenset({"qwen2.5vl:7b", "qwen3.5:2b"})
+_RETIRED_MODELS = frozenset({"qwen2.5vl:7b", "qwen2.5*", "qwen3.5:2b"})
 
 
 def validate_model_identifier(model: str) -> str:
     """Reject retired model identifiers without loading a model."""
     if not model or not model.strip():
         raise ValueError("MODEL_NOT_CONFIGURED")
-    if model.strip().casefold() in _RETIRED_MODELS:
-        raise ValueError(f"MODEL_RETIRED: {model.strip()}")
-    return model.strip()
+    value = model.strip()
+    if any(
+        fnmatch.fnmatchcase(value.casefold(), pattern.casefold())
+        for pattern in _RETIRED_MODELS
+    ):
+        raise ValueError(f"MODEL_RETIRED: {value}")
+    return value
 
 
 def validate_vision_model(model: str) -> str:
@@ -98,6 +103,44 @@ def validate_vision_model(model: str) -> str:
         if str(exc).startswith("MODEL_RETIRED") or str(exc) == "MODEL_NOT_CONFIGURED":
             raise ValueError("VISION_MODEL_NOT_CONFIGURED") from None
         raise
+
+
+DEFAULT_MULTIMODAL_FALLBACK_MODEL = "google/gemini-3.8-flash"
+MULTIMODAL_FALLBACK_ENV_VARS = ("CLOUD_MULTIMODAL_FALLBACK_MODEL",)
+DEFAULT_ESCALATION_BUDGET_RATIO = 0.05
+ESCALATION_BUDGET_ENV = "CLOUD_ESCALATION_BUDGET_RATIO"
+
+
+def resolve_multimodal_fallback_model(
+    model: Optional[str] = None,
+    environ: Optional[Mapping[str, str]] = None,
+) -> str:
+    """Resolve the ultimate OpenRouter multimodal supervisor model."""
+
+    env = _environment(environ)
+    if model is not None and model.strip():
+        return validate_vision_model(model)
+    for variable in MULTIMODAL_FALLBACK_ENV_VARS:
+        value = env.get(variable)
+        if value and value.strip():
+            return validate_vision_model(value)
+    return validate_vision_model(DEFAULT_MULTIMODAL_FALLBACK_MODEL)
+
+
+def resolve_escalation_budget_ratio(
+    environ: Optional[Mapping[str, str]] = None,
+) -> float:
+    """Return the allowed cloud escalation ratio, clamped to [0, 1]."""
+
+    env = _environment(environ)
+    raw = env.get(ESCALATION_BUDGET_ENV)
+    if raw is None or not raw.strip():
+        return DEFAULT_ESCALATION_BUDGET_RATIO
+    try:
+        value = float(raw)
+    except ValueError:
+        return DEFAULT_ESCALATION_BUDGET_RATIO
+    return min(1.0, max(0.0, value))
 
 
 def _parse_role(role: RoleInput) -> ModelRole:

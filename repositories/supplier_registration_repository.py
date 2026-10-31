@@ -13,7 +13,7 @@ import shutil
 from pathlib import Path
 from uuid import UUID
 
-from services.supplier_registration_service import ProposalStatus, RegistrationProposal
+from schemas.supplier_registration_schema import ProposalStatus, RegistrationProposal
 
 PROPOSAL_ALREADY_EXISTS = "PROPOSAL_ALREADY_EXISTS"
 PROPOSAL_NOT_FOUND = "PROPOSAL_NOT_FOUND"

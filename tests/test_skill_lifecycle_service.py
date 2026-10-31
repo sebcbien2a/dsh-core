@@ -25,7 +25,7 @@ from services.skill_lifecycle_service import (
 )
 
 
-NOW = datetime(2026, 10, 21, 12, 0, tzinfo=timezone.utc)
+NOW = datetime.now(timezone.utc) + timedelta(hours=1)
 
 
 def evidence(test_id: str = "passing-test", passed: bool = True) -> SkillTestEvidence:

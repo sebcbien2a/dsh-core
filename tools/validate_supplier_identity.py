@@ -36,6 +36,11 @@ from schemas.supplier_identity_schema import (
     SupplierIdentifier,
     SupplierIdentity,
 )
+from schemas.supplier_registration_schema import (
+    IdentifierConflict,
+    ProposalStatus,
+    RegistrationAction,
+)
 from services.invoice_party_supplier_identity_adapter import invoice_party_to_supplier_identity
 from services.supplier_registration_coordinator import (
     SupplierRegistrationCoordinator,
@@ -44,9 +49,6 @@ from services.supplier_registration_coordinator import (
 )
 from services.supplier_registration_service import (
     HumanRegistrationDecision,
-    IdentifierConflict,
-    ProposalStatus,
-    RegistrationAction,
     SupplierRegistrationService,
 )
 

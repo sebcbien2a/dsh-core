@@ -1,4 +1,32 @@
+---
+master_doc: PROJECT_HANDOVER.md
+branch_domain: Arête 2 — Graphe Comptable & Règles Métiers
+contract_version: 1.0.1
+status: ACTIVE
+upstream_dependencies: [schemas/invoice_schema.py, schemas/rule_registry_schema.py, knowledge/rules/accounting/, services/invoice_producer_protocol.py, services/document_pipeline.py]
+downstream_consumers: [backend/app/n8n_api.py, scripts/run_batch_audit.py, services/persistence_manager.py]
+verification_tests: [tests/test_invoice_graph.py, tests/test_invoice_pipeline_chain.py, tests/test_invoice_graph_perception.py, tests/test_invoice_producers.py, tests/test_invoice_schema.py, tests/test_rule_registry_service.py, tests/test_run_pipeline_pilot.py, tests/test_run_batch_audit.py]
+---
+
 # Pipeline Facture V1
+
+## État actuel (gelé v1.0.1 — Phases P0-P8.1)
+
+Chaîne réellement exécutée par `backend/app/graphs/invoice_graph.py` :
+
+```
+triage (suffixe + DocumentRouter) → production (PdfInvoiceProducer, natif regex OU vision)
+→ supplier_enrichment (mémoire fournisseur certifiée) → validation (InvoiceSchema)
+→ rule_evaluation (RuleRegistryService + RULE-TVA-ZERO-001) → commit | hitl_inbox
+```
+
+- **Producteurs** : `services/invoice_producer_protocol.py` (PDF natif/scans), `spreadsheet_invoice_producer.py`, `banking_invoice_producer.py` (Arête 5).
+- **Règles** : Obsidian `knowledge/rules/accounting/` chargées par `RuleRegistryService` (statut `approved` uniquement), évaluées par `tva_zero_rule_evaluator` (`RULE_NOT_TRIGGERED`, `ZERO_VAT_DISAMBIGUATED`, `SUPPLIER_REGIME_APPLIED`, `AMBIGUOUS_ZERO_VAT`, `TAX_AMOUNT_UNKNOWN`, …).
+- **Perception amont** : L0-L5 gelés dans `docs/DOCUMENT_PERCEPTION_CONTRACT.md` (Arête 1).
+- **Validation** : `tests/test_invoice_graph*.py`, `tests/test_invoice_pipeline_chain.py`, `tests/test_run_pipeline_pilot.py`.
+
+> La suite historique « Pipeline Facture V1 » ci-dessous est **archivée** (nomenclature initiale
+> OCR/agents) ; elle ne fait pas foi pour l'implémentation actuelle.
 
 ## Objectif
 Transformer (PDF, Photo, Scan) en JSON validé, puis indexation (Qdrant + LlamaIndex + n8n).
@@ -13,7 +41,7 @@ Transformer (PDF, Photo, Scan) en JSON validé, puis indexation (Qdrant + LlamaI
 
 ---
 ## Nœud 2 : Vision Document
-- **Modèle :** Document Vision Model (Actuel: qwen2.5-vl:7b | Futur: qwen-vl-current)
+- **Mod?le :** PaddleOCR (OCR brut en amont) puis NuExtract3 pour l'extraction structur?e.
 - **Responsabilité :** Identifier géométriquement le fournisseur, le numéro de facture, les tableaux, et les blocs TVA/TTC.
 - **Sortie :** `{"supplier_zone": "...", "totals_zone": "...", "invoice_zone": "..."}`
 

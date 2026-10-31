@@ -1,0 +1,3 @@
+date;libelle;tiers;montant;devise;reference;direction;type
+2026-10-03;Frais bancaires;BANQUE POPULAIRE;12,34;EUR;FRAIS-001;DEBIT;FEE
+2026-10-04;Virement client;CLIENT GAMMA;500,00;EUR;VIR-002;CREDIT;TRANSFER

@@ -1,0 +1,78 @@
+{
+  "metadata": {
+    "version": "2.0",
+    "next_supplier_id": 4
+  },
+  "suppliers": {
+    "67162081300103": {
+      "supplier_id": "SUP_0001",
+      "raison_sociale": "SMTRT SAS",
+      "siret": "67162081300103",
+      "tva_intra": null,
+      "aliases": [
+        "RCSAIXENPROVENCE",
+        "SMTRT",
+        "SMTRT SAS"
+      ],
+      "verification": {
+        "status": "VERIFIED",
+        "human_validations": 5
+      },
+      "status": "ACTIVE",
+      "skills": [
+        {
+          "skill_name": "invoice_smtrt_sas",
+          "active": true,
+          "usage_count": 3,
+          "created_at": "2026-10-08T00:41:49.640652+00:00",
+          "last_used": "2026-10-08T01:17:11.008378+00:00"
+        }
+      ],
+      "created_at": "2026-10-08T00:41:49.629073+00:00",
+      "updated_at": "2026-10-30T12:29:24.496391+00:00"
+    },
+    "ESB17443482": {
+      "supplier_id": "SUP_0002",
+      "raison_sociale": "CRISOL COLOR, S.L.",
+      "siret": null,
+      "tva_intra": "ESB17443482",
+      "country": "ES",
+      "vat_regime": "INTRACOM_AUTOLIQUIDATION",
+      "aliases": [
+        "Paintcar",
+        "PAINTCAR",
+        "CRISOL COLOR",
+        "CRISOL COLOR SL",
+        "CRISOL COLOR S.L."
+      ],
+      "verification": {
+        "status": "VERIFIED",
+        "human_validations": 3
+      },
+      "status": "ACTIVE",
+      "skills": [],
+      "created_at": "2026-10-30T12:45:00+00:00",
+      "updated_at": "2026-10-30T12:45:00+00:00"
+    },
+    "55208131766522": {
+      "supplier_id": "SUP_0003",
+      "raison_sociale": "EDF",
+      "siret": "55208131766522",
+      "tva_intra": "FR03552081317",
+      "aliases": [
+        "EDF",
+        "EDF SA",
+        "EDF-SA",
+        "ELECTRICITE DE FRANCE"
+      ],
+      "verification": {
+        "status": "VERIFIED",
+        "human_validations": 1
+      },
+      "status": "ACTIVE",
+      "skills": [],
+      "created_at": "2026-10-30T20:49:29.097494+00:00",
+      "updated_at": "2026-10-30T20:49:29.097494+00:00"
+    }
+  }
+}

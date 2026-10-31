@@ -13,7 +13,7 @@ profil = profiler.profile(fichier_smtrt)
 document_result = router.extract(fichier_smtrt, profil)
 raw_text = document_result.raw_text
 
-# 1. Extraction initiale de NuExtract
+# 1. Extraction brute erronée issue de NuExtract
 extracted_data = {
     "fournisseur": "RCSAIXENPROVENCE",
     "numero_facture": "3ZALESPIELETES",
@@ -24,10 +24,11 @@ extracted_data = {
     "montant_ttc": 193.56
 }
 
-# 2. Correction validée par l'opérateur
+# 2. Correction certifiée par l'opérateur (avec SIRET officiel pour enregistrement régalien)
 corrected_data = {
     "fournisseur": "SMTRT SAS",
     "numero_facture": "60900194",
+    "siret": "67162081300103",
     "type_tva": "NORMALE"
 }
 
