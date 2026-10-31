@@ -3,11 +3,21 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
+
+from .reconciliation_arbitration import (
+    ArbitrationStore,
+    _to_view,
+    get_arbitration_store,
+)
+from services.accounting_spreadsheet_export_service import (
+    generate_arbitrations_summary_csv,
+    generate_reconciliation_csv,
+)
 
 from services.fec_export_service import (
     FecEntry,
@@ -87,5 +97,53 @@ def export_fec(
     return Response(
         content=content,
         media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+_PAGE_SIZE = 500
+
+
+@router.get("/spreadsheet")
+def export_spreadsheet(
+    request: Request,
+    scope: Literal["reconciliation", "arbitrations"] = Query("reconciliation"),
+    date_from: date | None = Query(None),
+    date_to: date | None = Query(None),
+    format: Literal["csv"] = Query("csv"),
+    store: ArbitrationStore = Depends(get_arbitration_store),
+) -> Response:
+    tenant_id = _tenant_of(request)
+    if date_from is not None and date_to is not None and date_from > date_to:
+        raise HTTPException(status_code=400, detail="INVALID_DATE_RANGE")
+
+    entries: list[dict[str, Any]] = []
+    offset = 0
+    while True:
+        rows, total = store.list_lines(tenant_id, limit=_PAGE_SIZE, offset=offset)
+        for row in rows:
+            view = _to_view(row).model_dump()
+            day = (view.get("operation_date") or "")[:10]
+            if (date_from is not None and (not day or day < date_from.isoformat())) or (
+                date_to is not None and (not day or day > date_to.isoformat())
+            ):
+                continue
+            entries.append(view)
+        offset += _PAGE_SIZE
+        if not rows or offset >= total:
+            break
+
+    generate = (
+        generate_arbitrations_summary_csv
+        if scope == "arbitrations"
+        else generate_reconciliation_csv
+    )
+    content = generate(entries, bom=True)
+    start = date_from.isoformat() if date_from is not None else "all"
+    end = date_to.isoformat() if date_to is not None else "all"
+    filename = f"REVISION_{quote(tenant_id, safe='')}_{scope}_{start}_{end}.csv"
+    return Response(
+        content=content.encode("utf-8"),
+        media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
