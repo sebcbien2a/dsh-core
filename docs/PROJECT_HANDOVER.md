@@ -1,179 +1,159 @@
-Lire uniquement ce document. Ne lire aucun autre fichier tant qu'une information précise n'est pas manquante.
+# DSH-Core — PROJECT_HANDOVER (Épine dorsale)
 
-# DSH-Core — document unique de reprise et état exécutif
+> **RÈGLE DE NAVIGATION** : ce document est le **seul point d'entrée maître** (architecture « arête de poisson » / Hub & Spoke).
+> Un humain ou un agent IA qui lit UNIQUEMENT ce fichier doit : (1) connaître l'état exact du projet,
+> (2) voir la cartographie complète des documents, (3) savoir QUEL document secondaire lire et pourquoi,
+> (4) retrouver les dépendances code/tests de chaque domaine. Toute branche (`docs/*.md`) pointe en
+> retour vers ce fichier via son bloc de métadonnées `master_doc`.
 
-## 1. Objectif final DSH-Core
-Construire un pipeline local de traitement documentaire qui oriente les pages, effectue l'OCR, extrait des données structurées, puis applique validation canonique et contrôles métier.
+---
 
-## 2. Architecture cible complète
-- Rendu du document → orientation de page → OCR → extraction structurée → normalisation/validation canonique → contrôles métier.
-- PP-LCNet_x1_0_doc_ori est le candidat local provisoire d'orientation ; l'OCR suit l'orientation.
-- ExtractionManager/Ollama est le chemin d'extraction intégré à évaluer ; NuExtract3 est un candidat d'extraction structuré après OCR, pas un moteur OCR.
-- Comparer les extracteurs sur les mêmes textes OCR et la vérité terrain des champs fournisseur, date, HT, TVA, TTC et SIRET.
-- Exclure réconciliation, règles TVA et skills du benchmark d'exactitude brute ; les évaluer séparément.
-- Les modèles cloud sont des secours explicites pour les cas complexes, jamais le chemin par défaut des tâches locales simples.
+## 1. ÉTAT DE SANTÉ & LIGNE DE BASE ACTUELLE
 
-## 3. État exact des environnements
-- **DSH-Core :** dépôt applicatif et pipeline cible. Utiliser explicitement `A:\dsh-core\.venv-v3\Scripts\python.exe` pour toute commande Python DSH-Core.
-- **DeepSeek Harness :** envisagé comme futur exécuteur spécialisé ou future Skill pilotée par Hermes. Son installation n'est pas démontrée ; aucun test du harness n'est documenté et aucune validation technique n'est démontrée. `DSH_HOME` et les chemins associés restent à confirmer lors d'une future expérimentation.
-- **Paddle Orientation :** environnement isolé `A:\dsh-paddle-orientation` ; Python 3.11.9, PaddlePaddle GPU 3.0.0, PaddleOCR 3.0.3, PaddleX 3.0.3, CUDA 12.6, RTX 4070 Laptop. Hors dépôt DSH-Core.
-- **LightOnOCR Bench :** environnement isolé `A:\dsh-lightonocr-bench` ; Python 3.11.9, Torch 2.14.1+cu126, cache local du modèle d'environ 2,33 Go. Hors dépôt DSH-Core.
-- Les rapports et notes de benchmark Paddle/LightOnOCR se trouvent dans leurs environnements séparés.
+| Indicateur | Valeur de référence |
+|---|---|
+| **Socle Document & Vision Pipeline** | **v1.0.1 — GELÉ DÉFINITIVEMENT** (Phases P0→P8 + P8.1) |
+| Contrat | `docs/DOCUMENT_PERCEPTION_CONTRACT.md` v1.0.1 (FROZEN) |
+| **Persistance Qdrant / Neo4j** | **v1.0.2 FROZEN** — P9.1→P9.4 et isolation multi-tenant P10.1 |
+| Contrat de persistance | `docs/PERSISTENCE_QDRANT_NEO4J_CONTRACT.md` v1.0.2 (FROZEN) |
+| **Noyau gelé** | Perception et pipeline facture v1.0.1 ; persistance v1.0.2 — toute évolution = phase + migration + incrément de version |
+| **Arête 5** | **v1.0.2 FROZEN** — ontologie Neo4j `Tenant`/`Supplier`/`Invoice`/`InvoiceLine`/`RuleOutcome`, correction E4, payload Qdrant strict `InvoiceVectorPayloadV1` et identifiants isolés par tenant |
+| Phases P10.1 / P10.2 | **Terminées** — persistance multi-tenant (61 tests) et `TenantContextMiddleware` (39 tests), point d'entrée FastAPI `backend/app/main.py` |
+| Suite de tests | **2 409 tests passés** hors-ligne (0 échec) (`.\.venv-v3\Scripts\python.exe -m pytest tests -q`) |
+| Batch audit (69 docs) | **Parité 100 %** : 29 VALIDATED / 40 HITL / 0 REJECTED (off == on) |
+| Performance perception | 12,4 s / 69 docs = **180 ms/doc** — dérogation validée (off = 1,5 s mais sans perception L1-L5) |
+| Fast-path L0 | Actif sur **60/69** docs (0 rasterisation, 1 passe de routage, deskew borné) |
+| Baseline signée | `workspace/invoices/audit/baseline.json` (run `p8-1-final2`, git `f10de1e`) |
+| Template Skills | `workspace/skills/` : `invoice_smtrt_sas.json` v2, `invoice_edf.json`, `invoice_crisol_color.json` (SUP_0002) |
+| Mémoire fournisseurs | `workspace/suppliers/suppliers.json` (SMTRT SUP_0001, CRISOL COLOR SUP_0002 / ESB17443482) |
+| Assainissement Qdrant P9.4 | **0 point, 0 non conforme, 0 candidat de purge** — purge effectuée : **0 point legacy restant**, dossier `docker/qdrant_storage` supprimé |
+| Neo4j legacy | `services/neo4j_service.py` et `repositories/graph_repository.py` : **NON BRANCHÉS** (aucun appelant raccordé ; hors contrat unifié) |
 
-## 4. Résultats du benchmark d'orientation
-- Corpus/manifeste : 10 documents.
-- Les résultats ci-dessous mesurent l'accord avec les annotations présentes ; deux annotations sont contestées.
-- Deux désaccords relevés : `facture_emaux.pdf` (attendu 90°, prédit 0°) et `facture_transport.PDF` (attendu 0°, prédit 90°).
-- Un audit visuel suggère que les attentes pourraient être inversées, mais la vérité terrain n'est pas confirmée.
+### Chantiers terminés (faits acquis)
+- **P0-P8.1** : contrats `DocumentPerception`/`VisualAnnotation` (L1), géométrie + fast-path (L0), routeur (L2), extracteurs PyMuPDF/Pandas/Docling/PaddleOCR (L3), annotations (L4), moteurs symétriques Local/Cloud/Hybrid + façade `perceive_document` (L5), rebranchement `invoice_graph` + `run_batch_audit`, distillation Template Skills (teacher Gemini), gel contractuel.
+- **P9.1-P9.4** : persistance unifiée Qdrant/Neo4j, ontologie `Tenant`/`Supplier`/`Invoice`/`InvoiceLine`/`RuleOutcome`, payload `InvoiceVectorPayloadV1`, correction E4 (suppression de l'écrasement `Product`), tests déterministes hors-ligne et assainissement Qdrant.
+- **P10.1** : contrat de persistance v1.0.2 FROZEN ; `invoice_id`, `line_id` et `point_id` sont dérivés de `tenant_id` et `source_sha256` pour prévenir les collisions inter-tenants ; garanties couvertes par `tests/test_multitenant_isolation.py` (61 tests).
+- **P10.2** : middleware ASGI `TenantContextMiddleware` pour validation de tenant, rejet précoce et contexte de requête isolé ; point d'entrée FastAPI `backend/app/main.py` ; couverture exhaustive dans `tests/test_tenant_middleware_exhaustive.py` (39 tests).
+- Mémoire fournisseur certifiée (résolution SIREN→TVA→nom, backfill, anti-corruption `IDENTITY_CONFLICT`).
+- Escalade cloud stricte (`SUPERVISOR_ESCALATION_MARKERS`) + `CloudEscalationBudget` entier (`budget_max`), superviseur Gemini 3.8 Flash.
+- Normalisation pays ISO-2, `tax_amount=null` → HITL `TAX_AMOUNT_UNKNOWN`.
+- Benchmark orientation (PP-LCNet 8/10 provisoire, LightOnOCR rejeté), dataset OCR gelé `benchmarks/data/ocr_baseline_texts.json` (60 champs de vérité terrain à valider humainement).
 
-## 5. Résultats PP-LCNet
-- PP-LCNet_x1_0_doc_ori : 8/10 (80 %) sur les annotations existantes, quatre classes (0/90/180/270).
-- Rapport : `A:\dsh-paddle-orientation\orientation_benchmark_pplcnet.json`.
-- Le test synthétique a chargé le modèle et effectué une prédiction GPU.
-- L'accuracy réelle n'est pas établie avant arbitrage humain ; une accuracy de 100 % après correction est uniquement conditionnelle.
+- **Clôture P9.1→P9.4** : phases closes définitivement ; Qdrant purgé (0 point legacy), `docker/qdrant_storage` supprimé ; `services/neo4j_service.py` et `repositories/graph_repository.py` restent **non branchés** (voir `docs/PERSISTENCE_QDRANT_NEO4J_CONTRACT.md`).
 
-## 6. Résultats LightOnOCR
-- LightOnOCR-1B-1025 orientation : 2/10 (20 %), PDF 1/9 (11,1 %), image 1/1 (100 %), 8 erreurs, aucune erreur d'exécution.
-- Rapport : `A:\dsh-lightonocr-bench\orientation_benchmark_lightonocr.json`.
-- Temps moyen : 120,81 s/document et 30,08 s/rotation. Le score privilégiant la quantité de texte est insuffisant pour l'orientation.
-- Smoke-test OCR synthétique réussi (« HELLO OCR TEST 123 ») ; aucune transcription réelle n'est conservée dans le rapport.
-- Heuristique de lisibilité ultérieure : 5/10 non consigné au rapport ; combinaison rapportée : 2/10. Résultats non référentiels.
+### Suites de tests exhaustives (hors-ligne, sans réseau)
+| Suite | Tests |
+|---|---|
+| `tests/test_banking_producer_exhaustive.py` | 171 |
+| `tests/test_spreadsheet_producer_exhaustive.py` | 141 |
+| `tests/test_rule_registry_exhaustive.py` | 159 |
+| `tests/test_vision_budget_supervisor_exhaustive.py` | 80 |
+| `tests/test_document_router_exhaustive.py` | 58 |
+| `tests/test_multitenant_isolation.py` (P10.1) | 61 |
+| `tests/test_tenant_middleware_exhaustive.py` (P10.2) | 39 |
 
-## 7. Choix IA locale
-- Garder les expérimentations dans des environnements isolés.
-- PP-LCNet reste provisoire jusqu'à la validation humaine des labels ; ne pas modifier les documents sources pour les rotations.
-- ExtractionManager/Ollama est la voie intégrée à évaluer ; NuExtract3 peut être comparé après OCR.
-- SeeingStraight reste une piste non adoptée : checkpoint, licence, runtime, compatibilité et performances non vérifiés ; aucun fallback ni seuil validé.
+### ROADMAP RESTANTE
+- **P10.1 / P10.2 — Terminées** : contrat de persistance v1.0.2 FROZEN et identifiants isolés par tenant ; middleware `TenantContextMiddleware` et point d'entrée `backend/app/main.py`. Tests : `tests/test_multitenant_isolation.py` (61) et `tests/test_tenant_middleware_exhaustive.py` (39). L'isolation complète des surfaces Qdrant/Neo4j/Obsidian demeure limitée aux comportements explicitement couverts par le contrat et les tests.
+- **P11 — Portail Web & recherche avancée** : portail web ; module de filtrage/recherche à facettes : dates, montants, catégories comptables, statuts (VALIDATED/HITL/REJECTED) ; exploitation des index de payload Qdrant.
+- **P12 — Pipeline d'export comptable** : génération FEC conforme ; connecteurs/intégration ERP et logiciels comptables ; contrôles d'équilibre débit/crédit avant export.
+- **Transverse** (voir `docs/NEXT_ACTIONS.md`) : HITL opérationnel, agent d'édition documentaire, validation humaine orientations + vérité terrain OCR, éventuelle décision sur le code Neo4j legacy.
 
-## 8. Choix IA cloud
-- MiMo Vision a été techniquement testé avec `reasoning.enabled=false` : 50 % sur 10 documents, coût rapporté 0,0046284 USD ; insuffisant pour la production.
-- DeepSeek Vision est un candidat de secours, mais disponibilité/configuration et politique d'usage restent à confirmer.
-- Gemini est un secours envisagé pour PDF/catalogues complexes, images multiples ou échec DeepSeek ; ne pas l'appeler par défaut.
-- Nemotron n'est pas adopté ; rôle et validation ne sont pas établis.
-- Ne jamais afficher ni recopier les valeurs du vrai `.env`.
-- Toute commande Python DSH-Core doit utiliser explicitement `A:\dsh-core\.venv-v3\Scripts\python.exe`.
+---
 
-## 9. Ce qui est définitivement abandonné
-- LightOnOCR comme classifieur d'orientation selon le score de quantité de texte mesuré à 20 % : rejeté pour intégration.
-- Ce rejet ne signifie pas que LightOnOCR est abandonné comme OCR ; le smoke-test synthétique a réussi.
+## 2. SCHÉMA EN ARÊTE DE POISSON & TABLE DE ROUTAGE DOCUMENTAIRE
 
-## 10. État des validations
-- Tests synthétiques PP-LCNet et LightOnOCR réussis dans leurs environnements isolés.
-- PP-LCNet : mesure reproductible rapportée de 8/10 selon les annotations actuelles, mais vérité terrain partiellement contestée.
-- LightOnOCR orientation : résultat 2/10 et insuffisant pour l'intégration.
-- MiMo Vision : classification techniquement exécutée, mais résultat insuffisant pour adoption de production.
-- DeepSeek Harness : envisagé comme futur exécuteur spécialisé ou future Skill pilotée par Hermes ; installation non démontrée, aucun test documenté et aucune validation technique démontrée. `DSH_HOME` et les chemins associés restent à confirmer lors d'une future expérimentation.
-- Les commits `716d23d`, `2dad618` et `a915d15` concernent d'autres travaux et ne constituent pas des preuves de validation de DeepSeek Harness.
+```mermaid
+graph LR
+    SPINE["PROJECT_HANDOVER.md<br/>(épine dorsale)"]
+    A1["Arête 1 — Perception & Vision L0-L5"]
+    A2["Arête 2 — Graphe Comptable<br/>& Règles Métiers"]
+    A3["Arête 3 — Distillation,<br/>Template Skills & Mémoire"]
+    A4["Arête 4 — Audit de Lot,<br/>Baselines & Gouvernance"]
+    A5["Arête 5 — Feuille de route<br/>post-P8"]
+    SPINE --> A1
+    SPINE --> A2
+    SPINE --> A3
+    SPINE --> A4
+    SPINE --> A5
+```
 
-## 11. Les cinq prochaines étapes prioritaires
-1. Obtenir une validation humaine documentée de l'orientation de `facture_emaux.pdf` et `facture_transport.PDF`.
-2. Après décision seulement, corriger les annotations concernées si nécessaire.
-3. Recalculer l'accuracy PP-LCNet après validation des annotations et décision explicite.
-4. Avant toute mise en production, valider PP-LCNet, pilote CUDA et mémoire sur la version cible d'Oracle Linux.
-5. Comparer ExtractionManager et NuExtract3 avec les mêmes textes OCR et vérités terrain des six champs ; exclure les règles de réconciliation de la comparaison brute.
+```
+        Arête 1            Arête 2             Arête 3            Arête 4             Arête 5
+    Perception L0-L5   Graphe Comptable    Skills & Mémoire   Audit & Baselines   Post-P8
+          │                  │                   │                  │                │
+          ▼                  ▼                   ▼                  ▼                ▼
+  DOCUMENT_PERCEPT..   PIPELINE_FACTURE..  TEMPLATE_SKILLS..  BATCH_AUDIT_..    NEXT_ACTIONS.md
+  _CONTRACT.md         V1.md               MEMORY.md          BASELINE.md
+          │                  │                   │                  │                │
+   schemas/document_*  invoice_graph.py    template_skill_    run_batch_audit   Qdrant, Neo4j,
+   services/document_* tva_zero_rule_      store.py           .py, baseline.    tableurs/banque,
+   (geometry, router,  evaluator.py,       suppliers.json     json,             HITL, agent
+   extractors, annot,  invoice_producer_   workspace/skills/  CloudEscalation   d'édition
+   engine, pipeline)   protocol.py,        supplier_identity  Budget, Gemini
+                       rule_registry       _schema            supervisor
+═══════════════════════════════════════════════════════════════════════════════════════
+                            PROJECT_HANDOVER.md (ce document)
+```
 
-## 12. Reprise d'une nouvelle conversation
-- PROJECT_HANDOVER.md devient la source de vérité principale pour toute nouvelle conversation.
-- Lire d'abord uniquement ce document. Ne consulter un autre fichier que si une information précise nécessaire manque ; limiter chaque lecture ultérieure à 150 lignes par fichier.
-- Ne pas relire le dépôt entier, le code ou la roadmap sauf demande explicite.
-- Avant toute expérimentation, tenir compte des résultats et décisions déjà consignés ici ; ne pas relancer modèles/benchmarks, installer ou télécharger sans besoin et autorisation explicites.
-- Priorité de reprise : organiser la validation humaine des deux orientations ; ne pas commencer par une installation ou un nouveau benchmark.
-- Gemini est un auditeur mémoire/documentation, pas l'exécuteur principal.
-- Préserver les changements préexistants ; ne pas modifier du code ni committer sans demande explicite.
-- Préférer VS Code Auto + Efficiency et l'effort Rapide. Proposer exactement UNE action VS Code prête à copier-coller, puis s'arrêter au périmètre demandé.
+### Table de routage : QUEL document lire, POURQUOI, avec QUEL code
 
-## 13. État du benchmark ExtractionManager vs NuExtract3
-- Le plan technique est consigné dans `benchmarks/extractor_comparison_plan.md` ; le squelette sans modèle est dans `benchmarks/extractor_benchmark_runner.py`.
-- Les montants français (dont espaces normaux et insécables) sont normalisés en Decimal ; les dates `YYYY-MM-DD` et `DD/MM/YYYY` sont prises en charge. Les dates impossibles et les formats ambigus sont rejetés.
-- NuExtract3 est adapté vers les structures canoniques `supplier`, `reference` et `amount`. Le vrai `InvoiceSchema` confirme le chemin du SIRET `supplier.siret` ; cette validation est testée avec des données synthétiques.
-- Le runner calcule les métriques par champ et l'exactitude complète sur les six champs. Sa méthode `run` est testée avec deux extracteurs factices, sans client de modèle.
-- 42 tests ciblés ont réussi. Aucun LLM, Ollama, OCR ni benchmark réel n'a été lancé.
-- Le dataset OCR réel local est maintenant gelé dans `benchmarks/data/ocr_baseline_texts.json`, strictement ignoré par Git : 10 cas non vides, 5 acquisitions `pymupdf_native_text` et 5 `glm_ocr_q8_0`. Les hashes source sont conformes et les sources inchangées ; aucune transcription n'a été affichée.
-- Les 60 champs de vérité terrain sont encore nuls ; aucun manuscrit n'est validé. GLM-OCR est choisi comme source OCR neutre des scans/images ; NuExtract3 reste l'extracteur structuré principal.
-- Avant tout benchmark ExtractionManager vs NuExtract3, faire valider humainement les 60 champs. Exclure les cas manuscrits tant qu'un protocole spécifique n'est pas validé.
-- Le runner reste un squelette de benchmark : aucun résultat comparatif réel n'est disponible.
+| # | Arête | Document à lire | Pourquoi le lire | Code / schémas / tests dont il dépend |
+|---|---|---|---|---|
+| **1** | **Perception & Vision (L0-L5)** | `docs/DOCUMENT_PERCEPTION_CONTRACT.md` (**FROZEN v1.0.1**) | Contrat universel : géométrie (fast-path, clockwise), schémas `DocumentPerception`/`VisualAnnotation`, routeur, extracteurs, annotations, moteurs, pipeline — toute évolution passe par ici | `schemas/document_perception.py`, `schemas/profile_schema.py`, `services/document_geometry.py`, `document_router.py`, `document_extractors.py`, `annotation_perception.py`, `document_engine.py`, `document_pipeline.py` → tests `test_document_*.py`, `test_annotation_perception.py` (13 fichiers) |
+| **2** | **Graphe Comptable & Règles Métiers** | `docs/PIPELINE_FACTURE_V1.md` + `knowledge/rules/accounting/RULE_TVA_ZERO_DISAMBIGUATION_001.md` | Chaîne métier : `invoice_graph` (triage→production→supplier_enrichment→validation→règles→commit/HITL), contrat `InvoiceSchema`, règles Obsidian TVA | `backend/app/graphs/invoice_graph.py`, `services/invoice_producer_protocol.py`, `services/tva_zero_rule_evaluator.py`, `services/rule_registry_service.py`, `schemas/invoice_schema.py`, `schemas/rule_registry_schema.py` → tests `test_invoice_graph*.py`, `test_invoice_pipeline_chain.py`, `test_invoice_producers.py`, `test_rule_registry_service.py`, `test_run_pipeline_pilot.py`, `test_invoice_schema.py` |
+| **3** | **Distillation, Template Skills & Mémoire Fournisseur** | `docs/TEMPLATE_SKILLS_MEMORY.md` (+ annexe `docs/SUPPLIER_SKILL_MIGRATION_SPEC.md`) | Skills distillés (teacher Gemini → extraction déterministe sans LLM), store/indexation, mémoire fournisseur certifiée, anti-corruption d'identité | `services/template_skill_store.py`, `services/supplier_memory_service.py`, `services/supplier_repository.py`, `schemas/supplier_identity_schema.py`, `workspace/skills/*.json`, `workspace/suppliers/suppliers.json` → tests `test_skill_distillation.py`, `test_supplier_enrichment.py`, `test_supplier_identity_repository.py` |
+| **4** | **Audit de Lot, Baselines & Gouvernance Cloud/Local** | `docs/BATCH_AUDIT_BASELINE.md` (+ annexe `docs/AI_MODEL_ROUTING_AND_HARNESSES.md`) | Batch audit (décisions, règles, blocages, perception), baseline signée, budget d'escalade, superviseur Gemini, dérogation perf | `scripts/run_batch_audit.py`, `services/cloud_vision_extractor.py`, `model_router.py`, `workspace/invoices/audit/baseline.json`, rapports `report.md` → tests `test_run_batch_audit.py`, `test_vision_supervisor.py`, `test_model_router.py` |
+| **5** | **Persistance & Mémoire Métier (Arête 5)** | `docs/PERSISTENCE_QDRANT_NEO4J_CONTRACT.md` (**FROZEN v1.0.2**) + `docs/collections_qdrant.md` + `docs/NEXT_ACTIONS.md` (feuille de route) | Contrat Qdrant/Neo4j : payload `InvoiceVectorPayloadV1`, ontologie `Tenant`/`Supplier`/`Invoice`/`InvoiceLine`/`RuleOutcome`, identifiants inter-tenants, correction E4, assainissement Qdrant ; chantiers restants : tableurs/banque, HITL, agent d'édition, vérité terrain OCR | `services/persistence_manager.py`, `schemas/vector_payload_schema.py`, `tools/audit_qdrant_collections.py`, `services/spreadsheet_invoice_producer.py`, `services/banking_invoice_producer.py`, `schemas/master_tables_schema.py` → tests `test_persistence_manager.py`, `test_qdrant_audit_service.py`, `tests/test_multitenant_isolation.py`, `tests/test_tenant_middleware_exhaustive.py`, `test_spreadsheet_producer.py`, `test_banking_producer.py` |
 
-## 14. Sélection du modèle Vision
-- `qwen2.5vl:7b` est retiré ; `qwen3.5:2b` est retiré de Vision et de tous les rôles locaux actifs, y compris FAST et BASE. Ces identifiants restent uniquement dans les tests explicites de rejet.
-- Aucun remplaçant local n'est choisi. `LOCAL_FAST_MODEL` et `LOCAL_VISION_MODEL` sont volontairement vides dans `.env.example` ; aucun fallback implicite n'est autorisé. Le nouveau choix local est reporté à un benchmark séparé.
-- `A:\dsh-core` reste la cible canonique ; la copie `A:\dsh-hermes-context` est inchangée.
-- `RoutingEngine` résout la configuration via `model_router` lors du routage Vision ; les PDF natifs n'exigent pas de configuration Vision. Le profil manuscrit reste `HANDWRITING_PATH_MISSING`.
+**Annexes actives** : `docs/PERSISTENCE_QDRANT_NEO4J_CONTRACT.md`, `docs/collections_qdrant.md`, inventaires racine `QDRANT_INVENTORY.md` et `NEO4J_INVENTORY.md`.
 
-## État du dataset OCR figé
-- Le dataset réel est local et non versionné : `benchmarks/data/ocr_baseline_texts.json`. La règle `.gitignore` exclut uniquement ce fichier, pas l'exemple synthétique.
-- Il contient 10 textes OCR non vides : 5 extractions natives PyMuPDF et 5 acquisitions GLM-OCR `q8_0` pour scans/images.
-- Les 60 champs de vérité terrain restent nuls et à valider humainement ; aucune transcription OCR n'a été affichée. Les hashes du manifeste concordent et les sources sont inchangées.
-- GLM-OCR est la source OCR neutre retenue pour scans/images ; NuExtract3 reste l'extracteur structuré principal. Le manuscrit n'est pas validé.
-- Prochaine étape : validation humaine des 60 champs. Ne pas exécuter le benchmark ExtractionManager vs NuExtract3 avant cette validation ; exclure les cas manuscrits jusqu'à validation d'un protocole spécifique.
-- Toute commande Python DSH-Core doit utiliser explicitement `A:\dsh-core\.venv-v3\Scripts\python.exe`. L'installation globale supplémentaire de PyMuPDF est connue ; aucun nettoyage urgent n'est nécessaire.
-- Interface locale de validation créée : `benchmarks/validate_ocr_ground_truth.py` (Tkinter, bibliothèque standard, hors ligne). Le dataset réel reste hors Git ; aucun champ n'est réputé validé avant utilisation humaine.
-- Commande : `A:\dsh-core\.venv-v3\Scripts\python.exe -m benchmarks.validate_ocr_ground_truth benchmarks\data\ocr_baseline_texts.json --manifest tests/fixtures/orientation_corpus_manifest.json --repo-root A:\dsh-core`.
-- Première saisie fermée sans sauvegarde : 0/10 cas et 0/60 champs.
-- Aperçu source (résolu par SHA-256 via le manifeste, rendu en mémoire) désormais obligatoire pour les tableaux ; confirmation bloquée si la source n'est pas vérifiée.
-- SIRET absent = ABSENT ; le numéro de TVA intracommunautaire est distinct du SIRET et ne doit jamais y être copié.
-- Cas 4 à 6 : ambigus dans le texte OCR linéaire (tableaux). Cas 7 à 10 : jugés visuellement corrects, non encore confirmés.
-- Aucun texte OCR ne doit être transmis à Gemini, Copilot ou au cloud.
+**Annexes historiques** (consulter seulement si besoin rétrospectif) : `docs/PROJECT_STATE.md`, `docs/PROJECT_DECISIONS.md`, `docs/02_ROADMAP.md` (9 phases), `docs/DSH_CORE_AI_ARCHITECTURE_V2.md`, `docs/agents.md`, archives numérotées `docs/00_*` à `docs/06_*`, `BANKING_*.md`.
 
-## Contrat fournisseur international extensible
-- Contrat isolé créé dans `schemas/supplier_identity_schema.py`, non encore intégré au pipeline métier.
-- `SupplierIdentity` porte un `supplier_id` interne ; les identifiants sont extensibles par type, scope et pays. SIREN et SIRET ne sont pas obligatoires.
-- Les valeurs brutes, normalisées et corrigées restent séparées.
-- Plusieurs alias, noms imprimés, adresses et profils de paiement sont pris en charge.
-- `custom_fields` accepte des champs dynamiques sans modification du schéma Python.
-- Les règles de disposition sont versionnées et ne peuvent être actives qu'après confirmation humaine et preuve source.
-- La fusion est interdite sur le seul nom ou alias ; elle n'est possible que pour un `supplier_id` identique ou un identifiant partagé confirmé humainement des deux côtés.
-- Aucun calcul TVA, HT ou TTC n'a été ajouté ; les 22 tests ciblés réussissent.
-- Pont en lecture seule de `InvoiceParty` vers `SupplierIdentity` créé, sans intégration au pipeline métier à ce stade.
-- `name` devient `legal_name` ; `normalized_name` est uniquement un `printed_name` suggéré.
-- Les identifiants SIRET et VAT sont créés seulement s'ils existent ; les valeurs brutes sont conservées, aucun SIREN ni pays n'est déduit, et les identifiants restent non primaires et non confirmés humainement.
-- L'adresse est conservée comme ligne brute, sans parsing inventé. Le pont n'accède pas à `SupplierRepository` et n'effectue aucun rapprochement automatique.
-- Les 17 tests ciblés du pont réussissent.
-- Repository canonique isolé créé dans `repositories/supplier_identity_repository.py`, sans intégration au pipeline métier.
-- Clé primaire `supplier_id` de type UUID ; stockage JSON local configurable.
-- L'index secondaire utilise uniquement les identifiants confirmés et non vides, avec la clé `country + identifier_type + normalized_value`.
-- Les collisions d'identifiants confirmés sont bloquées entre fournisseurs actifs ; un fournisseur désactivé est exclu de la résolution active.
-- La recherche par nom légal, nom imprimé ou alias est limitée aux suggestions ; aucune fusion automatique n'est effectuée.
-- Sauvegarde atomique par fichier temporaire et sauvegarde `.bak` ; aucun accès réseau.
-- Le repository n'a aucune dépendance envers l'ancien `SupplierRepository` indexé par SIRET.
-- Les 33 tests ciblés du repository réussissent.
-- Service d'enregistrement explicite créé dans `services/supplier_registration_service.py`, séparant proposition, confirmation humaine et persistance, sans intégration au pipeline métier.
-- Les opérations `CREATE`, `UPDATE` et `CANCEL` utilisent les statuts `PENDING`, `PERSISTED` et `CANCELLED`.
-- Le rejeu d'une proposition terminée est refusé, y compris après sérialisation ; seuls les identifiants explicitement sélectionnés sont confirmés et seuls les alias explicitement acceptés sont enregistrés.
-- Aucune fusion automatique n'est effectuée ; un échec du repository laisse la proposition `PENDING`.
-- Le journal de décision complet est embarqué dans la proposition et sérialisable, mais n'est pas encore persisté automatiquement dans un stockage dédié.
-- L'atomicité globale entre fournisseur et journal reste à traiter lors de l'intégration.
-- Les 33 tests ciblés du service réussissent.
-- Repository local des propositions créé dans `repositories/supplier_registration_repository.py`, avec `proposal_id` UUID comme clé primaire.
-- Les propositions `PENDING` et leur journal terminal sont stockés ; les transitions autorisées sont `PENDING` vers `PERSISTED` ou `CANCELLED`.
-- Les états terminaux sont immuables ; un rejeu identique est idempotent ; `candidate` et `source_sha256` sont immuables pendant la transition.
-- Sauvegarde atomique avec fichier `.tmp`, sauvegarde `.bak` et `os.replace` ; les 21 tests ciblés réussissent.
-- Aucune intégration au pipeline métier.
-- Limite connue : `SupplierIdentityRepository` et `SupplierRegistrationRepository` utilisent deux fichiers JSON distincts ; aucune atomicité globale entre eux n'est assurée à ce stade.
-- Coordinateur local de type saga créé dans `services/supplier_registration_coordinator.py`, avec un journal transactionnel séparé des données fournisseur.
-- Les statuts sont `PREPARED`, `SUPPLIER_APPLIED`, `COMPLETED` et `RECOVERY_REQUIRED` ; `transaction_id` est déterministe et égal à `proposal_id`.
-- Les états fournisseur sont identifiés par des empreintes SHA-256 déterministes ; le journal `PREPARED` est écrit avant toute modification fournisseur.
-- `CREATE` et `UPDATE` sont reprenables sans double écriture ; `CANCEL` ne modifie jamais le repository fournisseur.
-- Une divergence est classée `RECOVERY_REQUIRED` sans rollback automatique ; aucune métadonnée transactionnelle n'est placée dans `custom_fields`.
-- Les repositories existants sont inchangés ; les 23 tests de fonctionnement et de panne réussissent.
-- Aucune intégration au pipeline métier.
-- Interface locale fournisseur séparée créée dans `tools/validate_supplier_identity.py`, sans réutilisation abusive de l'interface OCR du benchmark.
-- Elle permet la saisie de l'identité, du pays, des identifiants extensibles, des aliases, des adresses, des profils de paiement et des `custom_fields`.
-- Les actions `CREATE`, `UPDATE` et `CANCEL` sont explicites ; suggestions et collisions sont affichées séparément, sans fusion ni sélection automatique.
-- Confirmation humaine et justification sont obligatoires ; la proposition `PENDING` est écrite avant l'appel au coordinateur.
-- `CREATE` persiste la fiche complète ; `UPDATE` est limité aux identifiants confirmés et aliases acceptés. Toute autre modification en `UPDATE` est refusée avant création de `PENDING`.
-- Une cible `UPDATE` absente ou inactive est refusée ; `CANCEL` ne modifie pas le fournisseur.
-- Les 42 tests ciblés réussissent ; l'interface réelle n'a pas encore été lancée.
-- Prochaine étape : lancement synthétique local de l'interface, sans document réel et sans intégration au pipeline.
+---
 
-## Index documentaire de reprise
-- `docs/PROJECT_HANDOVER.md` : source de vérité exécutive et point d'entrée.
-- `docs/02_ROADMAP.md` : roadmap détaillée et jalons futurs (section « ROADMAP V2 — CONVERGENCE LOCAL + ORACLE », phases 0 à 11).
-- `docs/DSH_CORE_AI_ARCHITECTURE_V2.md` : architecture cible complète (trois machines, couches, DeepSeek Harness et Skills, mémoire, synchronisation).
-- `QDRANT_INVENTORY.md` : état des collections Qdrant.
-- `NEO4J_INVENTORY.md` : état du graphe Neo4j.
-- `docs/06_MODELS_AND_KEYS_REGISTRY.md` : registre des modèles et emplacements de configuration ; aucune clé n'y est à recopier.
-- Branche `origin/wip/french-business-identity` : chantier TVA commun clients/fournisseurs suspendu ; commit `07900b5` ; 26 tests réussis ; documentation Neo4j encore incomplète ; ne pas intégrer avant audit final.
-- Serveur Oracle : cible décrite dans `docs/DSH_CORE_AI_ARCHITECTURE_V2.md` (§2, « Oracle VM », cible, rien de réel créé) et `docs/02_ROADMAP.md` (phases 7 et 8). Version d'Oracle Linux : NON DOCUMENTÉ DANS LES SOURCES CONSULTÉES.
-- DeepSeek Harness : envisagé comme futur exécuteur spécialisé ou future Skill pilotée par Hermes ; installation non démontrée, aucun test documenté et aucune validation technique démontrée. `DSH_HOME` et les chemins associés restent à confirmer lors d'une future expérimentation. Les commits `716d23d`, `2dad618` et `a915d15` ne prouvent pas sa validation.
+## 3. MATRICE UNIVERSELLE DES DÉPENDANCES (Code ↔ Doc ↔ Tests)
 
-Règle : le handover est suffisant pour décider quoi lire ensuite, mais ne remplace pas les documents techniques spécialisés. Aucun nouveau chat ne doit relire tout le dépôt.
+| Fichier source | Imports / dépendances amont | Consommateurs aval | Tests garants | Documentation |
+|---|---|---|---|---|
+| `schemas/document_perception.py` | pydantic, `schemas/profile_schema.py`, `schemas/document_result.py` | `document_router`, `document_extractors`, `annotation_perception`, `document_engine`, `template_skill_store` | `tests/test_document_perception.py` | Arête 1 |
+| `schemas/profile_schema.py` | pydantic | `document_profiler`, `document_router` | `tests/test_document_perception.py`, `tests/test_document_router.py` | Arête 1 |
+| `schemas/invoice_schema.py` | pydantic | `invoice_producer_protocol`, `tva_zero_rule_evaluator`, `invoice_graph`, `supplier_memory_service` | `tests/test_invoice_schema.py` | Arête 2 |
+| `schemas/rule_registry_schema.py` | pydantic | `rule_registry_service`, `tva_zero_rule_evaluator` | `tests/test_rule_registry_service.py` | Arête 2 |
+| `schemas/supplier_identity_schema.py` | pydantic | `supplier_memory_service`, `template_skill_store`, `invoice_party_supplier_identity_adapter` | `tests/test_supplier_identity_repository.py`, `tests/test_supplier_enrichment.py` | Arête 3 |
+| `services/document_geometry.py` | pymupdf, cv2 (lazy), `benchmarks/orientation_benchmark` | `document_router`, `document_engine` | `tests/test_document_geometry.py`, `tests/test_document_geometry_fastpath.py` | Arête 1 |
+| `services/document_router.py` | `document_profiler`, `document_geometry`, `schemas/document_perception` | `invoice_graph` (triage_node), `document_engine` | `tests/test_document_router.py`, `tests/test_document_router_exhaustive.py` | Arête 1 |
+| `services/document_extractors.py` | pymupdf, pandas/docling/paddleocr (lazy), `local_invoice_extractor` | `document_engine` | `tests/test_document_extractors.py` | Arête 1 |
+| `services/annotation_perception.py` | pymupdf, `schemas/document_perception` | `document_engine`, `template_skill_store` | `tests/test_annotation_perception.py` | Arête 1 |
+| `services/document_engine.py` | géométrie + routeur + extracteurs + annotations + `template_skill_store` + `cloud_vision_extractor` | `document_pipeline` | `tests/test_document_engine.py`, `tests/test_skill_distillation.py` | Arête 1 |
+| `services/document_pipeline.py` | `document_engine`, `cloud_vision_extractor` (budget) | `invoice_producer_protocol` (bridge), `invoice_graph`, `run_batch_audit` | `tests/test_document_pipeline.py`, `tests/test_invoice_graph_perception.py` | Arête 1 |
+| `services/invoice_producer_protocol.py` | `schemas/invoice_schema`, `document_pipeline` | `invoice_graph`, `run_batch_audit` | `tests/test_invoice_producers.py`, `tests/test_run_batch_audit.py` | Arête 2 |
+| `services/tva_zero_rule_evaluator.py` | `rule_registry_service`, `schemas/invoice_schema`, `knowledge/rules/accounting/` | `invoice_graph` (rule_evaluation) | `tests/test_run_pipeline_pilot.py` | Arête 2 |
+| `services/rule_registry_service.py` | `schemas/rule_registry_schema`, YAML frontmatter Obsidian | `tva_zero_rule_evaluator`, `run_batch_audit` | `tests/test_rule_registry_service.py` | Arête 2 |
+| `services/template_skill_store.py` | `schemas/supplier_identity_schema`, `supplier_repository`, `schemas/document_perception` | `document_engine` (préfiltre LLM) | `tests/test_skill_distillation.py` | Arête 3 |
+| `services/supplier_memory_service.py` | `supplier_repository`, `schemas/invoice_schema` | `invoice_graph` (supplier_enrichment) | `tests/test_supplier_enrichment.py` | Arête 3 |
+| `services/supplier_repository.py` | JSON `workspace/suppliers/suppliers.json` | `supplier_memory_service`, `template_skill_store`, `invoice_skill_creator` | `tests/test_supplier_enrichment.py` | Arête 3 |
+| `services/cloud_vision_extractor.py` | `model_router`, `local_invoice_extractor`, OpenRouter | `document_engine` (Hybrid/Cloud), `run_batch_audit` | `tests/test_vision_supervisor.py`, `tests/test_invoice_producers.py` | Arête 4 |
+| `model_router.py` | environnement (aucun réseau) | `cloud_vision_extractor`, `local_invoice_extractor`, `ollama_vision_extractor`, `routing_engine` | `tests/test_model_router.py` | Arête 4 |
+| `backend/app/graphs/invoice_graph.py` | `invoice_producer_protocol`, `supplier_memory_service`, `tva_zero_rule_evaluator`, `document_router`, `document_pipeline`, `persistence_manager` | `run_batch_audit`, `backend/app/n8n_api.py` | `tests/test_invoice_graph.py`, `tests/test_invoice_pipeline_chain.py`, `tests/test_invoice_graph_perception.py` | Arête 2 |
+| `scripts/run_batch_audit.py` | `invoice_graph`, `rule_registry_service`, `document_pipeline`, `cloud_vision_extractor` (budget) | rapports `workspace/invoices/audit/`, `baseline.json` | `tests/test_run_batch_audit.py` | Arête 4 |
+| `services/spreadsheet_invoice_producer.py` | pandas/openpyxl (lazy) | ingestion tableur (Arête 5) | `tests/test_spreadsheet_producer.py` | Arête 5 |
+| `services/banking_invoice_producer.py` | pandas (lazy), OFX natif | ingestion bancaire (Arête 5) | `tests/test_banking_producer.py` | Arête 5 |
+| `services/persistence_manager.py` | Neo4j, Qdrant, `schemas/vector_payload_schema.py` | `invoice_graph` (commit) | `tests/test_persistence_manager.py`, `tests/test_qdrant_audit_service.py` | Arête 5 |
+| `schemas/vector_payload_schema.py` | pydantic | `persistence_manager`, `audit_qdrant_collections` | `tests/test_vector_payload_schema.py`, `tests/test_persistence_manager.py` | Arête 5 |
+| `tools/audit_qdrant_collections.py` | qdrant_client, `schemas/vector_payload_schema.py` | audit/assainissement Qdrant | `tests/test_qdrant_audit_service.py` | Arête 5 |
+| `services/neo4j_service.py`, `repositories/graph_repository.py` | neo4j (legacy) | **aucun appelant raccordé** | — | Arête 5 (legacy, voir contrat) |
+
+---
+
+## 4. RÈGLES OPÉRATIONNELLES IMMÉDIATES (non négociables)
+
+1. **Python** : toute commande DSH-Core utilise explicitement `A:\dsh-core\.venv-v3\Scripts\python.exe`.
+2. **Sécurité** : ne jamais afficher ni recopier les valeurs du `.env` ; aucun texte OCR réel vers Gemini/Copilot/cloud sans règle explicite.
+3. **Non-régression** : `pytest tests -q` = **2 409 verts hors-ligne** avant/après toute modification ; contrat perception v1.0.1 et contrat persistance v1.0.2 gelés (toute évolution = phase + migration + incrément).
+4. **Perception** : `DOCUMENT_PIPELINE=on` par défaut (opt-out `off`) ; `include_vector_drawings=False` en batch ; escalade cloud stricte (`SUPERVISOR_ESCALATION_MARKERS`) budgétée (`budget_max` entier).
+5. **Gouvernance règles/skills** : une règle Obsidian ou un `SupplierLayoutRule` ne devient `approved`/`active` qu'après confirmation humaine avec incrémentation de version.
+6. **Workflow documentaire** : toute nouvelle documentation vit dans `docs/`, porte le bloc de métadonnées `master_doc: PROJECT_HANDOVER.md`, et est référencée dans la table de routage ci-dessus.
+
+---
+
+*Source de vérité exécutive — le handover dit quoi lire ensuite ; les documents techniques spécialisés disent comment. Ne jamais relire tout le dépôt.*
