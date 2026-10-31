@@ -19,6 +19,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from services.rule_registry_service import ObsidianCandidateRuleWriter, RuleRegistryError
+from services.sqlite_accounting_store import (
+    LineAlreadyArbitratedError,
+    LineNotFoundError,
+    accounting_backend_is_sqlite,
+    get_shared_sqlite_store,
+)
 
 ACCOUNT_PATTERN = re.compile(r"^\d{6}\Z")
 PERSONAL_DEBIT_ACCOUNT = "108000"
@@ -191,6 +197,9 @@ _default_store = InMemoryArbitrationStore(
 
 
 def get_arbitration_store() -> ArbitrationStore:
+    """In-memory fallback by default; SQLite when ``DSH_ACCOUNTING_STORE=sqlite``."""
+    if accounting_backend_is_sqlite():
+        return get_shared_sqlite_store()
     return _default_store
 
 
@@ -320,7 +329,12 @@ def arbitrate(
         except ValueError as exc:
             raise HTTPException(status_code=422, detail="INVALID_CANDIDATE_RULE") from exc
 
-    store.save_decision(tenant_id, body.line_id, decision)
+    try:
+        store.save_decision(tenant_id, body.line_id, decision)
+    except LineNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="LINE_NOT_FOUND") from exc
+    except LineAlreadyArbitratedError as exc:
+        raise HTTPException(status_code=409, detail="LINE_ALREADY_ARBITRATED") from exc
     return ArbitrationResult(
         line_id=body.line_id,
         tenant_id=tenant_id,

@@ -24,6 +24,10 @@ from services.fec_export_service import (
     FecGenerator,
     UnbalancedAccountingEntryError,
 )
+from services.sqlite_accounting_store import (
+    accounting_backend_is_sqlite,
+    get_shared_sqlite_store,
+)
 
 
 class FecEntryStore(Protocol):
@@ -59,6 +63,9 @@ _default_store = InMemoryFecEntryStore()
 
 
 def get_fec_entry_store() -> FecEntryStore:
+    """In-memory fallback by default; SQLite when ``DSH_ACCOUNTING_STORE=sqlite``."""
+    if accounting_backend_is_sqlite():
+        return get_shared_sqlite_store()
     return _default_store
 
 

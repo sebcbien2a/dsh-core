@@ -30,3 +30,6 @@ workspace/imports/tariffs/*_report.json
 workspace/imports/tariffs/*_review.xlsx
 workspace/imports/tariffs/*_anomalies.json
 workspace/imports/tariffs/*_audit.json
+
+# Durable accounting SQLite store (P13.1)
+data/accounting/
