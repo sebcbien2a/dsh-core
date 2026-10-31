@@ -18,8 +18,8 @@
 | Contrat de persistance | `docs/PERSISTENCE_QDRANT_NEO4J_CONTRACT.md` v1.0.2 (FROZEN) |
 | **Noyau gelé** | Perception et pipeline facture v1.0.1 ; persistance v1.0.2 — toute évolution = phase + migration + incrément de version |
 | **Arête 5** | **v1.0.2 FROZEN** — ontologie Neo4j `Tenant`/`Supplier`/`Invoice`/`InvoiceLine`/`RuleOutcome`, correction E4, payload Qdrant strict `InvoiceVectorPayloadV1` et identifiants isolés par tenant |
-| Phases P10.1 / P10.2 | **Terminées** — persistance multi-tenant (61 tests) et `TenantContextMiddleware` (39 tests), point d'entrée FastAPI `backend/app/main.py` |
-| Suite de tests | **2 409 tests passés** hors-ligne (0 échec) (`.\.venv-v3\Scripts\python.exe -m pytest tests -q`) |
+| Phases P10 / P11 | **Terminées** — isolation multi-tenant, registre de règles cloisonné et rapprochement bancaire avec arbitrage HITL |
+| Suite de tests | **2 486 tests passés** hors-ligne, 2 skips conditionnés, 0 échec (`.\.venv-v3\Scripts\python.exe -m pytest tests -q`) |
 | Batch audit (69 docs) | **Parité 100 %** : 29 VALIDATED / 40 HITL / 0 REJECTED (off == on) |
 | Performance perception | 12,4 s / 69 docs = **180 ms/doc** — dérogation validée (off = 1,5 s mais sans perception L1-L5) |
 | Fast-path L0 | Actif sur **60/69** docs (0 rasterisation, 1 passe de routage, deskew borné) |
@@ -33,7 +33,12 @@
 - **P0-P8.1** : contrats `DocumentPerception`/`VisualAnnotation` (L1), géométrie + fast-path (L0), routeur (L2), extracteurs PyMuPDF/Pandas/Docling/PaddleOCR (L3), annotations (L4), moteurs symétriques Local/Cloud/Hybrid + façade `perceive_document` (L5), rebranchement `invoice_graph` + `run_batch_audit`, distillation Template Skills (teacher Gemini), gel contractuel.
 - **P9.1-P9.4** : persistance unifiée Qdrant/Neo4j, ontologie `Tenant`/`Supplier`/`Invoice`/`InvoiceLine`/`RuleOutcome`, payload `InvoiceVectorPayloadV1`, correction E4 (suppression de l'écrasement `Product`), tests déterministes hors-ligne et assainissement Qdrant.
 - **P10.1** : contrat de persistance v1.0.2 FROZEN ; `invoice_id`, `line_id` et `point_id` sont dérivés de `tenant_id` et `source_sha256` pour prévenir les collisions inter-tenants ; garanties couvertes par `tests/test_multitenant_isolation.py` (61 tests).
-- **P10.2** : middleware ASGI `TenantContextMiddleware` pour validation de tenant, rejet précoce et contexte de requête isolé ; point d'entrée FastAPI `backend/app/main.py` ; couverture exhaustive dans `tests/test_tenant_middleware_exhaustive.py` (39 tests).
+- **P10.2** : middleware ASGI pur `TenantContextMiddleware` pour contrôler l'en-tête `X-Tenant-ID`, rejeter précocement les requêtes invalides et exposer le tenant dans le `ContextVar` ; point d'entrée FastAPI `backend/app/main.py` ; couverture exhaustive dans `tests/test_tenant_middleware_exhaustive.py` (39 tests).
+- **P10.3** : `RuleRegistryService` charge les règles communes depuis `knowledge/rules/common/` et les règles tenant depuis `knowledge/rules/tenants/{tenant_id}/`, avec protection contre la traversée de répertoire.
+- **P11.1** : `POST /reconciliation/arbitrate` arbitre les opérations via `ATTACH_INVOICE`, `PERSONAL_EXPENSE` (comptes 108/455) ou `VALIDATE_WITHOUT_INVOICE`.
+- **P11.2** : `ObsidianCandidateRuleWriter` persiste physiquement les règles candidates au format Markdown avec frontmatter YAML.
+- **P11.3** : `GET /reconciliation/lines` fournit une consultation paginée avec filtres, recherche plein texte et mapping des statuts.
+- **P11.4** : composants React / Next.js de rapprochement : `frontend/types/reconciliation.ts`, `frontend/components/reconciliation/ArbitrationModal.tsx` et `frontend/components/reconciliation/ReconciliationTable.tsx`.
 - Mémoire fournisseur certifiée (résolution SIREN→TVA→nom, backfill, anti-corruption `IDENTITY_CONFLICT`).
 - Escalade cloud stricte (`SUPERVISOR_ESCALATION_MARKERS`) + `CloudEscalationBudget` entier (`budget_max`), superviseur Gemini 3.8 Flash.
 - Normalisation pays ISO-2, `tax_amount=null` → HITL `TAX_AMOUNT_UNKNOWN`.
@@ -53,10 +58,10 @@
 | `tests/test_tenant_middleware_exhaustive.py` (P10.2) | 39 |
 
 ### ROADMAP RESTANTE
-- **P10.1 / P10.2 — Terminées** : contrat de persistance v1.0.2 FROZEN et identifiants isolés par tenant ; middleware `TenantContextMiddleware` et point d'entrée `backend/app/main.py`. Tests : `tests/test_multitenant_isolation.py` (61) et `tests/test_tenant_middleware_exhaustive.py` (39). L'isolation complète des surfaces Qdrant/Neo4j/Obsidian demeure limitée aux comportements explicitement couverts par le contrat et les tests.
-- **P11 — Portail Web & recherche avancée** : portail web ; module de filtrage/recherche à facettes : dates, montants, catégories comptables, statuts (VALIDATED/HITL/REJECTED) ; exploitation des index de payload Qdrant.
+- **P10 — Terminée** : P10.1 persistance v1.0.2 FROZEN et identifiants isolés par tenant ; P10.2 middleware ASGI `TenantContextMiddleware` avec contrôle `X-Tenant-ID` / `ContextVar` ; P10.3 `RuleRegistryService` hiérarchique avec protection anti-traversée.
+- **P11 — Terminée** : P11.1 endpoint d'arbitrage HITL ; P11.2 persistance des règles candidates Obsidian ; P11.3 endpoint paginé de consultation/recherche ; P11.4 interface React / Next.js de rapprochement bancaire.
 - **P12 — Pipeline d'export comptable** : génération FEC conforme ; connecteurs/intégration ERP et logiciels comptables ; contrôles d'équilibre débit/crédit avant export.
-- **Transverse** (voir `docs/NEXT_ACTIONS.md`) : HITL opérationnel, agent d'édition documentaire, validation humaine orientations + vérité terrain OCR, éventuelle décision sur le code Neo4j legacy.
+- **Transverse** (voir `docs/NEXT_ACTIONS.md`) : agent d'édition documentaire, validation humaine des orientations et de la vérité terrain OCR, éventuelle décision sur le code Neo4j legacy.
 
 ---
 
@@ -149,7 +154,7 @@ graph LR
 
 1. **Python** : toute commande DSH-Core utilise explicitement `A:\dsh-core\.venv-v3\Scripts\python.exe`.
 2. **Sécurité** : ne jamais afficher ni recopier les valeurs du `.env` ; aucun texte OCR réel vers Gemini/Copilot/cloud sans règle explicite.
-3. **Non-régression** : `pytest tests -q` = **2 409 verts hors-ligne** avant/après toute modification ; contrat perception v1.0.1 et contrat persistance v1.0.2 gelés (toute évolution = phase + migration + incrément).
+3. **Non-régression** : `pytest tests -q` = **2 486 tests passés hors-ligne, 2 skips conditionnés, 0 échec** ; contrat perception v1.0.1 et contrat persistance v1.0.2 gelés (toute évolution = phase + migration + incrément).
 4. **Perception** : `DOCUMENT_PIPELINE=on` par défaut (opt-out `off`) ; `include_vector_drawings=False` en batch ; escalade cloud stricte (`SUPERVISOR_ESCALATION_MARKERS`) budgétée (`budget_max` entier).
 5. **Gouvernance règles/skills** : une règle Obsidian ou un `SupplierLayoutRule` ne devient `approved`/`active` qu'après confirmation humaine avec incrémentation de version.
 6. **Workflow documentaire** : toute nouvelle documentation vit dans `docs/`, porte le bloc de métadonnées `master_doc: PROJECT_HANDOVER.md`, et est référencée dans la table de routage ci-dessus.
