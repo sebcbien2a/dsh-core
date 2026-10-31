@@ -17,9 +17,17 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from starlette.concurrency import run_in_threadpool
 
+from services.bank_statement_parser_service import (
+    MAX_BYTES,
+    BankStatementError,
+    normalize_bank_rows,
+    parse_bank_statement_csv,
+)
 from services.rule_registry_service import ObsidianCandidateRuleWriter, RuleRegistryError
 from services.sqlite_accounting_store import (
+    AccountingStoreError,
     LineAlreadyArbitratedError,
     LineNotFoundError,
     accounting_backend_is_sqlite,
@@ -136,6 +144,7 @@ class ArbitrationStore(Protocol):
         offset: int = 0,
     ) -> tuple[list[dict[str, Any]], int]: ...
     def get_line(self, tenant_id: str, line_id: str) -> dict[str, Any] | None: ...
+    def add_line(self, tenant_id: str, line_id: str, line: dict[str, Any]) -> bool: ...
     def save_decision(self, tenant_id: str, line_id: str, decision: dict[str, Any]) -> None: ...
     def save_candidate_rule(self, tenant_id: str, rule: dict[str, Any]) -> None: ...
 
@@ -147,6 +156,13 @@ class InMemoryArbitrationStore:
         self.lines: dict[tuple[str, str], dict[str, Any]] = {}
         self.decisions: dict[tuple[str, str], dict[str, Any]] = {}
         self.candidate_rules: list[tuple[str, dict[str, Any]]] = []
+
+    def add_line(self, tenant_id: str, line_id: str, line: dict[str, Any]) -> bool:
+        """Insert a line unless it already exists (never overwrites); True if inserted."""
+        if (tenant_id, line_id) in self.lines:
+            return False
+        self.lines[(tenant_id, line_id)] = {**line, "status": line.get("status") or "PENDING"}
+        return True
 
     def get_line(self, tenant_id: str, line_id: str) -> dict[str, Any] | None:
         return self.lines.get((tenant_id, line_id))
@@ -257,6 +273,83 @@ def _to_view(row: dict[str, Any]) -> ReconciliationLineView:
         vat_amount=text("vat_amount"),
         arbitration_metadata=metadata,
     )
+
+
+class ImportResult(BaseModel):
+    imported: int
+    skipped: int
+    tenant_id: str
+
+
+_MULTIPART_OVERHEAD = 64 * 1024
+
+
+def _import_error(exc: BankStatementError) -> HTTPException:
+    return HTTPException(status_code=422, detail={"code": exc.code, "row": exc.row})
+
+
+@router.post("/import", response_model=ImportResult)
+async def import_bank_statement(
+    request: Request,
+    delimiter: str = Query(";", min_length=1, max_length=1),
+    store: ArbitrationStore = Depends(get_arbitration_store),
+) -> ImportResult:
+    """Import a bank statement as ``PENDING`` lines.
+
+    Accepts ``multipart/form-data`` (``file`` = CSV) or JSON ``{"lines": [...]}``.
+    Lines already present for the tenant are skipped, never overwritten.
+    """
+    tenant_id = _tenant_of(request)
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > MAX_BYTES + _MULTIPART_OVERHEAD:
+        raise HTTPException(status_code=413, detail="PAYLOAD_TOO_LARGE")
+    content_type = request.headers.get("content-type", "").split(";")[0].strip().casefold()
+
+    claimed_tenant: Any = None
+    try:
+        if content_type == "multipart/form-data":
+            form = await request.form()
+            upload = form.get("file")
+            if upload is None or isinstance(upload, str):
+                raise HTTPException(status_code=422, detail="MISSING_FILE")
+            claimed_tenant = form.get("tenant_id")
+            raw = await upload.read(MAX_BYTES + 1)
+            chosen = form.get("delimiter")
+            if isinstance(chosen, str) and chosen:
+                delimiter = "\t" if chosen == "\\t" else chosen
+            if claimed_tenant is not None and claimed_tenant != tenant_id:
+                raise HTTPException(status_code=403, detail="TENANT_MISMATCH")
+            lines = parse_bank_statement_csv(raw, delimiter, tenant_id=tenant_id)
+        elif content_type == "application/json":
+            try:
+                payload = await request.json()
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail="INVALID_JSON") from exc
+            if not isinstance(payload, dict) or not isinstance(payload.get("lines"), list):
+                raise HTTPException(status_code=422, detail="INVALID_PAYLOAD")
+            claimed_tenant = payload.get("tenant_id")
+            if claimed_tenant is not None and claimed_tenant != tenant_id:
+                raise HTTPException(status_code=403, detail="TENANT_MISMATCH")
+            lines = normalize_bank_rows(payload["lines"], tenant_id)
+        else:
+            raise HTTPException(status_code=415, detail="UNSUPPORTED_MEDIA_TYPE")
+    except BankStatementError as exc:
+        raise _import_error(exc) from exc
+
+    def persist() -> tuple[int, int]:
+        imported = skipped = 0
+        for line in lines:
+            if store.add_line(tenant_id, line["line_id"], line):
+                imported += 1
+            else:
+                skipped += 1
+        return imported, skipped
+
+    try:
+        imported, skipped = await run_in_threadpool(persist)
+    except AccountingStoreError as exc:
+        raise HTTPException(status_code=422, detail=exc.code) from exc
+    return ImportResult(imported=imported, skipped=skipped, tenant_id=tenant_id)
 
 
 @router.get("/lines", response_model=ReconciliationLinesPage)

@@ -264,19 +264,24 @@ class SqliteAccountingStore:
 
     # -- ArbitrationStore ------------------------------------------------
 
-    def add_line(self, tenant_id: str, line_id: str, line: dict[str, Any]) -> None:
-        """Insert (or replace) a bank operation line, initially ``PENDING``."""
+    def add_line(self, tenant_id: str, line_id: str, line: dict[str, Any]) -> bool:
+        """Insert a bank operation line (``PENDING`` unless stated).
+
+        Returns ``False`` without touching the stored row when the line already
+        exists, so a re-import never resets an arbitrated line.
+        """
         validate_tenant_id(tenant_id)
         _validate_line_id(line_id)
         values = [None if line.get(k) is None else str(line[k]) for k in _LINE_FIELDS]
         status = str(line.get("status") or _PENDING)
         with closing(self._connect()) as conn, conn:
-            conn.execute(
-                "INSERT OR REPLACE INTO reconciliation_lines"
+            cursor = conn.execute(
+                "INSERT OR IGNORE INTO reconciliation_lines"
                 f" (tenant_id, line_id, {', '.join(_LINE_FIELDS)}, status, created_at)"
                 f" VALUES (?, ?, {', '.join('?' for _ in _LINE_FIELDS)}, ?, ?)",
                 (tenant_id, line_id, *values, status, _now()),
             )
+            return cursor.rowcount == 1
 
     def get_line(self, tenant_id: str, line_id: str) -> dict[str, Any] | None:
         validate_tenant_id(tenant_id)
