@@ -6,8 +6,8 @@
   "tenant": "GLOBAL",
   "lifecycle": {
     "confidence": 0.9,
-    "usage_count": 35,
-    "last_used": "2026-10-31T19:18:31.268725+00:00",
+    "usage_count": 48,
+    "last_used": "2026-11-01T00:49:35.297105+00:00",
     "status": "candidate"
   },
   "extraction_rules": {

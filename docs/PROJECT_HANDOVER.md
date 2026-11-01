@@ -18,8 +18,9 @@
 | Contrat de persistance | `docs/PERSISTENCE_QDRANT_NEO4J_CONTRACT.md` v1.0.2 (FROZEN) |
 | **Noyau gelé** | Perception et pipeline facture v1.0.1 ; persistance v1.0.2 — toute évolution = phase + migration + incrément de version |
 | **Arête 5** | **v1.0.2 FROZEN** — ontologie Neo4j `Tenant`/`Supplier`/`Invoice`/`InvoiceLine`/`RuleOutcome`, correction E4, payload Qdrant strict `InvoiceVectorPayloadV1` et identifiants isolés par tenant |
-| Phases P10 / P11 | **Terminées** — isolation multi-tenant, registre de règles cloisonné et rapprochement bancaire avec arbitrage HITL |
-| Suite de tests | **2 486 tests passés** hors-ligne, 2 skips conditionnés, 0 échec (`.\.venv-v3\Scripts\python.exe -m pytest tests -q`) |
+| Phases P10→P13 | **Terminées** — isolation multi-tenant, rapprochement bancaire avec arbitrage HITL, exports comptables, persistance SQLite et ingestion bancaire |
+| **Phase active** | **P14 — Machine à états OneDrive / Gmail** : dossiers `00_` à `05_`, 8 catégories, `_A_COMPLETER.xlsx` et synchronisation bidirectionnelle |
+| Suite de tests | **2 656 tests passés** hors-ligne, 2 conditionnés, 0 échec (`.\.venv-v3\Scripts\python.exe -m pytest tests -q`) |
 | Batch audit (69 docs) | **Parité 100 %** : 29 VALIDATED / 40 HITL / 0 REJECTED (off == on) |
 | Performance perception | 12,4 s / 69 docs = **180 ms/doc** — dérogation validée (off = 1,5 s mais sans perception L1-L5) |
 | Fast-path L0 | Actif sur **60/69** docs (0 rasterisation, 1 passe de routage, deskew borné) |
@@ -39,6 +40,12 @@
 - **P11.2** : `ObsidianCandidateRuleWriter` persiste physiquement les règles candidates au format Markdown avec frontmatter YAML.
 - **P11.3** : `GET /reconciliation/lines` fournit une consultation paginée avec filtres, recherche plein texte et mapping des statuts.
 - **P11.4** : composants React / Next.js de rapprochement : `frontend/types/reconciliation.ts`, `frontend/components/reconciliation/ArbitrationModal.tsx` et `frontend/components/reconciliation/ReconciliationTable.tsx`.
+- **P12.1** : moteur officiel FEC A.47 A-1 dans `services/fec_export_service.py`, validation des 18 colonnes et équilibre strict Débit = Crédit ; export via `GET /accounting/export/fec`.
+- **P12.2** : moteur CSV de révision comptable et de relevé des arbitrages dans `services/accounting_spreadsheet_export_service.py`, avec neutralisation des injections de formules ; export via `GET /accounting/export/spreadsheet`.
+- **P12.3** : barre d'actions d'export dans `frontend/components/reconciliation/ReconciliationTable.tsx`, avec filtres de dates et téléchargement des réponses sous forme de blob.
+- **P13.1** : store SQLite multi-tenant hermétique dans `services/sqlite_accounting_store.py`, unifiant les contrats `FecEntryStore` et `ArbitrationStore` (isolation par tenant, transactions et erreurs typées) ; couverture dans `tests/test_sqlite_accounting_store_exhaustive.py`.
+- **P13.2** : parseur bancaire multi-formats dans `services/bank_statement_parser_service.py` (formats de dates, montants, devises, délimiteurs) avec déduplication par hash SHA-256 déterministe ; ingestion via `POST /reconciliation/import` (multipart ou JSON, lignes existantes ignorées) ; couverture dans `tests/test_bank_statement_import_exhaustive.py`.
+- **P13.3** : bouton d'upload direct de relevé CSV dans l'interface React (`ReconciliationTable.tsx`), état d'import, rapport `{imported, skipped}` et rechargement automatique de la table.
 - Mémoire fournisseur certifiée (résolution SIREN→TVA→nom, backfill, anti-corruption `IDENTITY_CONFLICT`).
 - Escalade cloud stricte (`SUPERVISOR_ESCALATION_MARKERS`) + `CloudEscalationBudget` entier (`budget_max`), superviseur Gemini 3.8 Flash.
 - Normalisation pays ISO-2, `tax_amount=null` → HITL `TAX_AMOUNT_UNKNOWN`.
@@ -56,11 +63,17 @@
 | `tests/test_document_router_exhaustive.py` | 58 |
 | `tests/test_multitenant_isolation.py` (P10.1) | 61 |
 | `tests/test_tenant_middleware_exhaustive.py` (P10.2) | 39 |
+| `tests/test_fec_export_exhaustive.py` (P12.1) | 16 |
+| `tests/test_accounting_spreadsheet_export_exhaustive.py` (P12.2) | 13 |
+| `tests/test_sqlite_accounting_store_exhaustive.py` (P13.1) | 45 |
+| `tests/test_bank_statement_import_exhaustive.py` (P13.2) | 95 |
 
 ### ROADMAP RESTANTE
 - **P10 — Terminée** : P10.1 persistance v1.0.2 FROZEN et identifiants isolés par tenant ; P10.2 middleware ASGI `TenantContextMiddleware` avec contrôle `X-Tenant-ID` / `ContextVar` ; P10.3 `RuleRegistryService` hiérarchique avec protection anti-traversée.
 - **P11 — Terminée** : P11.1 endpoint d'arbitrage HITL ; P11.2 persistance des règles candidates Obsidian ; P11.3 endpoint paginé de consultation/recherche ; P11.4 interface React / Next.js de rapprochement bancaire.
-- **P12 — Pipeline d'export comptable** : génération FEC conforme ; connecteurs/intégration ERP et logiciels comptables ; contrôles d'équilibre débit/crédit avant export.
+- **P12 — Terminée** : P12.1 export officiel FEC A.47 A-1, 18 colonnes et équilibre strict Débit = Crédit ; P12.2 exports CSV de révision comptable et des arbitrages protégés contre l'injection de formules ; P12.3 barre d'export avec filtres de dates et téléchargement blob.
+- **P13 — Terminée** : P13.1 store SQLite multi-tenant hermétique unifiant `FecEntryStore` et `ArbitrationStore` ; P13.2 parseur bancaire multi-formats avec déduplication SHA-256 déterministe et `POST /reconciliation/import` ; P13.3 bouton d'upload direct de relevé CSV dans l'interface React avec rapport d'ingestion.
+- **P14 — Phase active** : P14.1 architecture « Machine à états » OneDrive / Gmail — dossiers `00_` à `05_`, 8 catégories, fichier `_A_COMPLETER.xlsx` et synchronisation bidirectionnelle.
 - **Transverse** (voir `docs/NEXT_ACTIONS.md`) : agent d'édition documentaire, validation humaine des orientations et de la vérité terrain OCR, éventuelle décision sur le code Neo4j legacy.
 
 ---
@@ -147,6 +160,11 @@ graph LR
 | `schemas/vector_payload_schema.py` | pydantic | `persistence_manager`, `audit_qdrant_collections` | `tests/test_vector_payload_schema.py`, `tests/test_persistence_manager.py` | Arête 5 |
 | `tools/audit_qdrant_collections.py` | qdrant_client, `schemas/vector_payload_schema.py` | audit/assainissement Qdrant | `tests/test_qdrant_audit_service.py` | Arête 5 |
 | `services/neo4j_service.py`, `repositories/graph_repository.py` | neo4j (legacy) | **aucun appelant raccordé** | — | Arête 5 (legacy, voir contrat) |
+| `services/fec_export_service.py` | entrées comptables normalisées | `backend/app/routers/accounting_export.py` (`GET /accounting/export/fec`) | `tests/test_fec_export_exhaustive.py` | P12.1 |
+| `services/accounting_spreadsheet_export_service.py` | lignes de rapprochement et arbitrages | `backend/app/routers/accounting_export.py` (`GET /accounting/export/spreadsheet`) | `tests/test_accounting_spreadsheet_export_exhaustive.py` | P12.2 |
+| `services/sqlite_accounting_store.py` | sqlite3, `services/fec_export_service.py`, contrats d'arbitrage | `backend/app/routers/accounting_export.py`, `backend/app/routers/reconciliation_arbitration.py` (via `get_arbitration_store`) | `tests/test_sqlite_accounting_store_exhaustive.py` | P13.1 |
+| `services/bank_statement_parser_service.py` | csv, encodages, décimales ; hash SHA-256 déterministe | `backend/app/routers/reconciliation_arbitration.py` (`POST /reconciliation/import`) | `tests/test_bank_statement_import_exhaustive.py` | P13.2 |
+| `frontend/components/reconciliation/ReconciliationTable.tsx` | API de rapprochement, exports et import de relevé | interface de rapprochement, téléchargements FEC/CSV et upload CSV | — | P11.4 / P12.3 / P13.3 |
 
 ---
 
@@ -154,7 +172,7 @@ graph LR
 
 1. **Python** : toute commande DSH-Core utilise explicitement `A:\dsh-core\.venv-v3\Scripts\python.exe`.
 2. **Sécurité** : ne jamais afficher ni recopier les valeurs du `.env` ; aucun texte OCR réel vers Gemini/Copilot/cloud sans règle explicite.
-3. **Non-régression** : `pytest tests -q` = **2 486 tests passés hors-ligne, 2 skips conditionnés, 0 échec** ; contrat perception v1.0.1 et contrat persistance v1.0.2 gelés (toute évolution = phase + migration + incrément).
+3. **Non-régression** : `pytest tests -q` = **2 656 tests passés hors-ligne, 2 conditionnés, 0 échec** ; contrat perception v1.0.1 et contrat persistance v1.0.2 gelés (toute évolution = phase + migration + incrément).
 4. **Perception** : `DOCUMENT_PIPELINE=on` par défaut (opt-out `off`) ; `include_vector_drawings=False` en batch ; escalade cloud stricte (`SUPERVISOR_ESCALATION_MARKERS`) budgétée (`budget_max` entier).
 5. **Gouvernance règles/skills** : une règle Obsidian ou un `SupplierLayoutRule` ne devient `approved`/`active` qu'après confirmation humaine avec incrémentation de version.
 6. **Workflow documentaire** : toute nouvelle documentation vit dans `docs/`, porte le bloc de métadonnées `master_doc: PROJECT_HANDOVER.md`, et est référencée dans la table de routage ci-dessus.
