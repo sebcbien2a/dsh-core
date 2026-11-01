@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   ReconciliationLineStatus,
   ReconciliationLineView,
@@ -92,6 +92,40 @@ export default function ReconciliationTable({
   const [dateTo, setDateTo] = useState("");
   const [exporting, setExporting] = useState<ExportKind | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<{ imported: number; skipped: number } | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImport = useCallback(
+    async (file: File) => {
+      setImporting(true);
+      setImportError(null);
+      setImportResult(null);
+      try {
+        const form = new FormData();
+        form.append("file", file);
+        const response = await fetch(`${apiBaseUrl}/reconciliation/import`, {
+          method: "POST",
+          headers: { "X-Tenant-ID": tenantId },
+          body: form,
+        });
+        if (!response.ok) throw new Error(await exportErrorMessage(response));
+        const body = (await response.json()) as { imported?: unknown; skipped?: unknown };
+        setImportResult({
+          imported: typeof body.imported === "number" ? body.imported : 0,
+          skipped: typeof body.skipped === "number" ? body.skipped : 0,
+        });
+        setOffset(0);
+        setReloadKey((k) => k + 1);
+      } catch (e: unknown) {
+        setImportError(e instanceof Error ? e.message : "Erreur inconnue");
+      } finally {
+        setImporting(false);
+      }
+    },
+    [apiBaseUrl, tenantId],
+  );
 
   const handleExport = useCallback(
     async (kind: ExportKind) => {
@@ -206,8 +240,41 @@ export default function ReconciliationTable({
           onChange={(e) => setSearchInput(e.target.value)}
           className="w-72 rounded border border-gray-300 px-2 py-1 text-sm"
         />
+        <input
+          ref={importInputRef}
+          type="file"
+          accept=".csv,text/csv"
+          aria-label="Fichier de relevé bancaire"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (file) void handleImport(file);
+          }}
+        />
+        <button
+          type="button"
+          disabled={importing}
+          onClick={() => importInputRef.current?.click()}
+          className="rounded border border-gray-300 bg-white px-3 py-1 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {importing ? "Import en cours…" : "Importer un relevé (.csv)"}
+        </button>
         {loading && <span className="text-sm text-gray-500">Chargement…</span>}
       </div>
+
+      {importResult && (
+        <p role="status" className="text-sm text-green-700">
+          Import terminé : {importResult.imported} opération(s) importée(s), {importResult.skipped}{" "}
+          ignorée(s).
+        </p>
+      )}
+
+      {importError && (
+        <p role="alert" className="text-sm text-red-600">
+          Échec de l&apos;import ({importError}).
+        </p>
+      )}
 
       <div className="flex flex-wrap items-center gap-3">
         <label className="flex items-center gap-1 text-sm text-gray-700">
