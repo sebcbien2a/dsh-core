@@ -302,7 +302,12 @@ class SqliteAccountingStore:
         if limit < 0 or offset < 0:
             raise AccountingStoreError("INVALID_PAGINATION")
         return self._query_lines(
-            tenant_id, status=status, search=search, limit=limit, offset=offset
+            tenant_id,
+            status=status,
+            search=search,
+            limit=limit,
+            offset=offset,
+            include_rejected=status != "ALL",
         )
 
     def arbitrate(self, tenant_id: str, line_id: str, decision: dict[str, Any]) -> None:
@@ -347,6 +352,77 @@ class SqliteAccountingStore:
     def save_decision(self, tenant_id: str, line_id: str, decision: dict[str, Any]) -> None:
         self.arbitrate(tenant_id, line_id, decision)
 
+    def deactivate_rejected_document(self, tenant_id: str, sha256: str) -> bool:
+        """Force a document-flow line to ``REJETE`` (P14.3 "annule et remplace").
+
+        Explicit exception to the arbitration-preservation rule of
+        :meth:`upsert_document_line`: a rejected invoice must never stay active
+        in the reconciliation pool or the CSV exports. The arbitration decision
+        row is kept intact for audit. Returns ``True`` when the status changed.
+        """
+        from services.acompleter_workbook_service import derive_document_id
+
+        validate_tenant_id(tenant_id)
+        line_id = derive_document_id(sha256)
+        with closing(self._connect()) as conn, conn:
+            cursor = conn.execute(
+                "UPDATE reconciliation_lines SET status = ?"
+                " WHERE tenant_id = ? AND line_id = ? AND status != ?",
+                ("REJETE", tenant_id, line_id, "REJETE"),
+            )
+            return cursor.rowcount > 0
+
+    def upsert_document_line(
+        self, tenant_id: str, line_id: str, line: dict[str, Any]
+    ) -> str:
+        """Insert or refresh a document-flow line (P14.3 folder synchroniser).
+
+        Returns ``created`` when the line is new, ``updated`` when its document
+        fields (``label``, ``invoice_id``, ``invoice_url``, ``status``, ...) are
+        refreshed, and ``preserved`` when a human arbitration decision already
+        exists — the store's immutability invariant is never broken.
+        """
+        validate_tenant_id(tenant_id)
+        _validate_line_id(line_id)
+        values = [None if line.get(k) is None else str(line[k]) for k in _LINE_FIELDS]
+        status = str(line.get("status") or _PENDING)
+        with closing(self._connect()) as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                existing = conn.execute(
+                    "SELECT 1 FROM reconciliation_lines"
+                    " WHERE tenant_id = ? AND line_id = ?",
+                    (tenant_id, line_id),
+                ).fetchone()
+                if existing is None:
+                    conn.execute(
+                        "INSERT INTO reconciliation_lines"
+                        f" (tenant_id, line_id, {', '.join(_LINE_FIELDS)}, status, created_at)"
+                        f" VALUES (?, ?, {', '.join('?' for _ in _LINE_FIELDS)}, ?, ?)",
+                        (tenant_id, line_id, *values, status, _now()),
+                    )
+                    conn.execute("COMMIT")
+                    return "created"
+                decided = conn.execute(
+                    "SELECT 1 FROM arbitration_decisions"
+                    " WHERE tenant_id = ? AND line_id = ?",
+                    (tenant_id, line_id),
+                ).fetchone()
+                if decided is not None:
+                    conn.execute("COMMIT")
+                    return "preserved"
+                assignments = ", ".join(f"{field} = ?" for field in _LINE_FIELDS)
+                conn.execute(
+                    f"UPDATE reconciliation_lines SET {assignments}, status = ?"
+                    " WHERE tenant_id = ? AND line_id = ?",
+                    (*values, status, tenant_id, line_id),
+                )
+                conn.execute("COMMIT")
+                return "updated"
+            except BaseException:
+                conn.execute("ROLLBACK")
+                raise
+
     def save_candidate_rule(self, tenant_id: str, rule: dict[str, Any]) -> None:
         validate_tenant_id(tenant_id)
         if self.rule_writer is not None:
@@ -377,6 +453,7 @@ class SqliteAccountingStore:
         search: str | None = None,
         limit: int = -1,
         offset: int = 0,
+        include_rejected: bool = True,
     ) -> tuple[list[dict[str, Any]], int]:
         raw_status = "COALESCE(d.status, l.status, 'PENDING')"
         invoice = "COALESCE(d.invoice_id, l.invoice_id)"
@@ -388,6 +465,8 @@ class SqliteAccountingStore:
         if status != "ALL":
             where.append(f"{raw_status} = ?")
             params.append(status)
+        elif not include_rejected:
+            where.append("l.status != 'REJETE'")
         needle = search.strip().casefold() if search else ""
         if needle:
             escaped = needle.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")

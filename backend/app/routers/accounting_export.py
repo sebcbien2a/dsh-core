@@ -130,6 +130,8 @@ def export_spreadsheet(
         rows, total = store.list_lines(tenant_id, limit=_PAGE_SIZE, offset=offset)
         for row in rows:
             view = _to_view(row).model_dump()
+            if view.get("status") == "REJETE":
+                continue
             day = (view.get("operation_date") or "")[:10]
             if (date_from is not None and (not day or day < date_from.isoformat())) or (
                 date_to is not None and (not day or day > date_to.isoformat())

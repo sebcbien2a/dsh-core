@@ -398,7 +398,7 @@ def test_default_engine_has_template_skill_store(monkeypatch):
     not (REPO_ROOT / "workspace/invoices/input/facture_paintcar.pdf").is_file(),
     reason="Crisol control document is absent",
 )
-def test_crisol_perception_and_structure_use_template_without_llm():
+def test_crisol_perception_and_structure_use_template_without_llm(tmp_path):
     source = REPO_ROOT / "workspace/invoices/input/facture_paintcar.pdf"
     calls: list[tuple[str, TaskSpec]] = []
 
@@ -406,7 +406,11 @@ def test_crisol_perception_and_structure_use_template_without_llm():
         calls.append((text, task))
         return {"fallback": True}
 
-    store = TemplateSkillStore()
+    import shutil
+
+    skills_root = tmp_path / "workspace" / "skills"
+    shutil.copytree(REPO_ROOT / "workspace" / "skills", skills_root)
+    store = TemplateSkillStore(skills_root)
     engine = LocalDocumentEngine(skill_store=store, structured=structured)
     pipeline.reset_perception_cache()
     perception = perceive_document(source, engine=engine)

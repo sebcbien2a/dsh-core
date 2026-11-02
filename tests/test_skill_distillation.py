@@ -446,8 +446,14 @@ def test_local_engine_structure_bypasses_llm_with_template(tmp_path):
     assert fallback == {"fallback": True}
 
 
-def test_real_case_skills_apply_without_llm():
-    store = TemplateSkillStore()
+def test_real_case_skills_apply_without_llm(tmp_path):
+    import shutil
+
+    skills_root = tmp_path / "workspace" / "skills"
+    shutil.copytree(
+        Path(__file__).resolve().parents[1] / "workspace" / "skills", skills_root
+    )
+    store = TemplateSkillStore(skills_root)
     applier = TemplateSkillApplier(store)
     smtrt = store.load("invoice_smtrt_sas")
     edf = store.load("invoice_edf")
