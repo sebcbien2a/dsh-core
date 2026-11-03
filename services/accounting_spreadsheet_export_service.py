@@ -1303,6 +1303,34 @@ def _write_supplier_ledger_workbook(
     _atomic_save_workbook(workbook, output_path)
 
 
+def collect_supplier_diagnostics(
+    store: SupplierLedgerStore, tenant_id: str
+) -> tuple["SupplierDiagnosticEntry", ...]:
+    """Return every reconciliation diagnostic of one tenant (all suppliers).
+
+    Used by the background watcher to surface ``residual_delta != 0`` alerts in
+    the Obsidian accounting cockpit. The computation is the exact same one as
+    the supplier ledger export, so the cockpit and the workbook never diverge.
+    """
+    tenant = validate_tenant_id(tenant_id)
+    rows = store.list_supplier_ledger(tenant)
+    entries = _build_supplier_ledger_entries(rows)
+    groups = _group_supplier_entries(entries)
+    return tuple(
+        SupplierDiagnosticEntry(supplier=supplier, diagnostic=diagnostic)
+        for supplier, items in groups.items()
+        for diagnostic in _build_supplier_diagnostics(items)
+    )
+
+
+@dataclass(frozen=True)
+class SupplierDiagnosticEntry:
+    """One reconciliation diagnostic paired with its third party."""
+
+    supplier: str
+    diagnostic: SupplierLedgerDiagnostic
+
+
 class SupplierLedgerExporter:
     """Build the multi-supplier auxiliary ledger workbook."""
 

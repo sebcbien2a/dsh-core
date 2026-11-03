@@ -10,9 +10,9 @@ Point d'entrée maître : [docs/PROJECT_HANDOVER.md](docs/PROJECT_HANDOVER.md).
 |---|---|
 | Socle Document & Vision Pipeline (P0→P8.1) | v1.0.1 FROZEN — [contrat](docs/DOCUMENT_PERCEPTION_CONTRACT.md) |
 | Contrat de persistance | v1.0.2 FROZEN — identifiants isolés par tenant et SHA-256 — [contrat](docs/PERSISTENCE_QDRANT_NEO4J_CONTRACT.md) |
-| Phases P10→P13 | Terminées — isolation multi-tenant, rapprochement bancaire avec arbitrage HITL, exports comptables, persistance SQLite et ingestion bancaire |
-| Phase active P14 | Architecture « Machine à états » OneDrive / Gmail (P14.1) |
-| Tests | 2 656 passés hors-ligne, 0 échec, 2 conditionnés |
+| Phases P10→P16 | **Terminées** — isolation multi-tenant, rapprochement bancaire avec arbitrage HITL, exports comptables, persistance SQLite, ingestion bancaire, machine à états OneDrive / Gmail, Vault Obsidian, watcher de production et exports analytiques |
+| Chaîne de production P14 / P15 / P16 | **Terminée** — P14.1→P14.5 (machine à états, `_A_COMPLETER.xlsx`, synchronisation bidirectionnelle, ingestion `00_INBOX`, auto-export), P15.1→P15.3 (Vault Obsidian, `instructions.md`, watcher d'arrière-plan) et P16.1→P16.2 (synthèses par catégorie, grand livre fournisseur) |
+| Tests | 3 207 passés hors-ligne, 0 échec, 2 conditionnés |
 | Qdrant | purgé (0 point legacy) ; `docker/qdrant_storage` supprimé |
 | `services/neo4j_service.py`, `repositories/graph_repository.py` | non branchés (legacy) |
 
@@ -34,6 +34,8 @@ P13 est achevée — **Persistance durable & ingestion bancaire** :
 - **P13.2 — Parseur bancaire** : parseur multi-formats dans `services/bank_statement_parser_service.py`, déduplication par hash SHA-256 déterministe ; endpoint `POST /reconciliation/import` (multipart ou JSON) ; couverture dans [test_bank_statement_import_exhaustive.py](tests/test_bank_statement_import_exhaustive.py).
 - **P13.3 — Upload interface** : bouton « Importer un relevé (.csv) » dans [ReconciliationTable.tsx](frontend/components/reconciliation/ReconciliationTable.tsx), état d'import et rapport `{imported, skipped}`.
 
+P14 à P16 sont achevées — **chaîne de production documentaire et comptable** : machine à états `00_`→`05_`, classeur `_A_COMPLETER.xlsx`, ingestion automatique `00_INBOX`, watcher de fond, Vault Obsidian (entités fournisseurs, événements de validation, cockpit `01-contexte/cockpit_compta.md`) et exports analytiques (synthèse par catégorie, grand livre fournisseur avec diagnostic `residual_delta`). Le watcher régénère automatiquement les classeurs et le cockpit dès qu'un cycle valide, déplace ou rejette une pièce ; l'option `--no-auto-export` désactive ce rafraîchissement.
+
 ## Validation
 
 Toujours utiliser l'interpréteur du projet :
@@ -54,6 +56,8 @@ Suites exhaustives (hors-ligne) :
 - **P11** — Terminée : arbitrage HITL, persistance des règles candidates, consultation paginée/recherchable et interface de rapprochement.
 - **P12** — Terminée : exports FEC A.47 A-1 et CSV de révision/arbitrages, avec contrôles comptables et actions d'export dans l'interface.
 - **P13** — Terminée : store SQLite multi-tenant unifié, parseur bancaire avec déduplication SHA-256 et endpoint d'import, upload CSV dans l'interface React.
-- **P14** — Phase active : P14.1 architecture « Machine à états » OneDrive / Gmail — dossiers `00_` à `05_`, 8 catégories, fichier `_A_COMPLETER.xlsx` et synchronisation bidirectionnelle.
+- **P14** — Terminée : P14.1 modèle et arborescence `00_`→`05_` ; P14.2 classeur `_A_COMPLETER.xlsx` anti-conflit ; P14.3 synchronisation bidirectionnelle ; P14.4 ingestion automatique `00_INBOX` ; P14.5 rafraîchissement automatique des exports et du cockpit.
+- **P15** — Terminée : P15.1 Vault Obsidian et pont de validation comptable ; P15.2 moteur `instructions.md` (tarifs / PDF) ; P15.3 watcher d'arrière-plan avec verrou mono-instance.
+- **P16** — Terminée : P16.1 synthèse comptable par catégorie ; P16.2 grand livre auxiliaire fournisseur et diagnostics de rapprochement.
 
 Détails : [docs/PROJECT_HANDOVER.md](docs/PROJECT_HANDOVER.md), [docs/NEXT_ACTIONS.md](docs/NEXT_ACTIONS.md), [docs/collections_qdrant.md](docs/collections_qdrant.md), [QDRANT_INVENTORY.md](QDRANT_INVENTORY.md), [NEO4J_INVENTORY.md](NEO4J_INVENTORY.md).

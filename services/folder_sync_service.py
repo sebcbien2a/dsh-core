@@ -38,6 +38,11 @@ from services.acompleter_workbook_service import (
     derive_document_id,
 )
 from services.folder_tree_service import ensure_tree, validate_tenant_id
+from services.vault_accounting_bridge import (
+    STATUS_PARTIAL,
+    STATUS_WRITTEN,
+    VaultValidationRecord,
+)
 
 _CHUNK = 1 << 16
 _STATUT_VALIDE = DocumentStatus.VALIDE.value
@@ -64,6 +69,7 @@ class SyncReport:
     archived: int = 0
     manual_moves: int = 0
     skipped_invalid: int = 0
+    vault_events: int = 0
     traces: tuple[str, ...] = ()
 
 
@@ -101,6 +107,7 @@ class _Acc:
         self.archived = 0
         self.manual_moves = 0
         self.skipped_invalid = 0
+        self.vault_events = 0
         self.traces: list[str] = []
 
     def report(self, *, skipped: bool = False, deferred_lock: int = 0) -> SyncReport:
@@ -113,6 +120,7 @@ class _Acc:
             archived=self.archived,
             manual_moves=self.manual_moves,
             skipped_invalid=self.skipped_invalid,
+            vault_events=self.vault_events,
             traces=tuple(self.traces),
         )
 
@@ -125,12 +133,15 @@ class FolderSyncService:
         tenant_id: str,
         store: Any,
         root: str | os.PathLike[str] | None = None,
+        *,
+        vault_bridge: Any | None = None,
     ) -> None:
         self._tenant_id = validate_tenant_id(tenant_id)
         self._store = store
         self._tree = ensure_tree(self._tenant_id, root)
         self._workbook = AcompleterWorkbook(self._tree.root / self._tenant_id)
         self._last_seen: tuple[Any, Any] | None = None
+        self._vault_bridge = vault_bridge
 
     @property
     def tenant_id(self) -> str:
@@ -143,6 +154,10 @@ class FolderSyncService:
     @property
     def workbook(self) -> AcompleterWorkbook:
         return self._workbook
+
+    @property
+    def vault_bridge(self) -> Any | None:
+        return self._vault_bridge
 
     def workbook_signature(self) -> tuple[int, str]:
         """``(mtime_ns, sha256)`` of ``_A_COMPLETER.xlsx`` (detection key)."""
@@ -297,6 +312,10 @@ class FolderSyncService:
             "category": category.value if category is not None else None,
             "status": status,
         }
+        existing = self._store.get_line(self._tenant_id, doc_id) or {}
+        for key, value in existing.items():
+            if line.get(key) is None and value is not None:
+                line[key] = value
         return self._store.upsert_document_line(self._tenant_id, doc_id, line)
 
     def _process_manual_moves(
@@ -318,10 +337,14 @@ class FolderSyncService:
                 self._cancel_validated(acc, dest_path, digest)
                 continue
             rel_path = dest_path.relative_to(self._tenant_dir()).as_posix()
+            line = self._store_line(digest)
             self._persist(digest, dest_path.name, _STATUT_VALIDE, rel_path, category)
             self._workbook.align_statut(digest, DocumentStatus.VALIDE)
             acc.manual_moves += 1
             acc.traces.append(f"{digest}:MANUAL_MOVED:{rel_path}")
+            self._notify_vault(
+                acc, digest, dest_path.name, category, rel_path, line
+            )
 
     def _process_rows(self, acc: _Acc, inbox_by_hash: dict[str, Path]) -> None:
         for row in self._workbook.read_rows():
@@ -350,10 +373,12 @@ class FolderSyncService:
             self._archive(source, acc, "DEST_EXISTS")
             return
         rel_path = dest.relative_to(self._tenant_dir()).as_posix()
+        line = self._store_line(digest)
         self._persist(digest, source.name, _STATUT_VALIDE, rel_path, category)
         os.replace(source, dest)
         acc.moved_to_03 += 1
         acc.traces.append(f"{digest}:02_A_COMPLETER->{rel_path}")
+        self._notify_vault(acc, digest, source.name, category, rel_path, line)
 
     def _process_rejete(
         self, acc: _Acc, row: Any, digest: str, source: Path
@@ -375,6 +400,52 @@ class FolderSyncService:
         acc.archived += 1
         acc.traces.append(f"{digest}:03_VALIDE_PRET_FEC->{rel_path}")
 
+    def _store_line(self, digest: str) -> dict[str, Any] | None:
+        return self._store.get_line(self._tenant_id, derive_document_id(digest))
+
+    def _notify_vault(
+        self,
+        acc: _Acc,
+        digest: str,
+        nom_fichier: str,
+        category: DocumentCategory | None,
+        rel_path: str,
+        line: dict[str, Any] | None,
+    ) -> None:
+        """Export the validation to the vault; never block the accounting move."""
+        if self._vault_bridge is None:
+            return
+        values = line or {}
+        label = str(values.get("label") or "").strip()
+        invoice_number = label if label and label != nom_fichier else None
+        try:
+            record = VaultValidationRecord(
+                tenant_id=self._tenant_id,
+                sha256=digest,
+                nom_fichier=nom_fichier,
+                supplier_name=values.get("counterparty"),
+                invoice_number=invoice_number,
+                issue_date=values.get("operation_date"),
+                amount_ht=values.get("amount_ht"),
+                amount_ttc=values.get("amount_ttc"),
+                category=(
+                    category.value
+                    if category is not None
+                    else values.get("category")
+                ),
+                document_id=values.get("invoice_id") or derive_document_id(digest),
+                relative_path=rel_path,
+                currency=values.get("currency") or "EUR",
+            )
+            result = self._vault_bridge.notify_validated(record)
+        except Exception as exc:
+            acc.traces.append(f"{digest}:VAULT_ERROR:{_error_detail(exc)}")
+            return
+        status = getattr(result, "status", "failed")
+        acc.traces.append(f"{digest}:VAULT:{status}")
+        if status in (STATUS_WRITTEN, STATUS_PARTIAL):
+            acc.vault_events += 1
+
     def _store_status(self, digest: str) -> str | None:
         line = self._store.get_line(self._tenant_id, derive_document_id(digest))
         if line is None:
@@ -385,3 +456,10 @@ class FolderSyncService:
         deactivate = getattr(self._store, "deactivate_rejected_document", None)
         if callable(deactivate):
             deactivate(self._tenant_id, digest)
+
+
+def _error_detail(exc: BaseException) -> str:
+    code = getattr(exc, "code", None)
+    label = code if isinstance(code, str) and code else type(exc).__name__.upper()
+    message = str(exc).strip()
+    return f"{label}: {message}" if message and message != label else label

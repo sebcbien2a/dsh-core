@@ -1,20 +1,20 @@
 ---
 master_doc: PROJECT_HANDOVER.md
-branch_domain: P14/P15 — Machine à états OneDrive / Gmail & Couche Obsidian Vault
-contract_version: 1.2.0
-status: ACTIVE
+branch_domain: P14/P15/P16 — Machine à états OneDrive / Gmail, Couche Obsidian Vault & production
+contract_version: 1.3.0
+status: FROZEN
 upstream_dependencies: [docs/PROJECT_HANDOVER.md, docs/PERSISTENCE_QDRANT_NEO4J_CONTRACT.md, services/document_pipeline.py, services/sqlite_accounting_store.py]
-downstream_consumers: [schemas/folder_state_schema.py (P14.1), services/folder_tree_service.py (P14.1), services/acompleter_workbook_service.py (P14.2), services/folder_sync_service.py (P14.3), schemas/obsidian_vault_schema.py (P15.1), services/obsidian_vault_service.py (P15.1), schemas/declarative_task_schema.py (P15.2), services/declarative_tarif_service.py (P15.2), services/declarative_pdf_service.py (P15.2), services/instructions_task_engine.py (P15.2)]
-verification_tests: [tests/test_folder_state_model_exhaustive.py (P14.1), tests/test_acompleter_workbook_exhaustive.py (P14.2), tests/test_folder_sync_service_exhaustive.py (P14.3), tests/test_obsidian_vault_service_exhaustive.py (P15.1), tests/test_declarative_workflows_exhaustive.py (P15.2)]
+downstream_consumers: [schemas/folder_state_schema.py (P14.1), services/folder_tree_service.py (P14.1), services/acompleter_workbook_service.py (P14.2), services/folder_sync_service.py (P14.3), services/inbox_ingestion_service.py (P14.4), services/document_flow_watcher.py (P14.5 / P15.3), schemas/obsidian_vault_schema.py (P15.1), services/obsidian_vault_service.py (P15.1), services/vault_accounting_bridge.py (P15.1), schemas/declarative_task_schema.py (P15.2), services/declarative_tarif_service.py (P15.2), services/declarative_pdf_service.py (P15.2), services/instructions_task_engine.py (P15.2), services/accounting_spreadsheet_export_service.py (P16.1/P16.2)]
+verification_tests: [tests/test_folder_state_model_exhaustive.py (P14.1), tests/test_acompleter_workbook_exhaustive.py (P14.2), tests/test_folder_sync_service_exhaustive.py (P14.3), tests/test_inbox_ingestion_exhaustive.py (P14.4), tests/test_obsidian_vault_service_exhaustive.py (P15.1), tests/test_vault_accounting_bridge_exhaustive.py (P15.1), tests/test_declarative_workflows_exhaustive.py (P15.2), tests/test_document_flow_watcher_exhaustive.py (P14.5/P15.3), tests/test_category_summary_export_exhaustive.py (P16.1), tests/test_supplier_ledger_export_exhaustive.py (P16.2)]
 ---
 
-# P14 / P15 — Spécification formelle : Machine à états OneDrive / Gmail & Couche Obsidian Vault
+# P14 / P15 / P16 — Spécification formelle : Machine à états OneDrive / Gmail, Couche Obsidian Vault & chaîne de production
 
-> Document de cadrage **avant implémentation**. Il fige la spec de la phase active **P14** (dossiers `00_` à `05_`, 8 catégories, `_A_COMPLETER.xlsx`, synchronisation bidirectionnelle) et définit la phase **P15** (Obsidian Vault, workflows `instructions.md`). Aucune ligne de code P14 n'est écrite avant validation de ce document.
+> Document de cadrage **clos** : il fige l'architecture finale **P14.1→P14.5** (dossiers `00_` à `05_`, 8 catégories, `_A_COMPLETER.xlsx`, synchronisation bidirectionnelle, ingestion `00_INBOX`, rafraîchissement automatique des exports), **P15.1→P15.3** (Vault Obsidian, workflows `instructions.md`, watcher d'arrière-plan) et **P16.1→P16.2** (synthèses par catégorie, grand livre fournisseur).
 
 ## 0. Principes non négociables
 
-1. **Non-régression** : base `pytest tests -q` = 3 066 tests passés hors-ligne, 2 conditionnés, 0 échec. Chaque sous-phase P14.x / P15.x ajoute ses tests sans modifier les tests existants.
+1. **Non-régression** : base `pytest tests -q` = 3 207 tests passés hors-ligne, 2 conditionnés, 0 échec. Chaque sous-phase P14.x / P15.x / P16.x ajoute ses tests sans modifier les tests existants.
 2. **Hors-ligne** : P14 (et P15.2) ne passent aucun appel réseau ; toute dépendance externe est importée en lazy (openpyxl / pandas déjà en usage dans le dépôt).
 3. **Non-destructif** : jamais de suppression ni d'écrasement d'une donnée humaine (ligne `_A_COMPLETER.xlsx` complétée, fichier déplacé manuellement).
 4. **Déterministe & idempotent** : mêmes entrées → mêmes sorties ; clé d'unicité = **hash SHA-256** du document (aligné sur la déduplication P13.2).
@@ -123,7 +123,23 @@ Sous-dossiers ou préfixes normalisés **dans `03_` et `04_`** uniquement (chemi
 
 **Tests hors-ligne** : `tests/test_folder_sync_service_exhaustive.py` — transitions complètes, idempotence, verrou `~$`, déplacement manuel prioritaire, intégration SQLite sur base temporaire, annule et remplace (`03_`→`05_` + désactivation store + exclusion du pool / exports CSV).
 
-## 2. P15 — Couche Obsidian Vault & workflows déclaratifs (définie, non implémentée)
+### 1.6 P14.4 — Ingestion automatique `00_INBOX` (`services/inbox_ingestion_service.py`) — **IMPLÉMENTÉ**
+
+- **Objectif** : automatiser la prise en charge des fichiers déposés en `00_INBOX` sans intervention humaine.
+- **Déroulé** : parcours du tenant, calcul du SHA-256, rejet des doublons déjà connus de `SqliteAccountingStore` ou présents sous `05_ARCHIVE_ERREUR` (déplacement tracé, jamais de suppression), déplacement atomique vers `01_EN_COURS`, extraction réelle via `PdfInvoiceProducer` / `services/document_pipeline.py` (texte natif déterministe, repli vision locale lazy pour les scans).
+- **Routage conditionnel** : champs complets + confiance ≥ 0,75 → `03_VALIDE_PRET_FEC/<CATEGORIE>/` + ligne `VALIDE` dans le store ; champs manquants, catégorie `DIVERS_A_CLASSER` ou confiance faible → `02_A_COMPLETER/` + ligne `EN_ATTENTE` et upsert non destructif `_A_COMPLETER.xlsx` ; fichier illisible / corrompu / extraction en échec → `05_ARCHIVE_ERREUR/`.
+- **API** : `process_inbox(paths=None)` (scan complet ou sous-ensemble stabilisé fourni par le watcher) ; rapport `InboxIngestionReport` (`scanned`, `duplicates`, `moved_to_03`, `moved_to_02`, `archived`, `rows_written`, `rows_updated`, `deferred_lock`, `vault_events`, `documents`, `traces`).
+- **Tests** : `tests/test_inbox_ingestion_exhaustive.py` (31 tests).
+
+### 1.7 P14.5 — Rafraîchissement automatique de production (`services/document_flow_watcher.py`) — **IMPLÉMENTÉ**
+
+- **Option** : `DocumentFlowWatcher(..., auto_export=True)` (défaut) et flag CLI `--no-auto-export` dans `scripts/run_document_watcher.py`.
+- **Déclencheur** : uniquement lorsqu'un cycle `run_once()` a effectivement validé, déplacé ou rejeté au moins une pièce (`moved_to_03`, `moved_to_02`, `archived`, `manual_moves`).
+- **Effets** : régénération des classeurs `CategorySummaryExporter` pour les catégories impactées et du `SupplierLedgerExporter` sous `workspace/exports/accounting/<tenant>/`, puis écriture/mise à jour de `01-contexte/cockpit_compta.md` (compteur `02_A_COMPLETER`, dernières pièces validées par catégorie, alertes `residual_delta != 0` via `collect_supplier_diagnostics`).
+- **Robustesse** : toute erreur d'export est capturée dans `WatcherCycleReport.export_errors` et tracée (`AUTO_EXPORT_ERROR:*`) sans interrompre le flux documentaire ; les exports partiels restent disponibles.
+- **Tests** : `tests/test_document_flow_watcher_exhaustive.py` (15 tests, dont 5 dédiés à l'auto-export et au cockpit).
+
+## 2. P15 — Couche Obsidian Vault & workflows déclaratifs — **IMPLÉMENTÉE**
 
 ### 2.1 P15.1 — Bridge Obsidian Vault (`schemas/obsidian_vault_schema.py` / `services/obsidian_vault_service.py`) — **IMPLÉMENTÉ**
 
@@ -142,6 +158,7 @@ Sous-dossiers ou préfixes normalisés **dans `03_` et `04_`** uniquement (chemi
   - Lecture seule stricte ; les budgets sont lus dans `_system/schema.yaml`.
 - **`rag_sync` & `chunk_by_heading`** : découpage sémantique des fichiers Markdown de `03-rag/` **par titres H2/H3** (préambule H1 conservé comme chunk `heading_level=0`), sous-découpage des sections longues en fenêtres `max_chars=2000` avec recouvrement `overlap=0.15` ; **idempotence par hash SHA-256** du fichier (skip intégral si non modifié, index `_system/rag_sync_index.yaml`, écriture atomique) ; upsert des chunks dans un **client Qdrant injectable/mockable** (`VectorStoreClient.upsert/delete`, payload `{source, heading, heading_level, index, text, sha256}`), ids de chunks dérivés par hash (`uuid5(NAMESPACE_URL, "rag:<source>:<index>:<sha256>"`) et purge des ids périmés à chaque re-synchronisation.
 - **Tests** : `tests/test_obsidian_vault_service_exhaustive.py` (162 tests hors-ligne) — arborescence et `schema.yaml`, écritures `vault_writer`, non-régression sur notes humaines (source / lock / divergence, octets stables), budgets de tokens `vault_reader`, chunking H2/H3 et `rag_sync` avec Qdrant mocké.
+- **Câblage comptable P14/P16 (`services/vault_accounting_bridge.py`)** : `VaultAccountingBridge` / `VaultValidationRecord` / `VaultBridgeReport` branchés sur `InboxIngestionService` (validation directe `03_`) et `FolderSyncService` (`VALIDE` Excel + déplacement manuel) ; chaque pièce validée enrichit `04-graph/entities/{fournisseur}.md` (relations `achat` → `[[piece-...]]`, résumé dernière date/montant/catégorie, slugs déterministes) et écrit `05-memoire/events/validation-{document_id}.md` via `VaultWriter.write_event` ; échec Vault non bloquant (`written` / `partial` / `failed`, trace `VAULT_ERROR`), la ligne SQLite et le déplacement vers `03_VALIDE_PRET_FEC` restent intacts. Couverture : `tests/test_vault_accounting_bridge_exhaustive.py` (22 tests).
 
 ### 2.2 P15.2 — Moteur de tâches déclaratives par dossier (`instructions.md`) — **IMPLÉMENTÉ**
 
@@ -158,19 +175,47 @@ Sous-dossiers ou préfixes normalisés **dans `03_` et `04_`** uniquement (chemi
 - **Orchestrateur (`services/instructions_task_engine.py`)** : `InstructionsTaskEngine` / `run_instructions_task(root)` chargent le dossier, parsent `instructions.md` une fois et dispatchent vers le service de tarifs ou de PDF.
 - **Tests** : `tests/test_declarative_workflows_exhaustive.py` (58 tests hors-ligne) — anti-traversée et layout, parseur/détection, garantie absolue de non-suppression, `ancien_prix`, déductions `prix_kg` ↔ conditionnement, défusion des données, formatage et log d'audit, workflow PDF de bout en bout (extraction, opérations, template, ReportLab natif, fallback WeasyPrint → ReportLab, injection de renderer, PyMuPDF).
 
-## 3. Découpage atomique P14 / P15 (ordre strict d'implémentation)
+### 2.3 P15.3 — Watcher d'arrière-plan du flux documentaire (`services/document_flow_watcher.py` / `scripts/run_document_watcher.py`) — **IMPLÉMENTÉ**
+
+- **Surveillance** : `DocumentFlowWatcher` scrute en continu `00_INBOX` et le classeur humain ; ingestion uniquement des fichiers dont taille + `mtime` sont stables pendant `settle_delay` (évite les lectures partielles OneDrive / scans en cours) via `InboxIngestionService.process_inbox(paths)`.
+- **Cycle** : chaque `run_once()` enchaîne ingestion stabilisée puis `FolderSyncService.sync_human_to_pipeline()` après contrôle du verrou `~$*.xlsx` (sync différée et cycle non bloquant si Excel est ouvert).
+- **Boucle & verrou** : `run_forever()` avec `poll_interval`, arrêt propre `KeyboardInterrupt` / `SIGINT` / `SIGTERM`, verrou mono-instance `.watcher.lock` par tenant (`WatcherAlreadyRunningError`).
+- **CLI** : `scripts/run_document_watcher.py --tenant default --interval 5 [--settle-delay 2] [--once] [--no-auto-export]`, logs concis (détection, routage `02_`/`03_`/`05_`, synchronisation Excel, exports).
+- **Tests** : `tests/test_document_flow_watcher_exhaustive.py` (15 tests, dont stabilisation, verrou, boucle et auto-export / cockpit).
+
+## 3. P16 — Exports analytiques comptables — **IMPLÉMENTÉE**
+
+### 3.1 P16.1 — Synthèse par catégorie (`CategorySummaryExporter.export_category_summary`)
+
+- **Source** : `SqliteAccountingStore.list_category_lines` (catégorie explicite ou inférée du segment `<ETAT>/<CATEGORIE>/` de `invoice_url`, isolation tenant) ; exclusion stricte des pièces `REJETE`.
+- **Sortie** : classeur `openpyxl` normé (Date pièce / Tiers / N° Pièce / Réf externe / HT / TVA / TTC / Statut lettrage-rapprochement), filtres, volets figés, bordures, largeurs auto-ajustées, ligne `TOTAL` en formules `=SUM`, aucune cellule de données fusionnée, neutralisation des formules injectées, écriture atomique sous `workspace/exports/accounting/<tenant>/`.
+- **Tests** : `tests/test_category_summary_export_exhaustive.py` (48 tests).
+
+### 3.2 P16.2 — Grand livre auxiliaire par fournisseur (`SupplierLedgerExporter.export_supplier_ledger`)
+
+- **Source** : `SqliteAccountingStore.list_supplier_ledger(tenant_id, supplier=None)` ; exclusion stricte des pièces `REJETE`, des documents non validés et des dépenses personnelles.
+- **Sortie** : un onglet par tiers (ou un tiers filtré), colonnes Date / Type (FACTURE, AVOIR, PAIEMENT) / N° Pièce-Réf / Libellé / Débit / Crédit / Solde Cumulé / Code Lettrage-Statut ; numéro de pièce fournisseur extrait du libellé ou des métadonnées (repli UUID tronqué uniquement en l'absence de numéro), formules de solde progressif, totaux Débit/Crédit/Solde final, points d'équilibre, diagnostic combinatoire `Factures - Avoirs = Paiement` (jusqu'à 30 pièces) et `residual_delta` ; écriture atomique sous `workspace/exports/accounting/<tenant>/`.
+- **Diagnostics partagés** : `collect_supplier_diagnostics(store, tenant_id)` expose les mêmes calculs au cockpit Obsidian (`residual_delta != 0`).
+- **Tests** : `tests/test_supplier_ledger_export_exhaustive.py` (25 tests).
+
+## 4. Découpage atomique P14 / P15 / P16 (ordre strict d'implémentation)
 
 | Sous-phase | Livrables | Tests |
 |---|---|---|
 | **P14.1 — Modèle de données + arborescence** | `schemas/folder_state_schema.py` (enums, `DocumentStateRecord`, liste fermée des champs manquants) ; `services/folder_tree_service.py` (`ensure_tree`, validation états / catégories, anti-traversée) | `tests/test_folder_state_model_exhaustive.py` |
 | **P14.2 — Gestionnaire `_A_COMPLETER.xlsx` anti-conflit** | `services/acompleter_workbook_service.py` (ajout non-destructif, idempotence par hash, détection `~$*.xlsx`, écriture atomique `os.replace`) | `tests/test_acompleter_workbook_exhaustive.py` |
 | **P14.3 — Synchronisation bidirectionnelle** | `services/folder_sync_service.py` (Pipeline → Humain, Humain → Pipeline avec mise à jour `SqliteAccountingStore`, déplacement `02_` → `03_VALIDE_PRET_FEC/<CATEGORIE>/`, annule et remplace `03_` → `05_/REJET_MANUEL/` + désactivation store, archivage `05_`) | `tests/test_folder_sync_service_exhaustive.py` |
-| **P15.1 — Bridge Obsidian Vault** | `schemas/obsidian_vault_schema.py` (types, routage, contraintes, arborescence `OBSIDIAN_VAULT_PATH`) ; `services/obsidian_vault_service.py` (`ensure_vault_tree`, `VaultWriter`, `VaultReader`, `chunk_by_heading`, `rag_sync`) | `tests/test_obsidian_vault_service_exhaustive.py` |
+| **P14.4 — Ingestion automatique `00_INBOX`** | `services/inbox_ingestion_service.py` (SHA-256, doublons, `00_`→`01_` atomique, extraction réelle, routage `03_`/`02_`+Excel/`05_`, `process_inbox(paths)`) ; `scripts/run_e2e_p14_p16.py` | `tests/test_inbox_ingestion_exhaustive.py` |
+| **P14.5 — Rafraîchissement automatique** | `services/document_flow_watcher.py` (`auto_export`, `CategorySummaryExporter`, `SupplierLedgerExporter`, cockpit `01-contexte/cockpit_compta.md`) ; `scripts/run_document_watcher.py` | `tests/test_document_flow_watcher_exhaustive.py` |
+| **P15.1 — Bridge Obsidian Vault** | `schemas/obsidian_vault_schema.py` (types, routage, contraintes, arborescence `OBSIDIAN_VAULT_PATH`) ; `services/obsidian_vault_service.py` (`ensure_vault_tree`, `VaultWriter`, `VaultReader`, `chunk_by_heading`, `rag_sync`) ; `services/vault_accounting_bridge.py` (validation comptable non bloquante) | `tests/test_obsidian_vault_service_exhaustive.py`, `tests/test_vault_accounting_bridge_exhaustive.py` |
 | **P15.2 — Moteur `instructions.md`** | `schemas/declarative_task_schema.py` (dossier projet, parseur tolérant, sections, détection de workflow, `ensure_contained`) ; `services/declarative_tarif_service.py` (fusion non destructive, déductions de prix, réparation openpyxl, sortie atomique + audit) ; `services/declarative_pdf_service.py` (extraction PyMuPDF, opérations déclaratives, gabarit HTML/CSS, fallback WeasyPrint → ReportLab → PyMuPDF) ; `services/instructions_task_engine.py` (dispatch) | `tests/test_declarative_workflows_exhaustive.py` |
+| **P15.3 — Watcher d'arrière-plan** | `services/document_flow_watcher.py` (`run_once`, `run_forever`, stabilisation taille/mtime, verrou `.watcher.lock`, auto-export non bloquant) ; `scripts/run_document_watcher.py` | `tests/test_document_flow_watcher_exhaustive.py` |
+| **P16.1 — Synthèse par catégorie** | `services/accounting_spreadsheet_export_service.py` (`CategorySummaryExporter`) ; migration `category` / `amount_*` dans `services/sqlite_accounting_store.py` | `tests/test_category_summary_export_exhaustive.py` |
+| **P16.2 — Grand livre fournisseur** | `services/accounting_spreadsheet_export_service.py` (`SupplierLedgerExporter`, `collect_supplier_diagnostics`) ; migration `document_type` + index fournisseur dans `services/sqlite_accounting_store.py` | `tests/test_supplier_ledger_export_exhaustive.py` |
 
-Chaque sous-phase se clôture par `.\.venv-v3\Scripts\python.exe -m pytest tests -q` = suite existante + nouveaux tests de la sous-phase, 0 échec (baseline courante : **3 066 tests passés**, 2 conditionnés).
+Chaque sous-phase se clôture par `.\.venv-v3\Scripts\python.exe -m pytest tests -q` = suite existante + nouveaux tests de la sous-phase, 0 échec (baseline courante : **3 207 tests passés**, 2 conditionnés).
 
-## 4. Décisions arrêtées (arbitrages officiels — §4 clos)
+## 5. Décisions arrêtées (arbitrages officiels — §5 clos)
 
 1. **Racine & tenant** : racine configurable par la variable d'environnement `DSH_DOCUMENT_FLOW_ROOT` (défaut `workspace/document_flow`, local ou dossier synchronisé OneDrive) ; sous-arborescence isolée par `tenant_id` : `<root>/<tenant_id>/00_INBOX`, etc. (isolation P10.1 respectée).
 2. **Champs manquants** : enum fermé `MissingFieldEnum` = `["date_piece", "numero_piece", "nom_fournisseur", "montant_ht", "montant_tva", "montant_ttc", "categorie", "taux_tva"]`.
@@ -179,4 +224,4 @@ Chaque sous-phase se clôture par `.\.venv-v3\Scripts\python.exe -m pytest tests
 
 ---
 
-*Source de vérité pour P14 / P15 ; le handover (`docs/PROJECT_HANDOVER.md`) reste le point d'entrée maître.*
+*Source de vérité pour P14 / P15 / P16 ; le handover (`docs/PROJECT_HANDOVER.md`) reste le point d'entrée maître.*

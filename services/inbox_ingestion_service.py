@@ -30,7 +30,7 @@ import os
 import re
 import shutil
 import unicodedata
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
@@ -54,6 +54,11 @@ from services.acompleter_workbook_service import (
 )
 from services.folder_tree_service import ensure_tree, validate_tenant_id
 from services.invoice_producer_protocol import PdfInvoiceProducer
+from services.vault_accounting_bridge import (
+    STATUS_PARTIAL,
+    STATUS_WRITTEN,
+    VaultValidationRecord,
+)
 
 _CHUNK = 1 << 16
 _CENT = Decimal("0.01")
@@ -463,6 +468,7 @@ class InboxIngestionReport:
     rows_written: int = 0
     rows_updated: int = 0
     deferred_lock: int = 0
+    vault_events: int = 0
     documents: tuple[IngestedDocument, ...] = ()
     traces: tuple[str, ...] = ()
 
@@ -477,6 +483,7 @@ class _Accumulator:
         self.rows_written = 0
         self.rows_updated = 0
         self.deferred_lock = 0
+        self.vault_events = 0
         self.documents: list[IngestedDocument] = []
         self.traces: list[str] = []
 
@@ -490,6 +497,7 @@ class _Accumulator:
             rows_written=self.rows_written,
             rows_updated=self.rows_updated,
             deferred_lock=self.deferred_lock,
+            vault_events=self.vault_events,
             documents=tuple(self.documents),
             traces=tuple(self.traces),
         )
@@ -506,12 +514,14 @@ class InboxIngestionService:
         *,
         extractor: Callable[[Path], Any] | None = None,
         confidence_threshold: float = _DEFAULT_CONFIDENCE_THRESHOLD,
+        vault_bridge: Any | None = None,
     ) -> None:
         self._tenant_id = validate_tenant_id(tenant_id)
         self._store = store
         self._tree = ensure_tree(self._tenant_id, root)
         self._workbook = AcompleterWorkbook(self._tree.root / self._tenant_id)
         self._extractor = extractor if extractor is not None else PipelineDocumentExtractor()
+        self._vault_bridge = vault_bridge
         threshold = _clamp_confidence(confidence_threshold)
         if threshold != confidence_threshold:
             raise ValueError("confidence_threshold must be between 0 and 1")
@@ -529,17 +539,37 @@ class InboxIngestionService:
     def workbook(self) -> AcompleterWorkbook:
         return self._workbook
 
+    @property
+    def vault_bridge(self) -> Any | None:
+        return self._vault_bridge
+
     def ingest_inbox(self) -> InboxIngestionReport:
         """Scan ``00_INBOX`` and route every file; never raises on one file."""
+        return self.process_inbox()
+
+    def process_inbox(
+        self, paths: Iterable[str | Path] | None = None
+    ) -> InboxIngestionReport:
+        """Route ``00_INBOX`` files, optionally restricted to stabilised paths.
+
+        ``paths=None`` keeps the historical full-scan behaviour used by
+        :meth:`ingest_inbox`. When an explicit iterable is supplied (the
+        background watcher only passes files whose size and ``mtime`` have
+        settled), every entry must resolve inside ``00_INBOX``; anything else
+        is ignored so a bad caller can never pull a file from another folder.
+        """
         inbox = self._tree.state_dir(FolderState.INBOX)
         acc = _Accumulator()
         archived_hashes = self._archived_hashes()
         claimed: set[str] = set()
-        paths = sorted(
-            (path for path in inbox.iterdir() if path.is_file()),
-            key=lambda item: item.name,
-        )
-        for path in paths:
+        if paths is None:
+            candidates = sorted(
+                (path for path in inbox.iterdir() if path.is_file()),
+                key=lambda item: item.name,
+            )
+        else:
+            candidates = self._select_inbox_paths(inbox, paths)
+        for path in candidates:
             acc.scanned += 1
             try:
                 digest = _file_sha256(path)
@@ -556,6 +586,26 @@ class InboxIngestionService:
             claimed.add(digest)
             self._ingest_one(path, digest, acc)
         return acc.report()
+
+    @staticmethod
+    def _select_inbox_paths(
+        inbox: Path, paths: Iterable[str | Path]
+    ) -> list[Path]:
+        inbox_resolved = inbox.resolve()
+        selected: list[Path] = []
+        seen: set[Path] = set()
+        for raw in paths:
+            try:
+                candidate = Path(raw).resolve()
+            except (OSError, TypeError, ValueError):
+                continue
+            if candidate in seen or not candidate.is_file():
+                continue
+            if candidate.parent != inbox_resolved:
+                continue
+            seen.add(candidate)
+            selected.append(candidate)
+        return sorted(selected, key=lambda item: item.name)
 
     # -- pipeline --------------------------------------------------------
 
@@ -625,6 +675,7 @@ class InboxIngestionService:
         self._persist(digest, nom_fichier, DocumentStatus.VALIDE, rel_path, extracted)
         _move(source, destination)
         acc.moved_to_03 += 1
+        self._notify_vault(digest, nom_fichier, rel_path, category, extracted, acc)
         acc.documents.append(
             IngestedDocument(
                 nom_fichier=nom_fichier,
@@ -708,6 +759,42 @@ class InboxIngestionService:
         acc.traces.append(f"{digest}:01_EN_COURS->{rel_path}")
 
     # -- persistence -----------------------------------------------------
+
+    def _notify_vault(
+        self,
+        digest: str,
+        nom_fichier: str,
+        rel_path: str,
+        category: DocumentCategory,
+        extracted: ExtractedInvoice,
+        acc: _Accumulator,
+    ) -> None:
+        """Mirror the validation into the vault without ever failing the route."""
+        if self._vault_bridge is None:
+            return
+        try:
+            record = VaultValidationRecord(
+                tenant_id=self._tenant_id,
+                sha256=digest,
+                nom_fichier=nom_fichier,
+                supplier_name=extracted.supplier_name,
+                invoice_number=extracted.invoice_number,
+                issue_date=extracted.issue_date,
+                amount_ht=extracted.amount_ht,
+                amount_ttc=extracted.amount_ttc,
+                category=category.value,
+                document_id=derive_document_id(digest),
+                relative_path=rel_path,
+                currency=extracted.currency,
+            )
+            result = self._vault_bridge.notify_validated(record)
+        except Exception as exc:
+            acc.traces.append(f"{digest}:VAULT_ERROR:{_error_detail(exc)}")
+            return
+        status = getattr(result, "status", "failed")
+        acc.traces.append(f"{digest}:VAULT:{status}")
+        if status in (STATUS_WRITTEN, STATUS_PARTIAL):
+            acc.vault_events += 1
 
     def _persist(
         self,

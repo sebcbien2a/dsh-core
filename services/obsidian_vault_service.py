@@ -44,8 +44,10 @@ import yaml
 
 from schemas.obsidian_vault_schema import (
     ACTIVE_CONTEXT_FILE,
+    CONTEXT_DIR,
     DEFAULT_VAULT_ROOT,
     ENTITIES_DIR,
+    EVENTS_DIR,
     FACTS_DIR,
     PROJECTS_DIR,
     RAG_DIR,
@@ -607,6 +609,122 @@ class VaultWriter:
         }
         return self._commit(
             path, frontmatter, body, NoteType.ENTITY.value, existing
+        )
+
+    # -- dated events --------------------------------------------------------
+
+    def write_event(
+        self,
+        event_id: str,
+        *,
+        entity: str,
+        summary: str,
+        occurred_at: str | None = None,
+        links: Iterable[str] = (),
+        source: str | NoteSource = NoteSource.AGENT,
+    ) -> WriteResult:
+        """Write one dated event in ``05-memoire/events/{event_id}.md``.
+
+        Events are the append-only memory of business milestones (invoice
+        validation, uploads, reconciliation). The file name only depends on
+        ``event_id`` so replaying the same event is idempotent, and the usual
+        human review layer still protects manually edited notes.
+        """
+        event_id = validate_segment(event_id, "INVALID_EVENT_ID")
+        entity = validate_segment(entity, "INVALID_ENTITY")
+        source_value = _clean_source(source)
+        text = (summary or "").strip()
+        if not text:
+            raise VaultError("EMPTY_EVENT")
+
+        wikilinks = [f"[[{entity}]]"]
+        for link in links:
+            target = validate_segment(link, "INVALID_LINK")
+            if f"[[{target}]]" not in wikilinks:
+                wikilinks.append(f"[[{target}]]")
+
+        path = self._tree.dir(EVENTS_DIR) / f"{event_id}.md"
+        ensure_contained(self._tree.root, path)
+        existing = self._inspect(path)
+
+        body_lines = [
+            f"# [[{entity}]] — Événement",
+            "",
+            f"- **Entité** : [[{entity}]]",
+            f"- **Événement** : `{event_id}`",
+            f"- **Date** : `{occurred_at or 'inconnue'}`",
+            f"- **Résumé** : {text}",
+        ]
+        if len(wikilinks) > 1:
+            body_lines.append(f"- **Liens** : {', '.join(wikilinks)}")
+        body_lines.append("")
+        body_lines.append(
+            "Événement daté — note générée par le pont mémoire, "
+            f"source : `{source_value}`."
+        )
+
+        frontmatter: dict[str, Any] = {
+            "id": f"event-{event_id}",
+            "type": "event",
+            "entity": entity,
+            "event": event_id,
+            "summary": text,
+            "occurred_at": occurred_at,
+            "source": source_value,
+            "status": "generated",
+            "locked": False,
+            "wikilinks": wikilinks,
+        }
+        return self._commit(
+            path, frontmatter, "\n".join(body_lines) + "\n", "event", existing
+        )
+
+    # -- generated context notes ---------------------------------------------
+
+    def write_context_note(
+        self,
+        name: str,
+        *,
+        body: str,
+        wikilinks: Iterable[str] = (),
+        source: str | NoteSource = NoteSource.AGENT,
+    ) -> WriteResult:
+        """Write/update a generated note in ``01-contexte/{name}.md``.
+
+        Used by the accounting pipeline to refresh dashboard notes such as
+        ``01-contexte/cockpit_compta.md``. The usual human review layer applies:
+        a locked / human-owned / diverged note is returned as ``preserved`` and
+        stays byte-identical. The body must already contain its Markdown
+        heading (and at least one ``[[wikilink]]`` when the vault constraint
+        requires it).
+        """
+        name = validate_segment(name, "INVALID_NOTE_NAME")
+        source_value = _clean_source(source)
+        text = (body or "").strip()
+        if not text:
+            raise VaultError("EMPTY_NOTE")
+
+        links = tuple(
+            dict.fromkeys(
+                str(link).strip()
+                for link in wikilinks
+                if str(link).strip()
+            )
+        )
+        path = self._tree.dir(CONTEXT_DIR) / f"{name}.md"
+        ensure_contained(self._tree.root, path)
+        existing = self._inspect(path)
+
+        frontmatter: dict[str, Any] = {
+            "id": f"context-{name}",
+            "type": "context",
+            "source": source_value,
+            "status": "generated",
+            "locked": False,
+            "wikilinks": list(links),
+        }
+        return self._commit(
+            path, frontmatter, text + "\n", "context", existing
         )
 
     # -- decisions & active context ------------------------------------------
