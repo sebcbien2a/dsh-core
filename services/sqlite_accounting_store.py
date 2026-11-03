@@ -19,7 +19,11 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from schemas.folder_state_schema import DocumentCategory
+from schemas.folder_state_schema import (
+    DocumentCategory,
+    counterparty_account_for_payment_source,
+    normalize_payment_source,
+)
 from services.fec_export_service import FecEntry
 from services.rule_registry_service import ObsidianCandidateRuleWriter
 
@@ -48,6 +52,25 @@ _LINE_FIELDS = (
     "amount_tva",
     "amount_ttc",
     "document_type",
+    "expense_subcategory",
+    "invite_restaurant",
+    "lieu_restaurant",
+    "fuel_station",
+    "vehicle",
+    "transport_nature",
+    "transport_route",
+    "hotel_place",
+    "ht_accommodation",
+    "ht_breakfast_meals",
+    "tva_deductible",
+    "tva_non_deductible",
+    "is_classified_marker",
+    "tva_dedup_status",
+    "fiscal_year_mode",
+    "fiscal_year_target",
+    "deferred_month_override",
+    "payment_source",
+    "counterparty_account",
 )
 _LINE_MIGRATION_COLUMNS = (
     ("category", "TEXT"),
@@ -55,6 +78,33 @@ _LINE_MIGRATION_COLUMNS = (
     ("amount_tva", "TEXT"),
     ("amount_ttc", "TEXT"),
     ("document_type", "TEXT"),
+    ("expense_subcategory", "TEXT"),
+    ("invite_restaurant", "TEXT"),
+    ("lieu_restaurant", "TEXT"),
+    ("fuel_station", "TEXT"),
+    ("vehicle", "TEXT"),
+    ("transport_nature", "TEXT"),
+    ("transport_route", "TEXT"),
+    ("hotel_place", "TEXT"),
+    ("ht_accommodation", "TEXT"),
+    ("ht_breakfast_meals", "TEXT"),
+    ("tva_deductible", "TEXT"),
+    ("tva_non_deductible", "TEXT"),
+    ("is_classified_marker", "TEXT"),
+    ("tva_dedup_status", "TEXT"),
+    ("fiscal_year_mode", "TEXT"),
+    ("fiscal_year_target", "TEXT"),
+    ("deferred_month_override", "TEXT"),
+    ("payment_source", "TEXT"),
+    ("counterparty_account", "TEXT"),
+)
+_P17_LINE_SELECT = (
+    " l.expense_subcategory, l.invite_restaurant, l.lieu_restaurant,"
+    " l.fuel_station, l.vehicle, l.transport_nature, l.transport_route,"
+    " l.hotel_place, l.ht_accommodation, l.ht_breakfast_meals,"
+    " l.tva_deductible, l.tva_non_deductible, l.is_classified_marker,"
+    " l.tva_dedup_status, l.fiscal_year_mode, l.fiscal_year_target,"
+    " l.deferred_month_override, l.payment_source, l.counterparty_account"
 )
 _DECISION_FIELDS = (
     "action",
@@ -181,6 +231,25 @@ CREATE TABLE IF NOT EXISTS reconciliation_lines (
     amount_tva TEXT,
     amount_ttc TEXT,
     document_type TEXT,
+    expense_subcategory TEXT,
+    invite_restaurant TEXT,
+    lieu_restaurant TEXT,
+    fuel_station TEXT,
+    vehicle TEXT,
+    transport_nature TEXT,
+    transport_route TEXT,
+    hotel_place TEXT,
+    ht_accommodation TEXT,
+    ht_breakfast_meals TEXT,
+    tva_deductible TEXT,
+    tva_non_deductible TEXT,
+    is_classified_marker TEXT,
+    tva_dedup_status TEXT,
+    fiscal_year_mode TEXT,
+    fiscal_year_target TEXT,
+    deferred_month_override TEXT,
+    payment_source TEXT,
+    counterparty_account TEXT,
     created_at TEXT NOT NULL,
     PRIMARY KEY (tenant_id, line_id)
 );
@@ -387,6 +456,7 @@ class SqliteAccountingStore:
             f" COALESCE(d.invoice_id, l.invoice_id) AS invoice_id, l.invoice_url,"
             " COALESCE(l.category, '') AS category,"
             " l.amount_ht, l.amount_tva, l.amount_ttc, l.document_type,"
+            f"{_P17_LINE_SELECT},"
             f" {raw_status} AS raw_status, d.action, d.debit_account, d.credit_account,"
             " d.vat_amount, d.reason, d.arbitrated_at"
         )
@@ -407,6 +477,21 @@ class SqliteAccountingStore:
             for row in (dict(item) for item in rows)
             if _category_matches(row, selected)
         ]
+
+    def list_master_lines(self, tenant_id: str) -> list[dict[str, Any]]:
+        """Every non-rejected line, for the P17 master-table exporters.
+
+        Unlike :meth:`list_category_lines` this includes bank-only lines so the
+        ``TABLEAU_MERE_BANQUE_TVA`` workbook can mirror the TVA control pool.
+        """
+        validate_tenant_id(tenant_id)
+        rows, _ = self._query_lines(
+            tenant_id,
+            status="ALL",
+            limit=-1,
+            include_rejected=False,
+        )
+        return rows
 
     def list_supplier_ledger(
         self, tenant_id: str, supplier: str | None = None
@@ -435,6 +520,7 @@ class SqliteAccountingStore:
             " COALESCE(l.category, '') AS category,"
             " l.amount_ht, l.amount_tva, l.amount_ttc,"
             " COALESCE(l.document_type, '') AS document_type,"
+            " l.payment_source, l.counterparty_account,"
             f" {raw_status} AS raw_status, d.action AS decision_action,"
             " d.invoice_id AS decision_invoice_id, d.debit_account, d.credit_account"
         )
@@ -542,6 +628,15 @@ class SqliteAccountingStore:
         """
         validate_tenant_id(tenant_id)
         _validate_line_id(line_id)
+        line = dict(line)
+        payment_source = normalize_payment_source(line.get("payment_source"))
+        if payment_source is not None:
+            line["payment_source"] = payment_source.value
+            mandatory_account = counterparty_account_for_payment_source(
+                payment_source
+            )
+            if mandatory_account is not None:
+                line["counterparty_account"] = mandatory_account
         values = [None if line.get(k) is None else str(line[k]) for k in _LINE_FIELDS]
         status = str(line.get("status") or _PENDING)
         with closing(self._connect()) as conn:
@@ -644,6 +739,7 @@ class SqliteAccountingStore:
             f" {invoice} AS invoice_id, l.invoice_url,"
             " COALESCE(l.category, '') AS category,"
             " l.amount_ht, l.amount_tva, l.amount_ttc, l.document_type,"
+            f"{_P17_LINE_SELECT},"
             f" {raw_status} AS raw_status, d.action, d.debit_account, d.credit_account,"
             " d.vat_amount, d.reason, d.arbitrated_at"
         )

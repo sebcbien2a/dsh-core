@@ -1,14 +1,14 @@
 ---
 master_doc: PROJECT_HANDOVER.md
-branch_domain: P14/P15/P16 — Machine à états OneDrive / Gmail, Couche Obsidian Vault & production
-contract_version: 1.3.0
+branch_domain: P14/P15/P16/P17 — Machine à états OneDrive / Gmail, Couche Obsidian Vault, production & spécialisation APD
+contract_version: 1.4.0
 status: FROZEN
 upstream_dependencies: [docs/PROJECT_HANDOVER.md, docs/PERSISTENCE_QDRANT_NEO4J_CONTRACT.md, services/document_pipeline.py, services/sqlite_accounting_store.py]
-downstream_consumers: [schemas/folder_state_schema.py (P14.1), services/folder_tree_service.py (P14.1), services/acompleter_workbook_service.py (P14.2), services/folder_sync_service.py (P14.3), services/inbox_ingestion_service.py (P14.4), services/document_flow_watcher.py (P14.5 / P15.3), schemas/obsidian_vault_schema.py (P15.1), services/obsidian_vault_service.py (P15.1), services/vault_accounting_bridge.py (P15.1), schemas/declarative_task_schema.py (P15.2), services/declarative_tarif_service.py (P15.2), services/declarative_pdf_service.py (P15.2), services/instructions_task_engine.py (P15.2), services/accounting_spreadsheet_export_service.py (P16.1/P16.2)]
-verification_tests: [tests/test_folder_state_model_exhaustive.py (P14.1), tests/test_acompleter_workbook_exhaustive.py (P14.2), tests/test_folder_sync_service_exhaustive.py (P14.3), tests/test_inbox_ingestion_exhaustive.py (P14.4), tests/test_obsidian_vault_service_exhaustive.py (P15.1), tests/test_vault_accounting_bridge_exhaustive.py (P15.1), tests/test_declarative_workflows_exhaustive.py (P15.2), tests/test_document_flow_watcher_exhaustive.py (P14.5/P15.3), tests/test_category_summary_export_exhaustive.py (P16.1), tests/test_supplier_ledger_export_exhaustive.py (P16.2)]
+downstream_consumers: [schemas/folder_state_schema.py (P14.1/P17), services/folder_tree_service.py (P14.1/P17), services/acompleter_workbook_service.py (P14.2/P17), services/folder_sync_service.py (P14.3), services/inbox_ingestion_service.py (P14.4), services/document_flow_watcher.py (P14.5 / P15.3 / P17), schemas/obsidian_vault_schema.py (P15.1), services/obsidian_vault_service.py (P15.1/P17), services/vault_accounting_bridge.py (P15.1), schemas/declarative_task_schema.py (P15.2), services/declarative_tarif_service.py (P15.2), services/declarative_pdf_service.py (P15.2), services/instructions_task_engine.py (P15.2), services/accounting_spreadsheet_export_service.py (P16.1/P16.2/P17), services/email_inbox_bridge.py (P17)]
+verification_tests: [tests/test_folder_state_model_exhaustive.py (P14.1), tests/test_acompleter_workbook_exhaustive.py (P14.2), tests/test_folder_sync_service_exhaustive.py (P14.3), tests/test_inbox_ingestion_exhaustive.py (P14.4), tests/test_obsidian_vault_service_exhaustive.py (P15.1), tests/test_vault_accounting_bridge_exhaustive.py (P15.1), tests/test_declarative_workflows_exhaustive.py (P15.2), tests/test_document_flow_watcher_exhaustive.py (P14.5/P15.3), tests/test_category_summary_export_exhaustive.py (P16.1), tests/test_supplier_ledger_export_exhaustive.py (P16.2), tests/test_p17_apd_business_rules_exhaustive.py (P17)]
 ---
 
-# P14 / P15 / P16 — Spécification formelle : Machine à états OneDrive / Gmail, Couche Obsidian Vault & chaîne de production
+# P14 / P15 / P16 / P17 — Spécification formelle : Machine à états OneDrive / Gmail, Couche Obsidian Vault, chaîne de production & spécialisation métier APD
 
 > Document de cadrage **clos** : il fige l'architecture finale **P14.1→P14.5** (dossiers `00_` à `05_`, 8 catégories, `_A_COMPLETER.xlsx`, synchronisation bidirectionnelle, ingestion `00_INBOX`, rafraîchissement automatique des exports), **P15.1→P15.3** (Vault Obsidian, workflows `instructions.md`, watcher d'arrière-plan) et **P16.1→P16.2** (synthèses par catégorie, grand livre fournisseur).
 
@@ -212,8 +212,9 @@ Sous-dossiers ou préfixes normalisés **dans `03_` et `04_`** uniquement (chemi
 | **P15.3 — Watcher d'arrière-plan** | `services/document_flow_watcher.py` (`run_once`, `run_forever`, stabilisation taille/mtime, verrou `.watcher.lock`, auto-export non bloquant) ; `scripts/run_document_watcher.py` | `tests/test_document_flow_watcher_exhaustive.py` |
 | **P16.1 — Synthèse par catégorie** | `services/accounting_spreadsheet_export_service.py` (`CategorySummaryExporter`) ; migration `category` / `amount_*` dans `services/sqlite_accounting_store.py` | `tests/test_category_summary_export_exhaustive.py` |
 | **P16.2 — Grand livre fournisseur** | `services/accounting_spreadsheet_export_service.py` (`SupplierLedgerExporter`, `collect_supplier_diagnostics`) ; migration `document_type` + index fournisseur dans `services/sqlite_accounting_store.py` | `tests/test_supplier_ledger_export_exhaustive.py` |
+| **P17 — Spécialisation Métier APD** | `schemas/folder_state_schema.py` (`APD_PROFILE`, `ExpenseSubCategory`, `FiscalYearMode`, `TvaDedupStatus`, champs `invite_restaurant` / `lieu_restaurant`) ; `services/email_inbox_bridge.py` (connecteur mail manuel, miroirs, `fetch_and_stage_emails`, `sync_email_folder_state`) ; `services/folder_tree_service.py` (sous-dossiers `FRAIS_GENERAUX/<SOUS_CAT>` en `03_`/`04_`) ; `services/acompleter_workbook_service.py` (colonnes P17 additives) ; `services/accounting_spreadsheet_export_service.py` (`ExpenseSubCategoryExporter`, `MasterTableExporter`, anti-doublon TVA, bascule d'exercice) ; `services/document_flow_watcher.py` (`07-compta/Cockpit_Compta.md` + alias) ; migrations additives `services/sqlite_accounting_store.py` | `tests/test_p17_apd_business_rules_exhaustive.py` |
 
-Chaque sous-phase se clôture par `.\.venv-v3\Scripts\python.exe -m pytest tests -q` = suite existante + nouveaux tests de la sous-phase, 0 échec (baseline courante : **3 207 tests passés**, 2 conditionnés).
+Chaque sous-phase se clôture par `.\.venv-v3\Scripts\python.exe -m pytest tests -q` = suite existante + nouveaux tests de la sous-phase, 0 échec (baseline courante : **3 241 tests passés**, 2 conditionnés).
 
 ## 5. Décisions arrêtées (arbitrages officiels — §5 clos)
 
@@ -222,6 +223,38 @@ Chaque sous-phase se clôture par `.\.venv-v3\Scripts\python.exe -m pytest tests
 3. **Statut `REJETE`** : retenu. Si `Statut == REJETE` dans `_A_COMPLETER.xlsx`, routage automatique vers `05_ARCHIVE_ERREUR/REJET_MANUEL/` (transition `02_A_COMPLETER` → `05_ARCHIVE_ERREUR`).
 4. **Détection de synchronisation** : déclenchement sur `mtime` + SHA-256 du classeur dès disparition du verrou `~$*.xlsx`.
 
+## 6. P17 — Spécialisation Métier APD (Assistance Peintures Diffusion)
+
+### 6.1 Profil société & connecteur mail manuel
+
+- **`APD_PROFILE`** (`schemas/folder_state_schema.py`, gelé) : `tenant_id="APD"`, `name="Assistance Peintures Diffusion"`, `siren="810908392"`, `vat_number="FR11810908392"`, `invoice_email="facturesapd@gmail.com"`.
+- **`services/email_inbox_bridge.py`** : `EmailInboxBridge` à déclenchement **manuel** (`fetch_and_stage_emails`), client `MailClient` injectable et `ImapMailClient` stdlib lazy (aucun réseau dans les tests).
+  - miroirs de boîte : `00_INBOX`, `01_EN_COURS`, `02_A_COMPLETER`, `03_VALIDE_PRET_FEC`, `04_EXPORT_COMPTA`, `05_ARCHIVE_ERREUR` (`ensure_mail_folders`) ;
+  - extraction des pièces jointes PDF/images vers `<root>/<tenant>/00_INBOX/`, hash SHA-256, doublons ignorés, puis exécution immédiate de `InboxIngestionService.process_inbox` (Vision / pipeline documentaire) ;
+  - `sync_email_folder_state(sha256, target_state)` déplace le mail source dans le miroir correspondant à l'état du PDF ; suivi en mémoire et erreurs contrôlées (`EMAIL_TRACKING_NOT_FOUND`, `INVALID_EMAIL_STATE`).
+- **Cockpit Obsidian** : génération principale dans `07-compta/Cockpit_Compta.md` (`VaultWriter.write_compta_note`) avec **alias** `01-contexte/cockpit_compta.md` ; le corps contient la liste Markdown cliquable des pièces de `02_A_COMPLETER` (`[nom](02_A_COMPLETER/nom)`) et l'état des rapprochements (`residual_delta`, alertes).
+
+### 6.2 Sous-catégories de frais & sous-tableaux dédiés
+
+- `ExpenseSubCategory` (`schemas/folder_state_schema.py`) : `RESTAURATION`, `CARBURANT`, `TRANSPORT_PARKING`, `HOTELLERIE` ; sous-dossiers physiques `03_VALIDE_PRET_FEC/FRAIS_GENERAUX/<SOUS_CAT>/` et `04_EXPORT_COMPTA/FRAIS_GENERAUX/<SOUS_CAT>/` matérialisés par `ensure_tree` / `FolderTree.expense_subcategory_dir`.
+- `services/accounting_spreadsheet_export_service.py` (`ExpenseSubCategoryExporter`) :
+  - `SYNTHESE_FRAIS_GENERAUX.xlsx` (totaux HT/TVA/TTC par sous-catégorie) ;
+  - un sous-tableau Excel par sous-catégorie, avec les colonnes obligatoires :
+    - `RESTAURATION` : `Date Ticket`, `Lieu`, `Société / Personne Invitée`, `HT`, `TVA`, `TTC` ;
+    - `CARBURANT` : `Date`, `Fournisseur / Station`, `Véhicule`, `HT`, `TVA`, `TTC` ;
+    - `TRANSPORT_PARKING` : `Date`, `Nature (Péage/Train/Avion/Parking)`, `Trajet / Lieu`, `HT`, `TVA`, `TTC` ;
+    - `HOTELLERIE` (séparée de la restauration car la TVA d'hébergement n'est pas déductible) : `Date`, `Hôtel / Lieu`, `HT Hébergement`, `HT Petit-Déj / Repas`, `TVA Déductible`, `TVA Non Déductible`, `TTC`.
+- `MissingFieldEnum` expose `invite_restaurant` et `lieu_restaurant` ; `_A_COMPLETER.xlsx` conserve les six colonnes gelées et ajoute des colonnes P17 additives (`Sous-catégorie Frais`, `Invité Restaurant`, `Lieu Restaurant`) via `AcompleterWorkbook.update_p17_metadata`.
+
+### 6.3 Tableaux mères, repère de classement, anti-doublon TVA & bascule d'exercice
+
+- **Sorties** : `04_EXPORT_COMPTA/<tenant>/TABLEAU_MERE_ACHATS_CHARGES.xlsx` et `TABLEAU_MERE_BANQUE_TVA.xlsx` (`MasterTableExporter`), avec onglet `RECAP_TVA` dédupliqué.
+- **Colonnes P17** (store SQLite et classeurs) :
+  - `is_classified_marker` (`Repère Classement`) : `IDENTIFIEE_CLASSEE:<SOUS_CAT>` ou `NON_CLASSEE` ;
+  - `tva_dedup_status` (`Statut Anti-Doublon TVA`) : clé explicite `(numéro de pièce, fournisseur, montant TTC)` ; `TVA_UNIQUE`, `DOUBLON_TVA_EXCLU`, `TVA_NON_VERIFIABLE` ; seule une occurrence unique est comptée dans le récapitulatif TVA ;
+  - `fiscal_year_mode` (`PRECEDENT`, `ACTUEL`, `SUIVANT`) + `fiscal_year_target` (`2025`, `2026`, `2027`…) + `deferred_month_override` (`None`, `"01"`, `"02"`) : la pièce est isolée dans l'exercice cible et, si demandé, basculée sur Janvier/Février ; `compute_fiscal_totals` ne somme que les pièces non dupliquées par exercice.
+- **Tests** : `tests/test_p17_apd_business_rules_exhaustive.py` (34 tests hors-ligne) — profil APD, miroirs mail, cockpit `07-compta`, quatre sous-tableaux (invité/lieu, TVA hôtellerie), remontée vers les deux tableaux mères, repère de classement, anti-doublon TVA et bascule Janvier/Février.
+
 ---
 
-*Source de vérité pour P14 / P15 / P16 ; le handover (`docs/PROJECT_HANDOVER.md`) reste le point d'entrée maître.*
+*Source de vérité pour P14 / P15 / P16 / P17 ; le handover (`docs/PROJECT_HANDOVER.md`) reste le point d'entrée maître.*

@@ -25,9 +25,16 @@ from typing import Any
 from uuid import NAMESPACE_URL, uuid5
 
 from schemas.folder_state_schema import (
+    DEFERRED_MONTHS,
+    DIRIGEANT_COUNTERPART_ACCOUNT,
     DocumentCategory,
     DocumentStatus,
+    ExpenseSubCategory,
+    FiscalYearMode,
     MissingFieldEnum,
+    PaymentSource,
+    counterparty_account_for_payment_source,
+    normalize_payment_source,
 )
 from services.folder_tree_service import (
     ensure_contained,
@@ -45,6 +52,21 @@ HEADERS: tuple[str, ...] = (
     "Catégorie suggérée",
     "Statut",
 )
+# P17 extension columns are appended after the frozen six legacy columns so
+# every existing workbook and every existing reader keeps working unchanged.
+P17_EXTENSION_HEADERS: tuple[str, ...] = (
+    "Sous-catégorie Frais",
+    "Invité Restaurant",
+    "Lieu Restaurant",
+    "Repère Classement",
+    "Statut Anti-Doublon TVA",
+    "Mode Exercice Fiscal",
+    "Exercice Cible",
+    "Mois Décalé",
+    "Source de Paiement",
+    "Compte de Contrepartie",
+)
+EXTENDED_HEADERS: tuple[str, ...] = HEADERS + P17_EXTENSION_HEADERS
 LOCK_GLOB = "~$*.xlsx"
 TEMP_NAME = "_A_COMPLETER.tmp.xlsx"
 CHAMPS_SEPARATOR = ", "
@@ -312,6 +334,194 @@ class AcompleterWorkbook:
             _close(wb)
         raise AcompleterWorkbookError("ROW_NOT_FOUND", key)
 
+    def update_p17_metadata(
+        self,
+        sha256: str,
+        *,
+        expense_subcategory: ExpenseSubCategory | str | None = None,
+        invite_restaurant: object = None,
+        lieu_restaurant: object = None,
+        is_classified_marker: object = None,
+        tva_dedup_status: object = None,
+        fiscal_year_mode: FiscalYearMode | str | None = None,
+        fiscal_year_target: object = None,
+        deferred_month_override: object = None,
+        payment_source: PaymentSource | str | None = None,
+        counterparty_account: object = None,
+    ) -> bool:
+        """Write the P17 columns of one existing row (pipeline-owned cells).
+
+        The frozen six-column contract is untouched: new values always land in
+        the appended extension columns. Returns ``True`` when at least one cell
+        changed. Raises ``WORKBOOK_LOCKED`` / ``WORKBOOK_NOT_FOUND`` /
+        ``ROW_NOT_FOUND`` / ``INVALID_P17_VALUE`` as controlled errors.
+        """
+        key = normalize_sha256(sha256)
+        values = self._normalize_p17_values(
+            expense_subcategory=expense_subcategory,
+            invite_restaurant=invite_restaurant,
+            lieu_restaurant=lieu_restaurant,
+            is_classified_marker=is_classified_marker,
+            tva_dedup_status=tva_dedup_status,
+            fiscal_year_mode=fiscal_year_mode,
+            fiscal_year_target=fiscal_year_target,
+            deferred_month_override=deferred_month_override,
+            payment_source=payment_source,
+            counterparty_account=counterparty_account,
+        )
+        self._require_no_lock()
+        if not self.workbook_path.exists():
+            raise AcompleterWorkbookError(
+                "WORKBOOK_NOT_FOUND", str(self.workbook_path)
+            )
+        wb = self._load_workbook()
+        ws = wb[SHEET_NAME]
+        try:
+            extension_added = self._ensure_extension_headers(ws)
+            target_row = self._find_row(ws, key)
+            if target_row is None:
+                raise AcompleterWorkbookError("ROW_NOT_FOUND", key)
+            changed = extension_added
+            for header, value in values.items():
+                column = EXTENDED_HEADERS.index(header) + 1
+                cell = ws.cell(row=target_row, column=column)
+                if _cell_text(cell.value).strip() != value:
+                    cell.value = value
+                    changed = True
+            if changed:
+                self._atomic_save(wb)
+            return changed
+        finally:
+            _close(wb)
+
+    def read_p17_metadata(self, sha256: str) -> dict[str, str] | None:
+        """Return the P17 extension cells of one row (``None`` if absent)."""
+        key = normalize_sha256(sha256)
+        self._require_no_lock()
+        if not self.workbook_path.exists():
+            raise AcompleterWorkbookError(
+                "WORKBOOK_NOT_FOUND", str(self.workbook_path)
+            )
+        wb = self._load_workbook()
+        ws = wb[SHEET_NAME]
+        try:
+            target_row = self._find_row(ws, key)
+            if target_row is None:
+                return None
+            if ws.max_column < len(EXTENDED_HEADERS):
+                return {header: "" for header in P17_EXTENSION_HEADERS}
+            return {
+                header: _cell_text(
+                    ws.cell(
+                        row=target_row,
+                        column=EXTENDED_HEADERS.index(header) + 1,
+                    ).value
+                )
+                for header in P17_EXTENSION_HEADERS
+            }
+        finally:
+            _close(wb)
+
+    @staticmethod
+    def _normalize_p17_values(**raw_values: object) -> dict[str, str]:
+        def text(value: object) -> str:
+            return "" if value is None else str(value).strip()
+
+        def subcategory(value: object) -> str:
+            if value is None or text(value) == "":
+                return ""
+            try:
+                return ExpenseSubCategory(value).value
+            except (TypeError, ValueError) as exc:
+                raise AcompleterWorkbookError(
+                    "INVALID_P17_VALUE", f"expense_subcategory={value!r}"
+                ) from exc
+
+        def fiscal_mode(value: object) -> str:
+            if value is None or text(value) == "":
+                return ""
+            try:
+                return FiscalYearMode(value).value
+            except (TypeError, ValueError) as exc:
+                raise AcompleterWorkbookError(
+                    "INVALID_P17_VALUE", f"fiscal_year_mode={value!r}"
+                ) from exc
+
+        def month(value: object) -> str:
+            if value is None or text(value) == "":
+                return ""
+            candidate = text(value)
+            if candidate.isdigit():
+                candidate = candidate.zfill(2)
+            if candidate not in DEFERRED_MONTHS:
+                raise AcompleterWorkbookError(
+                    "INVALID_P17_VALUE", f"deferred_month_override={value!r}"
+                )
+            return candidate
+
+        def payment(value: object, account: object) -> tuple[str, str]:
+            if value is None or text(value) == "":
+                if text(account).upper() == DIRIGEANT_COUNTERPART_ACCOUNT:
+                    return (
+                        PaymentSource.COMPTE_PERSO_DIRIGEANT.value,
+                        DIRIGEANT_COUNTERPART_ACCOUNT,
+                    )
+                return "", ""
+            source = normalize_payment_source(value)
+            if source is None:
+                raise AcompleterWorkbookError(
+                    "INVALID_P17_VALUE", f"payment_source={value!r}"
+                )
+            mandatory = counterparty_account_for_payment_source(source)
+            if mandatory is not None:
+                return source.value, mandatory
+            return source.value, ""
+
+        payment_source_value, counterparty_account_value = payment(
+            raw_values.get("payment_source"),
+            raw_values.get("counterparty_account"),
+        )
+
+        return {
+            "Sous-catégorie Frais": subcategory(
+                raw_values.get("expense_subcategory")
+            ),
+            "Invité Restaurant": text(raw_values.get("invite_restaurant")),
+            "Lieu Restaurant": text(raw_values.get("lieu_restaurant")),
+            "Repère Classement": text(raw_values.get("is_classified_marker")),
+            "Statut Anti-Doublon TVA": text(
+                raw_values.get("tva_dedup_status")
+            ),
+            "Mode Exercice Fiscal": fiscal_mode(
+                raw_values.get("fiscal_year_mode")
+            ),
+            "Exercice Cible": text(raw_values.get("fiscal_year_target")),
+            "Mois Décalé": month(raw_values.get("deferred_month_override")),
+            "Source de Paiement": payment_source_value,
+            "Compte de Contrepartie": counterparty_account_value,
+        }
+
+    @staticmethod
+    def _find_row(ws: Any, key: str) -> int | None:
+        for index in range(2, ws.max_row + 1):
+            if _cell_text(ws.cell(row=index, column=2).value).strip().lower() == key:
+                return index
+        return None
+
+    @staticmethod
+    def _ensure_extension_headers(ws: Any) -> bool:
+        changed = False
+        for offset, header in enumerate(P17_EXTENSION_HEADERS):
+            column = len(HEADERS) + offset + 1
+            cell = ws.cell(row=1, column=column)
+            if _cell_text(cell.value).strip() != header:
+                cell.value = header
+                from openpyxl.styles import Font
+
+                cell.font = Font(bold=True)
+                changed = True
+        return changed
+
     def _new_workbook(self) -> Any:
         from openpyxl import Workbook
         from openpyxl.styles import Font
@@ -319,7 +529,7 @@ class AcompleterWorkbook:
         wb = Workbook()
         ws = wb.active
         ws.title = SHEET_NAME
-        ws.append(list(HEADERS))
+        ws.append(list(EXTENDED_HEADERS))
         bold = Font(bold=True)
         for cell in ws[1]:
             cell.font = bold

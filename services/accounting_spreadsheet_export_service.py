@@ -26,12 +26,30 @@ from io import StringIO
 from pathlib import Path
 from typing import Any, Protocol
 
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 from openpyxl.comments import Comment
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-from schemas.folder_state_schema import DocumentCategory
+from schemas.folder_state_schema import (
+    DEFERRED_MONTHS,
+    DIRIGEANT_COUNTERPART_ACCOUNT,
+    NON_CLASSIFIED_MARKER,
+    DocumentCategory,
+    ExpenseSubCategory,
+    FiscalYearMode,
+    FolderState,
+    PaymentSource,
+    TvaDedupStatus,
+    classify_marker,
+    counterparty_account_for_payment_source,
+    normalize_payment_source,
+)
+from services.folder_tree_service import ensure_tree
+from services.hotel_expense_parser import (
+    CGI_ARTICLE_206,
+    parse_hotel_evening_stage,
+)
 from services.sqlite_accounting_store import (
     AccountingStoreError,
     SqliteAccountingStore,
@@ -828,6 +846,7 @@ def _build_supplier_ledger_entries(
             continue
         ttc = _ledger_amount_ttc(row)
         entry_type = _document_ledger_type(row)
+        personal = is_personal_expense(row)
         invoice_id = str(
             row.get("document_invoice_id")
             or row.get("invoice_id")
@@ -851,13 +870,21 @@ def _build_supplier_ledger_entries(
                 label=str(row.get("label") or ""),
                 debit=debit,
                 credit=credit,
-                status=_ledger_status(False, raw_status, matched),
+                status=(
+                    "HORS_PERIMETRE"
+                    if personal
+                    else _ledger_status(False, raw_status, matched)
+                ),
                 raw_status=raw_status,
                 line_id=str(row.get("line_id") or ""),
                 invoice_id=invoice_id or None,
                 supplier=_ledger_supplier(row),
                 matched=matched,
-                matchable=not matched and (debit != 0 or credit != 0),
+                matchable=(
+                    not personal
+                    and not matched
+                    and (debit != 0 or credit != 0)
+                ),
             )
         )
     return entries
@@ -1423,3 +1450,1319 @@ def export_supplier_ledger(
     return exporter.export_supplier_ledger(
         tenant_id, supplier_query, output_path
     )
+
+
+# ---------------------------------------------------------------------------
+# P17 - Expense sub-categories, master tables, VAT de-duplication & fiscal year
+# ---------------------------------------------------------------------------
+
+EXPENSE_SUBCATEGORY_HEADERS: dict[ExpenseSubCategory, tuple[str, ...]] = {
+    ExpenseSubCategory.RESTAURATION: (
+        "Date Ticket",
+        "Lieu",
+        "Société / Personne Invitée",
+        "HT",
+        "TVA",
+        "TTC",
+    ),
+    ExpenseSubCategory.CARBURANT: (
+        "Date",
+        "Fournisseur / Station",
+        "Véhicule",
+        "HT",
+        "TVA",
+        "TTC",
+    ),
+    ExpenseSubCategory.TRANSPORT_PARKING: (
+        "Date",
+        "Nature (Péage/Train/Avion/Parking)",
+        "Trajet / Lieu",
+        "HT",
+        "TVA",
+        "TTC",
+    ),
+    ExpenseSubCategory.HOTELLERIE: (
+        "Date",
+        "Hôtel / Lieu",
+        "HT Hébergement",
+        "HT Petit-Déj / Repas",
+        "TVA Déductible",
+        "TVA Non Déductible",
+        "TTC",
+    ),
+}
+EXPENSE_SYNTHESIS_HEADERS: tuple[str, ...] = (
+    "Sous-catégorie",
+    "Nb pièces",
+    "HT",
+    "TVA",
+    "TTC",
+)
+EXPENSE_SYNTHESIS_FILENAME = "SYNTHESE_FRAIS_GENERAUX.xlsx"
+EXPENSE_SUBTABLE_FILENAME = "TABLEAU_{subcategory}.xlsx"
+MASTER_ACHATS_FILENAME = "TABLEAU_MERE_ACHATS_CHARGES.xlsx"
+MASTER_BANQUE_TVA_FILENAME = "TABLEAU_MERE_BANQUE_TVA.xlsx"
+MASTER_ACHATS_HEADERS: tuple[str, ...] = (
+    "Date Pièce",
+    "Fournisseur",
+    "N° Pièce",
+    "Catégorie",
+    "Sous-catégorie",
+    "Repère Classement",
+    "Statut Anti-Doublon TVA",
+    "Mode Exercice Fiscal",
+    "Exercice Cible",
+    "Mois Décalé",
+    "Date Comptable",
+    "HT",
+    "TVA",
+    "TTC",
+    "Lien Justificatif",
+    "Source de Paiement",
+    "Compte de Contrepartie",
+)
+MASTER_BANQUE_TVA_HEADERS: tuple[str, ...] = (
+    "Date Pièce",
+    "Fournisseur",
+    "N° Pièce",
+    "TVA",
+    "TVA Comptée",
+    "Repère Classement",
+    "Statut Anti-Doublon TVA",
+    "Mode Exercice Fiscal",
+    "Exercice Cible",
+    "Mois Décalé",
+    "Date Comptable",
+    "HT",
+    "TTC",
+    "Lien Justificatif",
+    "Source de Paiement",
+    "Compte de Contrepartie",
+)
+MASTER_TVA_RECAP_HEADERS: tuple[str, ...] = (
+    "Exercice",
+    "Nb pièces",
+    "HT",
+    "TVA",
+    "TTC",
+)
+_SUBCATEGORY_DOCUMENT_TYPES = {
+    "FUEL_RECEIPT": ExpenseSubCategory.CARBURANT,
+    "MEAL_RECEIPT": ExpenseSubCategory.RESTAURATION,
+    "RESTAURANT_RECEIPT": ExpenseSubCategory.RESTAURATION,
+    "HOTEL_RECEIPT": ExpenseSubCategory.HOTELLERIE,
+    "HOTEL": ExpenseSubCategory.HOTELLERIE,
+    "TOLL_RECEIPT": ExpenseSubCategory.TRANSPORT_PARKING,
+    "TRAIN_TICKET": ExpenseSubCategory.TRANSPORT_PARKING,
+    "FLIGHT_TICKET": ExpenseSubCategory.TRANSPORT_PARKING,
+    "PARKING_RECEIPT": ExpenseSubCategory.TRANSPORT_PARKING,
+}
+_SUBCATEGORY_KEYWORDS: tuple[tuple[ExpenseSubCategory, tuple[str, ...]], ...] = (
+    (
+        ExpenseSubCategory.HOTELLERIE,
+        (
+            "hotel",
+            "nuit",
+            "nuitee",
+            "hebergement",
+            "booking",
+            "ibis",
+            "premiere classe",
+            "soiree etape",
+            "petit dejeuner",
+        ),
+    ),
+    (
+        ExpenseSubCategory.CARBURANT,
+        ("carburant", "essence", "gasoil", "diesel", "station", "total", "shell", "esso", "bp"),
+    ),
+    (
+        ExpenseSubCategory.TRANSPORT_PARKING,
+        ("peage", "autoroute", "parking", "train", "sncf", "avion", "vol ", "air france", "taxi"),
+    ),
+    (
+        ExpenseSubCategory.RESTAURATION,
+        ("restaurant", "resto", "repas", "dejeuner", "diner", "brasserie", "cafe", "menu"),
+    ),
+)
+_TRANSPORT_NATURES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Péage", ("peage", "péage", "autoroute", "toll")),
+    ("Train", ("train", "sncf", "rail")),
+    ("Avion", ("avion", "vol", "flight", "air ")),
+    ("Parking", ("parking", "stationnement")),
+)
+
+
+def _fold(value: Any) -> str:
+    text = unicodedata.normalize("NFKD", str(value or ""))
+    text = "".join(char for char in text if not unicodedata.combining(char))
+    return text.casefold()
+
+
+def _parse_iso_date(value: Any) -> date_cls | None:
+    text = str(value or "").strip()
+    if len(text) >= 10:
+        try:
+            return datetime.strptime(text[:10], "%Y-%m-%d").date()
+        except ValueError:
+            return None
+    return None
+
+
+def _text_field(row: dict[str, Any], *keys: str) -> str:
+    for key in keys:
+        value = row.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return ""
+
+
+def _decimal_field(row: dict[str, Any], *keys: str) -> Decimal | None:
+    for key in keys:
+        value = _decimal(row.get(key))
+        if value is not None:
+            return value
+    return None
+
+
+def is_personal_expense(row: dict[str, Any]) -> bool:
+    """Return ``True`` for expenses settled by the manager's own account."""
+    source = normalize_payment_source(row.get("payment_source"))
+    if source is PaymentSource.COMPTE_PERSO_DIRIGEANT:
+        return True
+    account = str(row.get("counterparty_account") or "").strip().upper()
+    return account == DIRIGEANT_COUNTERPART_ACCOUNT
+
+
+def counterparty_account_of(row: dict[str, Any]) -> str:
+    """Return the P17 counterpart account (455000_DIRIGEANT when personal)."""
+    if is_personal_expense(row):
+        return DIRIGEANT_COUNTERPART_ACCOUNT
+    explicit = _text_field(row, "counterparty_account")
+    if explicit:
+        return explicit
+    return counterparty_account_for_payment_source(
+        row.get("payment_source")
+    ) or ""
+
+
+def payment_source_of(row: dict[str, Any]) -> str:
+    source = normalize_payment_source(row.get("payment_source"))
+    if source is not None:
+        return source.value
+    if is_personal_expense(row):
+        return PaymentSource.COMPTE_PERSO_DIRIGEANT.value
+    return ""
+
+
+def _hotel_vat_from_row(
+    row: dict[str, Any], record: dict[str, Any]
+) -> tuple[Decimal, Decimal, Decimal | None, Decimal | None]:
+    """Return ``(deductible, non_deductible, ht_accommodation, ht_meals)``.
+
+    Explicit stored fields win. Otherwise a ``Soirée Étape`` mention or a
+    multi-rate hotel bill is re-parsed from the row text. When nothing can be
+    isolated, the historical conservative rule applies: accommodation VAT is
+    fully non-deductible.
+    """
+    tva = record["tva"] or Decimal("0.00")
+    accommodation = _decimal_field(row, "ht_accommodation")
+    meals = _decimal_field(row, "ht_breakfast_meals")
+    deductible = _decimal_field(row, "tva_deductible")
+    non_deductible = _decimal_field(row, "tva_non_deductible")
+    if deductible is not None or non_deductible is not None:
+        if deductible is None:
+            deductible = max(
+                Decimal("0.00"), tva - (non_deductible or Decimal("0.00"))
+            )
+        if non_deductible is None:
+            non_deductible = max(
+                Decimal("0.00"), tva - deductible
+            )
+        return deductible, non_deductible, accommodation, meals
+
+    breakdown = parse_hotel_evening_stage(row)
+    if breakdown is not None:
+        return (
+            breakdown.tva_deductible,
+            breakdown.tva_non_deductible,
+            accommodation if accommodation is not None else breakdown.ht_accommodation,
+            meals if meals is not None else breakdown.ht_meals,
+        )
+    return Decimal("0.00"), tva, accommodation, meals
+
+
+def _infer_expense_subcategory(row: dict[str, Any]) -> ExpenseSubCategory | None:
+    explicit = str(row.get("expense_subcategory") or "").strip()
+    if explicit:
+        try:
+            return ExpenseSubCategory(explicit)
+        except ValueError:
+            pass
+    document_type = str(row.get("document_type") or "").strip().upper()
+    if document_type in _SUBCATEGORY_DOCUMENT_TYPES:
+        return _SUBCATEGORY_DOCUMENT_TYPES[document_type]
+    if parse_hotel_evening_stage(row) is not None:
+        return ExpenseSubCategory.HOTELLERIE
+    haystack = _fold(
+        " ".join(
+            str(row.get(key) or "")
+            for key in (
+                "label",
+                "counterparty",
+                "invoice_url",
+                "fuel_station",
+                "hotel_place",
+            )
+        )
+    )
+    for subcategory, keywords in _SUBCATEGORY_KEYWORDS:
+        if any(keyword in haystack for keyword in keywords):
+            return subcategory
+    return None
+
+
+def _transport_nature(row: dict[str, Any]) -> str:
+    explicit = _text_field(row, "transport_nature")
+    if explicit:
+        return explicit
+    haystack = _fold(
+        " ".join(
+            str(row.get(key) or "")
+            for key in ("label", "document_type", "counterparty")
+        )
+    )
+    for label, keywords in _TRANSPORT_NATURES:
+        if any(keyword in haystack for keyword in keywords):
+            return label
+    return "TRANSPORT"
+
+
+def _expense_row_values(
+    subcategory: ExpenseSubCategory,
+    row: dict[str, Any],
+    record: dict[str, Any],
+) -> tuple[Any, ...]:
+    date_value = _date_cell(record["date"])
+    ht = record["ht"] or Decimal("0.00")
+    tva = record["tva"] or Decimal("0.00")
+    ttc = record["ttc"] or Decimal("0.00")
+    if subcategory is ExpenseSubCategory.RESTAURATION:
+        return (
+            date_value,
+            _text_field(row, "lieu_restaurant") or record["counterparty"],
+            _text_field(row, "invite_restaurant"),
+            ht,
+            tva,
+            ttc,
+        )
+    if subcategory is ExpenseSubCategory.CARBURANT:
+        return (
+            date_value,
+            _text_field(row, "fuel_station") or record["counterparty"],
+            _text_field(row, "vehicle"),
+            ht,
+            tva,
+            ttc,
+        )
+    if subcategory is ExpenseSubCategory.TRANSPORT_PARKING:
+        return (
+            date_value,
+            _transport_nature(row),
+            _text_field(row, "transport_route")
+            or record["counterparty"]
+            or _text_field(row, "label"),
+            ht,
+            tva,
+            ttc,
+        )
+    accommodation = _decimal_field(row, "ht_accommodation") or ht
+    breakfast = _decimal_field(row, "ht_breakfast_meals") or Decimal("0.00")
+    deductible, non_deductible, parsed_accommodation, parsed_meals = (
+        _hotel_vat_from_row(row, record)
+    )
+    if parsed_accommodation is not None:
+        accommodation = parsed_accommodation
+    if parsed_meals is not None:
+        breakfast = parsed_meals
+    return (
+        date_value,
+        _text_field(row, "hotel_place") or record["counterparty"],
+        accommodation,
+        breakfast,
+        deductible,
+        non_deductible,
+        ttc,
+    )
+
+
+@dataclass(frozen=True)
+class ExpenseSubCategoryExportReport:
+    """Paths produced by the four expense sub-tables and the global summary."""
+
+    global_path: Path
+    subtable_paths: dict[ExpenseSubCategory, Path]
+    subfolders: dict[ExpenseSubCategory, tuple[Path, Path]]
+    subcategory_counts: dict[ExpenseSubCategory, int]
+
+
+def _write_p17_workbook(
+    output_path: Path,
+    *,
+    title: str,
+    headers: tuple[str, ...],
+    rows: list[tuple[Any, ...]],
+    total_row: tuple[Any, ...] | None = None,
+) -> None:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = title[:31]
+    sheet.sheet_view.showGridLines = False
+    thin = Side(style="thin", color=_BORDER_COLOR)
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    header_font = Font(bold=True, color="FFFFFF", size=11)
+    header_fill = PatternFill("solid", fgColor=_HEADER_FILL)
+    header_alignment = Alignment(
+        horizontal="center", vertical="center", wrap_text=True
+    )
+    band_fill = PatternFill("solid", fgColor=_BAND_FILL)
+    total_fill = PatternFill("solid", fgColor=_TOTAL_FILL)
+    double_top = Side(style="double", color=_HEADER_FILL)
+    total_border = Border(left=thin, right=thin, top=double_top, bottom=thin)
+
+    for column, name in enumerate(headers, start=1):
+        cell = sheet.cell(row=1, column=column, value=name)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.border = border
+        cell.alignment = header_alignment
+    sheet.row_dimensions[1].height = 32
+
+    for offset, values in enumerate(rows, start=2):
+        for column, value in enumerate(values, start=1):
+            cell = sheet.cell(row=offset, column=column)
+            cell.value = (
+                float(value) if isinstance(value, Decimal) else value
+            )
+            cell.border = border
+            if offset % 2 == 0:
+                cell.fill = band_fill
+            if isinstance(value, Decimal):
+                cell.number_format = "#,##0.00"
+                cell.alignment = Alignment(
+                    horizontal="right", vertical="center"
+                )
+            elif isinstance(value, date_cls):
+                cell.number_format = "DD/MM/YYYY"
+                cell.alignment = Alignment(
+                    horizontal="center", vertical="center"
+                )
+            else:
+                cell.alignment = Alignment(vertical="center", wrap_text=True)
+
+    last_data_row = len(rows) + 1
+    sheet.auto_filter.ref = (
+        f"A1:{get_column_letter(len(headers))}{last_data_row}"
+    )
+    sheet.freeze_panes = "A2"
+
+    if total_row is not None:
+        total_index = last_data_row + 1
+        for column, value in enumerate(total_row, start=1):
+            cell = sheet.cell(row=total_index, column=column)
+            cell.value = (
+                float(value) if isinstance(value, Decimal) else value
+            )
+            cell.font = Font(bold=True)
+            cell.fill = total_fill
+            cell.border = total_border
+            if isinstance(value, Decimal):
+                cell.number_format = "#,##0.00"
+                cell.alignment = Alignment(
+                    horizontal="right", vertical="center"
+                )
+
+    for column in range(1, len(headers) + 1):
+        longest = len(str(headers[column - 1]))
+        for row_index in range(2, sheet.max_row + 1):
+            longest = max(
+                longest,
+                _display_length(sheet.cell(row=row_index, column=column).value),
+            )
+        sheet.column_dimensions[get_column_letter(column)].width = max(
+            12, min(longest + 2, 60)
+        )
+
+    workbook.properties.creator = "DSH-Core"
+    workbook.properties.title = title
+    _atomic_save_workbook(workbook, output_path)
+
+
+class ExpenseSubCategoryExporter:
+    """Build the four ``FRAIS_GENERAUX`` sub-tables and their global summary."""
+
+    def __init__(
+        self,
+        store: CategoryLineStore,
+        *,
+        root: str | os.PathLike[str] | None = None,
+        export_dir: str | os.PathLike[str] | None = None,
+    ) -> None:
+        self._store = store
+        self._root = root
+        self._export_dir = Path(export_dir) if export_dir is not None else None
+
+    def export(
+        self, tenant_id: str
+    ) -> ExpenseSubCategoryExportReport:
+        try:
+            tenant = validate_tenant_id(tenant_id)
+        except AccountingStoreError:
+            raise CategorySummaryExportError(
+                "INVALID_TENANT_ID", repr(tenant_id)
+            ) from None
+        tree = ensure_tree(tenant, self._root)
+        base = (
+            self._export_dir
+            if self._export_dir is not None
+            else tree.state_dir(FolderState.EXPORT_COMPTA)
+        )
+        frais_dir = base / DocumentCategory.FRAIS_GENERAUX.value
+        frais_dir.mkdir(parents=True, exist_ok=True)
+
+        rows = self._store.list_category_lines(
+            tenant, DocumentCategory.FRAIS_GENERAUX
+        )
+        grouped: dict[ExpenseSubCategory, list[tuple[Any, ...]]] = {
+            subcategory: [] for subcategory in ExpenseSubCategory
+        }
+        unclassified: list[dict[str, Any]] = []
+        for row in rows:
+            record = _summary_record(row)
+            subcategory = _infer_expense_subcategory(row)
+            if subcategory is None:
+                unclassified.append(row)
+                continue
+            grouped[subcategory].append(
+                _expense_row_values(subcategory, row, record)
+            )
+
+        subtable_paths: dict[ExpenseSubCategory, Path] = {}
+        subfolders: dict[ExpenseSubCategory, tuple[Path, Path]] = {}
+        counts: dict[ExpenseSubCategory, int] = {}
+        for subcategory, values in grouped.items():
+            subfolder_03 = tree.expense_subcategory_dir(
+                FolderState.VALIDE_PRET_FEC, subcategory
+            )
+            subfolder_04 = tree.expense_subcategory_dir(
+                FolderState.EXPORT_COMPTA, subcategory
+            )
+            subfolder_03.mkdir(parents=True, exist_ok=True)
+            subfolder_04.mkdir(parents=True, exist_ok=True)
+            target_dir = frais_dir / subcategory.value
+            target_dir.mkdir(parents=True, exist_ok=True)
+            path = target_dir / EXPENSE_SUBTABLE_FILENAME.format(
+                subcategory=subcategory.value
+            )
+            _write_p17_workbook(
+                path,
+                title=f"TABLEAU_{subcategory.value}",
+                headers=EXPENSE_SUBCATEGORY_HEADERS[subcategory],
+                rows=values,
+            )
+            subtable_paths[subcategory] = path
+            subfolders[subcategory] = (subfolder_03, subfolder_04)
+            counts[subcategory] = len(values)
+
+        summary_rows: list[tuple[Any, ...]] = []
+        for subcategory in ExpenseSubCategory:
+            values = grouped[subcategory]
+            if subcategory is ExpenseSubCategory.HOTELLERIE:
+                ht = sum(
+                    (
+                        value[2] + value[3]
+                        for value in values
+                        if isinstance(value[2], Decimal)
+                        and isinstance(value[3], Decimal)
+                    ),
+                    Decimal("0.00"),
+                )
+                tva = sum(
+                    (
+                        value[4] + value[5]
+                        for value in values
+                        if isinstance(value[4], Decimal)
+                        and isinstance(value[5], Decimal)
+                    ),
+                    Decimal("0.00"),
+                )
+                ttc_index = 6
+            else:
+                ht = sum(
+                    (
+                        value[3]
+                        for value in values
+                        if isinstance(value[3], Decimal)
+                    ),
+                    Decimal("0.00"),
+                )
+                tva = sum(
+                    (
+                        value[4]
+                        for value in values
+                        if isinstance(value[4], Decimal)
+                    ),
+                    Decimal("0.00"),
+                )
+                ttc_index = 5
+            ttc = sum(
+                (
+                    value[ttc_index]
+                    for value in values
+                    if isinstance(value[ttc_index], Decimal)
+                ),
+                Decimal("0.00"),
+            )
+            summary_rows.append(
+                (
+                    subcategory.value,
+                    len(values),
+                    ht.quantize(_CENT),
+                    tva.quantize(_CENT),
+                    ttc.quantize(_CENT),
+                )
+            )
+        if unclassified:
+            summary_rows.append(
+                (NON_CLASSIFIED_MARKER, len(unclassified), Decimal("0.00"), Decimal("0.00"), Decimal("0.00"))
+            )
+        total_ht = sum(
+            (row[2] for row in summary_rows if isinstance(row[2], Decimal)),
+            Decimal("0.00"),
+        )
+        total_tva = sum(
+            (row[3] for row in summary_rows if isinstance(row[3], Decimal)),
+            Decimal("0.00"),
+        )
+        total_ttc = sum(
+            (row[4] for row in summary_rows if isinstance(row[4], Decimal)),
+            Decimal("0.00"),
+        )
+        total_row = (
+            CATEGORY_SUMMARY_TOTAL_LABEL,
+            sum(row[1] for row in summary_rows),
+            total_ht.quantize(_CENT),
+            total_tva.quantize(_CENT),
+            total_ttc.quantize(_CENT),
+        )
+        global_path = frais_dir / EXPENSE_SYNTHESIS_FILENAME
+        _write_p17_workbook(
+            global_path,
+            title="SYNTHESE_FRAIS_GENERAUX",
+            headers=EXPENSE_SYNTHESIS_HEADERS,
+            rows=summary_rows,
+            total_row=total_row,
+        )
+        return ExpenseSubCategoryExportReport(
+            global_path=global_path,
+            subtable_paths=subtable_paths,
+            subfolders=subfolders,
+            subcategory_counts=counts,
+        )
+
+
+def export_expense_subcategories(
+    tenant_id: str,
+    *,
+    root: str | os.PathLike[str] | None = None,
+    export_dir: str | os.PathLike[str] | None = None,
+    store: SqliteAccountingStore | None = None,
+) -> ExpenseSubCategoryExportReport:
+    """Convenience wrapper around :class:`ExpenseSubCategoryExporter`."""
+    exporter = ExpenseSubCategoryExporter(
+        store if store is not None else get_shared_sqlite_store(),
+        root=root,
+        export_dir=export_dir,
+    )
+    return exporter.export(tenant_id)
+
+@dataclass(frozen=True)
+class TvaDuplicate:
+    """Explicit duplicate detected on piece number + supplier + amount."""
+
+    piece_number: str
+    supplier: str
+    amount: Decimal
+    line_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class FiscalYearDecision:
+    """Resolved fiscal year / deferred month for one accounting line."""
+
+    mode: FiscalYearMode
+    target_year: int | None
+    deferred_month: str | None
+    effective_date: date_cls | None
+
+
+@dataclass(frozen=True)
+class FiscalTotals:
+    """Deduplicated HT/TVA/TTC totals of one fiscal year."""
+
+    year: int
+    pieces: int
+    ht: Decimal
+    tva: Decimal
+    ttc: Decimal
+
+
+@dataclass(frozen=True)
+class MasterTableExportReport:
+    """Observable outcome of the two master-table exports."""
+
+    achats_path: Path
+    banque_tva_path: Path
+    row_count: int
+    duplicates: tuple[TvaDuplicate, ...]
+    fiscal_totals: dict[int, FiscalTotals]
+
+
+def _line_identifier(row: dict[str, Any], index: int) -> str:
+    for key in ("line_id", "invoice_id", "id"):
+        value = row.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return f"ROW-{index}"
+
+
+def _dedup_key(row: dict[str, Any], record: dict[str, Any]) -> tuple[str, str, Decimal] | None:
+    piece = _piece_number_from_row(row) or _piece_reference(
+        row, row.get("invoice_id") or row.get("line_id") or ""
+    )
+    supplier = _fold(row.get("counterparty") or row.get("supplier") or "")
+    amount = record["ttc"]
+    if not piece or not supplier or amount is None:
+        return None
+    return (piece.casefold(), supplier, amount)
+
+
+def compute_tva_dedup(
+    rows: list[dict[str, Any]],
+) -> tuple[list[TvaDedupStatus], tuple[TvaDuplicate, ...]]:
+    """Return one anti-duplicate status per row plus explicit duplicates.
+
+    The anti-duplicate key is exactly ``(numéro de pièce, fournisseur,
+    montant TTC)``. The first occurrence is ``TVA_UNIQUE`` and is the only one
+    counted in the TVA recap; every following occurrence is
+    ``DOUBLON_TVA_EXCLU``. Rows that cannot be keyed are conservatively marked
+    ``TVA_NON_VERIFIABLE`` but remain count-once (no proof of duplication).
+    """
+    statuses: list[TvaDedupStatus] = []
+    first_index: dict[tuple[str, str, Decimal], int] = {}
+    occurrences: dict[tuple[str, str, Decimal], list[str]] = {}
+    for index, row in enumerate(rows):
+        record = _summary_record(row)
+        key = _dedup_key(row, record)
+        line_id = _line_identifier(row, index)
+        stored = str(row.get("tva_dedup_status") or "").strip().upper()
+        if stored == TvaDedupStatus.DUPLICATE_EXCLUDED.value:
+            statuses.append(TvaDedupStatus.DUPLICATE_EXCLUDED)
+            if key is not None:
+                occurrences.setdefault(key, []).append(line_id)
+            continue
+        if key is None:
+            statuses.append(TvaDedupStatus.NON_VERIFIABLE)
+            continue
+        if key in first_index:
+            statuses.append(TvaDedupStatus.DUPLICATE_EXCLUDED)
+            occurrences[key].append(line_id)
+            continue
+        first_index[key] = index
+        occurrences.setdefault(key, []).append(line_id)
+        statuses.append(TvaDedupStatus.UNIQUE)
+    duplicates = tuple(
+        TvaDuplicate(
+            piece_number=key[0],
+            supplier=key[1],
+            amount=key[2],
+            line_ids=tuple(ids),
+        )
+        for key, ids in occurrences.items()
+        if len(ids) > 1
+    )
+    return statuses, duplicates
+
+
+def _coerce_month(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.isdigit():
+        text = text.zfill(2)
+    return text if text in DEFERRED_MONTHS else None
+
+
+def _safe_date(year: int, month: int, day: int) -> date_cls | None:
+    for candidate_day in (day, 28, 1):
+        try:
+            return date_cls(year, month, candidate_day)
+        except ValueError:
+            continue
+    return None
+
+
+def resolve_fiscal_year(row: dict[str, Any]) -> FiscalYearDecision:
+    """Apply ``fiscal_year_mode`` / target / deferred month to one line."""
+    try:
+        mode = FiscalYearMode(str(row.get("fiscal_year_mode") or "ACTUEL").strip())
+    except ValueError:
+        mode = FiscalYearMode.ACTUEL
+    piece_date = _parse_iso_date(row.get("operation_date"))
+    target_text = str(row.get("fiscal_year_target") or "").strip()
+    target_year: int | None = None
+    if re.fullmatch(r"\d{4}", target_text):
+        target_year = int(target_text)
+    elif piece_date is not None:
+        offset = {
+            FiscalYearMode.PRECEDENT: -1,
+            FiscalYearMode.ACTUEL: 0,
+            FiscalYearMode.SUIVANT: 1,
+        }[mode]
+        target_year = piece_date.year + offset
+    deferred = _coerce_month(row.get("deferred_month_override"))
+    effective: date_cls | None = piece_date
+    if target_year is not None:
+        month = int(deferred) if deferred else (piece_date.month if piece_date else 1)
+        day = piece_date.day if piece_date else 1
+        effective = _safe_date(target_year, month, day)
+    return FiscalYearDecision(
+        mode=mode,
+        target_year=target_year,
+        deferred_month=deferred,
+        effective_date=effective,
+    )
+
+
+def _status_value(status: TvaDedupStatus | str) -> str:
+    return getattr(status, "value", str(status))
+
+
+def _is_duplicate_status(status: TvaDedupStatus | str) -> bool:
+    return _status_value(status) == TvaDedupStatus.DUPLICATE_EXCLUDED.value
+
+
+def compute_fiscal_totals(
+    rows: list[dict[str, Any]],
+    statuses: list[TvaDedupStatus] | None = None,
+) -> dict[int, FiscalTotals]:
+    """Deduplicated TVA/charges totals isolated per fiscal year."""
+    resolved_statuses = (
+        statuses
+        if statuses is not None
+        else compute_tva_dedup(rows)[0]
+    )
+    buckets: dict[int, dict[str, Any]] = {}
+    for row, status in zip(rows, resolved_statuses):
+        if _is_duplicate_status(status):
+            continue
+        decision = resolve_fiscal_year(row)
+        if decision.target_year is None:
+            continue
+        record = _summary_record(row)
+        bucket = buckets.setdefault(
+            decision.target_year,
+            {
+                "pieces": 0,
+                "ht": Decimal("0.00"),
+                "tva": Decimal("0.00"),
+                "ttc": Decimal("0.00"),
+            },
+        )
+        bucket["pieces"] += 1
+        bucket["ht"] += record["ht"] or Decimal("0.00")
+        bucket["tva"] += record["tva"] or Decimal("0.00")
+        bucket["ttc"] += record["ttc"] or Decimal("0.00")
+    return {
+        year: FiscalTotals(
+            year=year,
+            pieces=data["pieces"],
+            ht=data["ht"].quantize(_CENT),
+            tva=data["tva"].quantize(_CENT),
+            ttc=data["ttc"].quantize(_CENT),
+        )
+        for year, data in sorted(buckets.items())
+    }
+
+
+def _master_rows(store: Any, tenant_id: str) -> list[dict[str, Any]]:
+    list_master = getattr(store, "list_master_lines", None)
+    if callable(list_master):
+        rows = list_master(tenant_id)
+        return [
+            row
+            for row in rows
+            if str(row.get("category") or "") != DocumentCategory.VENTES_CLIENTS.value
+        ]
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for category in DocumentCategory:
+        if category is DocumentCategory.VENTES_CLIENTS:
+            continue
+        for row in store.list_category_lines(tenant_id, category):
+            identifier = _line_identifier(row, len(rows))
+            if identifier in seen:
+                continue
+            seen.add(identifier)
+            rows.append(row)
+    return rows
+
+
+class MasterTableExporter:
+    """Build the two P17 master workbooks under ``04_EXPORT_COMPTA``."""
+
+    def __init__(
+        self,
+        store: Any,
+        *,
+        root: str | os.PathLike[str] | None = None,
+        export_dir: str | os.PathLike[str] | None = None,
+    ) -> None:
+        self._store = store
+        self._root = root
+        self._export_dir = Path(export_dir) if export_dir is not None else None
+
+    def export(self, tenant_id: str) -> MasterTableExportReport:
+        try:
+            tenant = validate_tenant_id(tenant_id)
+        except AccountingStoreError:
+            raise CategorySummaryExportError(
+                "INVALID_TENANT_ID", repr(tenant_id)
+            ) from None
+        tree = ensure_tree(tenant, self._root)
+        output_dir = (
+            self._export_dir
+            if self._export_dir is not None
+            else tree.state_dir(FolderState.EXPORT_COMPTA) / tenant
+        )
+        output_dir.mkdir(parents=True, exist_ok=True)
+        rows = _master_rows(self._store, tenant)
+        statuses, duplicates = compute_tva_dedup(rows)
+        fiscal_totals = compute_fiscal_totals(rows, statuses)
+
+        achats_rows: list[tuple[Any, ...]] = []
+        banque_rows: list[tuple[Any, ...]] = []
+        for row, status in zip(rows, statuses):
+            record = _summary_record(row)
+            subcategory = _infer_expense_subcategory(row)
+            marker = classify_marker(subcategory)
+            decision = resolve_fiscal_year(row)
+            piece = _piece_number_from_row(row) or _piece_reference(
+                row, row.get("invoice_id") or row.get("line_id") or ""
+            )
+            date_value = _date_cell(record["date"])
+            effective = decision.effective_date or date_value
+            ht = record["ht"] or Decimal("0.00")
+            tva = record["tva"] or Decimal("0.00")
+            ttc = record["ttc"] or Decimal("0.00")
+            common_tail = (
+                marker,
+                _status_value(status),
+                decision.mode.value,
+                decision.target_year if decision.target_year is not None else "",
+                decision.deferred_month or "",
+                effective,
+            )
+            achats_rows.append(
+                (
+                    date_value,
+                    record["counterparty"],
+                    piece,
+                    str(row.get("category") or ""),
+                    subcategory.value if subcategory is not None else NON_CLASSIFIED_MARKER,
+                    *common_tail,
+                    ht,
+                    tva,
+                    ttc,
+                    record["reference"],
+                    payment_source_of(row),
+                    counterparty_account_of(row),
+                )
+            )
+            if tva != 0 or str(row.get("category") or "") in {
+                DocumentCategory.BANQUE_FINANCE.value,
+                DocumentCategory.FISCAL_SOCIAL.value,
+            }:
+                banque_rows.append(
+                    (
+                        date_value,
+                        record["counterparty"],
+                        piece,
+                        tva,
+                        Decimal("0.00")
+                        if _is_duplicate_status(status)
+                        else tva,
+                        *common_tail,
+                        ht,
+                        ttc,
+                        record["reference"],
+                        payment_source_of(row),
+                        counterparty_account_of(row),
+                    )
+                )
+
+        achats_path = output_dir / MASTER_ACHATS_FILENAME
+        _write_p17_workbook(
+            achats_path,
+            title="TABLEAU_MERE_ACHATS_CHARGES",
+            headers=MASTER_ACHATS_HEADERS,
+            rows=achats_rows,
+        )
+        banque_path = output_dir / MASTER_BANQUE_TVA_FILENAME
+        _write_p17_workbook(
+            banque_path,
+            title="TABLEAU_MERE_BANQUE_TVA",
+            headers=MASTER_BANQUE_TVA_HEADERS,
+            rows=banque_rows,
+        )
+        workbook = load_workbook(banque_path)
+        recap = workbook.create_sheet("RECAP_TVA")
+        recap.sheet_view.showGridLines = False
+        for column, name in enumerate(MASTER_TVA_RECAP_HEADERS, start=1):
+            recap.cell(row=1, column=column, value=name).font = Font(
+                bold=True, color="FFFFFF"
+            )
+            recap.cell(row=1, column=column).fill = PatternFill(
+                "solid", fgColor=_HEADER_FILL
+            )
+        for offset, totals in enumerate(fiscal_totals.values(), start=2):
+            values = (
+                totals.year,
+                totals.pieces,
+                totals.ht,
+                totals.tva,
+                totals.ttc,
+            )
+            for column, value in enumerate(values, start=1):
+                cell = recap.cell(row=offset, column=column)
+                cell.value = (
+                    float(value) if isinstance(value, Decimal) else value
+                )
+                if isinstance(value, Decimal):
+                    cell.number_format = "#,##0.00"
+        for column in range(1, len(MASTER_TVA_RECAP_HEADERS) + 1):
+            recap.column_dimensions[
+                get_column_letter(column)
+            ].width = 18
+        _atomic_save_workbook(workbook, banque_path)
+
+        return MasterTableExportReport(
+            achats_path=achats_path,
+            banque_tva_path=banque_path,
+            row_count=len(rows),
+            duplicates=duplicates,
+            fiscal_totals=fiscal_totals,
+        )
+
+
+def export_master_tables(
+    tenant_id: str,
+    *,
+    root: str | os.PathLike[str] | None = None,
+    export_dir: str | os.PathLike[str] | None = None,
+    store: SqliteAccountingStore | None = None,
+) -> MasterTableExportReport:
+    """Convenience wrapper around :class:`MasterTableExporter`."""
+    exporter = MasterTableExporter(
+        store if store is not None else get_shared_sqlite_store(),
+        root=root,
+        export_dir=export_dir,
+    )
+    return exporter.export(tenant_id)
+
+
+# ---------------------------------------------------------------------------
+# P17.1 - Manager personal-expense claims (Compte Courant 455000_DIRIGEANT)
+# ---------------------------------------------------------------------------
+
+PERSONAL_EXPENSE_NOTE_FILENAME = "NOTE_DE_FRAIS_DIRIGEANT_{month}.xlsx"
+PERSONAL_EXPENSE_NOTE_HEADERS: tuple[str, ...] = (
+    "Date Pièce",
+    "Fournisseur",
+    "N° Pièce",
+    "Catégorie",
+    "Sous-catégorie",
+    "HT",
+    "TVA Déductible",
+    "TTC",
+    "Source de Paiement",
+    "Compte de Contrepartie",
+    "Lien Justificatif",
+)
+
+
+@dataclass(frozen=True)
+class PersonalExpenseNoteReport:
+    """Monthly claims paid by the manager and booked through 455000."""
+
+    paths: dict[str, Path]
+    piece_counts: dict[str, int]
+    total_ht: dict[str, Decimal]
+    total_tva: dict[str, Decimal]
+    total_ttc: dict[str, Decimal]
+
+    @property
+    def output_path(self) -> Path:
+        """Latest generated workbook (single month for explicit exports)."""
+        return list(self.paths.values())[-1]
+
+    @property
+    def month(self) -> str:
+        return list(self.paths.keys())[-1] if self.paths else ""
+
+    @property
+    def piece_count(self) -> int:
+        return sum(self.piece_counts.values())
+
+    @property
+    def total_net(self) -> Decimal:
+        """Total amount to reimburse to the manager (TTC)."""
+        return sum(self.total_ttc.values(), Decimal("0.00")).quantize(_CENT)
+
+    @property
+    def total_to_reimburse(self) -> Decimal:
+        return self.total_net
+
+
+def _normalise_month(value: Any) -> str:
+    if isinstance(value, datetime):
+        value = value.date()
+    if isinstance(value, date_cls):
+        return f"{value.year:04d}-{value.month:02d}"
+    text = str(value or "").strip()
+    if not text:
+        raise CategorySummaryExportError("INVALID_MONTH", repr(value))
+    patterns = (
+        (r"^(\d{4})[-_/.](\d{1,2})$", "ym"),
+        (r"^(\d{4})(\d{2})$", "ym"),
+        (r"^(\d{1,2})[-_/.](\d{4})$", "my"),
+        (r"^(\d{4})[-_/.](\d{1,2})[-_/.]\d{1,2}$", "ymd"),
+        (r"^(\d{1,2})[-_/.](\d{1,2})[-_/.](\d{4})$", "dmy"),
+    )
+    for pattern, order in patterns:
+        match = re.match(pattern, text)
+        if match is None:
+            continue
+        groups = match.groups()
+        if order == "ymd":
+            year, month = int(groups[0]), int(groups[1])
+        elif order == "dmy":
+            year, month = int(groups[2]), int(groups[1])
+        elif order == "my":
+            year, month = int(groups[1]), int(groups[0])
+        else:
+            year, month = int(groups[0]), int(groups[1])
+        if not 1 <= month <= 12:
+            break
+        return f"{year:04d}-{month:02d}"
+    raise CategorySummaryExportError("INVALID_MONTH", repr(value))
+
+
+def _row_month(row: dict[str, Any]) -> str | None:
+    value = row.get("operation_date")
+    if isinstance(value, datetime):
+        return f"{value.year:04d}-{value.month:02d}"
+    if isinstance(value, date_cls):
+        return f"{value.year:04d}-{value.month:02d}"
+    parsed = _parse_iso_date(value)
+    if parsed is not None:
+        return f"{parsed.year:04d}-{parsed.month:02d}"
+    text = str(value or "").strip()
+    if len(text) >= 7 and re.match(r"^\d{4}[-_/.]\d{1,2}", text):
+        try:
+            return _normalise_month(text[:7])
+        except CategorySummaryExportError:
+            return None
+    return None
+
+
+def _personal_note_row(row: dict[str, Any]) -> tuple[Any, ...]:
+    record = _summary_record(row)
+    subcategory = _infer_expense_subcategory(row)
+    if subcategory is ExpenseSubCategory.HOTELLERIE:
+        deductible, _non_deductible, _acc, _meals = _hotel_vat_from_row(
+            row, record
+        )
+    else:
+        deductible = record["tva"] or Decimal("0.00")
+    return (
+        _date_cell(record["date"]),
+        record["counterparty"],
+        _piece_number_from_row(row)
+        or _piece_reference(
+            row, row.get("invoice_id") or row.get("line_id") or ""
+        ),
+        str(row.get("category") or ""),
+        subcategory.value if subcategory is not None else NON_CLASSIFIED_MARKER,
+        record["ht"] or Decimal("0.00"),
+        deductible,
+        record["ttc"] or Decimal("0.00"),
+        payment_source_of(row),
+        counterparty_account_of(row) or DIRIGEANT_COUNTERPART_ACCOUNT,
+        record["reference"],
+    )
+
+
+class PersonalExpenseNoteExporter:
+    """Generate the monthly ``NOTE_DE_FRAIS_DIRIGEANT_<mois>.xlsx`` workbook."""
+
+    def __init__(
+        self,
+        store: Any,
+        *,
+        export_dir: str | os.PathLike[str] | None = None,
+    ) -> None:
+        self._store = store
+        self._export_dir = (
+            Path(export_dir) if export_dir is not None else DEFAULT_EXPORT_DIR
+        )
+
+    def export(
+        self, tenant_id: str, month: str | date_cls | None = None
+    ) -> PersonalExpenseNoteReport:
+        tenant = validate_tenant_id(tenant_id)
+        selected_month = _normalise_month(month) if month is not None else None
+        rows = [
+            row
+            for row in _master_rows(self._store, tenant)
+            if is_personal_expense(row)
+        ]
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            row_month = _row_month(row)
+            if row_month is None:
+                if selected_month is not None:
+                    continue
+                row_month = "INCONNU"
+            if selected_month is not None and row_month != selected_month:
+                continue
+            grouped.setdefault(row_month, []).append(row)
+        if selected_month is not None:
+            grouped.setdefault(selected_month, [])
+
+        output_dir = self._export_dir / tenant
+        output_dir.mkdir(parents=True, exist_ok=True)
+        paths: dict[str, Path] = {}
+        counts: dict[str, int] = {}
+        total_ht: dict[str, Decimal] = {}
+        total_tva: dict[str, Decimal] = {}
+        total_ttc: dict[str, Decimal] = {}
+        for month_key in sorted(grouped):
+            month_rows = sorted(
+                grouped[month_key],
+                key=lambda item: (
+                    str(item.get("operation_date") or ""),
+                    str(item.get("line_id") or ""),
+                ),
+            )
+            values = [_personal_note_row(row) for row in month_rows]
+            ht = sum(
+                (value[5] for value in values if isinstance(value[5], Decimal)),
+                Decimal("0.00"),
+            ).quantize(_CENT)
+            tva = sum(
+                (value[6] for value in values if isinstance(value[6], Decimal)),
+                Decimal("0.00"),
+            ).quantize(_CENT)
+            ttc = sum(
+                (value[7] for value in values if isinstance(value[7], Decimal)),
+                Decimal("0.00"),
+            ).quantize(_CENT)
+            total_row = (
+                "TOTAL NET A REMBOURSER",
+                "",
+                "",
+                "",
+                "",
+                ht,
+                tva,
+                ttc,
+                PaymentSource.COMPTE_PERSO_DIRIGEANT.value,
+                DIRIGEANT_COUNTERPART_ACCOUNT,
+                "",
+            )
+            path = output_dir / PERSONAL_EXPENSE_NOTE_FILENAME.format(
+                month=month_key
+            )
+            _write_p17_workbook(
+                path,
+                title=f"NOTE_DE_FRAIS_{month_key}",
+                headers=PERSONAL_EXPENSE_NOTE_HEADERS,
+                rows=values,
+                total_row=total_row,
+            )
+            paths[month_key] = path
+            counts[month_key] = len(values)
+            total_ht[month_key] = ht
+            total_tva[month_key] = tva
+            total_ttc[month_key] = ttc
+        return PersonalExpenseNoteReport(
+            paths=paths,
+            piece_counts=counts,
+            total_ht=total_ht,
+            total_tva=total_tva,
+            total_ttc=total_ttc,
+        )
+
+
+def export_personal_expense_note(
+    tenant_id: str,
+    month: str | date_cls | None = None,
+    *,
+    export_dir: str | os.PathLike[str] | None = None,
+    store: SqliteAccountingStore | None = None,
+) -> PersonalExpenseNoteReport:
+    """Convenience wrapper around :class:`PersonalExpenseNoteExporter`."""
+    exporter = PersonalExpenseNoteExporter(
+        store if store is not None else get_shared_sqlite_store(),
+        export_dir=export_dir,
+    )
+    return exporter.export(tenant_id, month)
+
+
+def export_personal_expense_notes(
+    tenant_id: str,
+    *,
+    export_dir: str | os.PathLike[str] | None = None,
+    store: SqliteAccountingStore | None = None,
+) -> PersonalExpenseNoteReport:
+    """Export every month that contains manager-funded expenses."""
+    return export_personal_expense_note(
+        tenant_id, None, export_dir=export_dir, store=store
+    )
+
+
+NOTE_DE_FRAIS_DIRIGEANT_HEADERS = PERSONAL_EXPENSE_NOTE_HEADERS
+NoteDeFraisDirigeantExporter = PersonalExpenseNoteExporter
+NoteDeFraisDirigeantReport = PersonalExpenseNoteReport
+export_note_de_frais_dirigeant = export_personal_expense_note
+
+
+__all__ = [
+    "CGI_ARTICLE_206",
+    "NOTE_DE_FRAIS_DIRIGEANT_HEADERS",
+    "NoteDeFraisDirigeantExporter",
+    "NoteDeFraisDirigeantReport",
+    "PERSONAL_EXPENSE_NOTE_FILENAME",
+    "PERSONAL_EXPENSE_NOTE_HEADERS",
+    "PersonalExpenseNoteExporter",
+    "PersonalExpenseNoteReport",
+    "counterparty_account_of",
+    "export_note_de_frais_dirigeant",
+    "export_personal_expense_note",
+    "export_personal_expense_notes",
+    "is_personal_expense",
+    "payment_source_of",
+]
