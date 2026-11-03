@@ -1,9 +1,11 @@
 """P14/P15/P16 field validation runner.
 
-Injects a manifest of real documents in ``00_INBOX``, simulates the extraction
-stages ``00_INBOX -> 01_EN_COURS -> 02_A_COMPLETER``, validates the rows through
-``_A_COMPLETER.xlsx``, lets ``FolderSyncService`` move them to
-``03_VALIDE_PRET_FEC/<CATEGORIE>/``, imports a bank line, arbitrates the
+Injects a manifest of real documents in ``00_INBOX`` then runs the genuine
+:class:`services.inbox_ingestion_service.InboxIngestionService`: SHA-256 dedup,
+atomic move to ``01_EN_COURS``, extraction, and conditional routing to
+``03_VALIDE_PRET_FEC/<CATEGORIE>/`` or ``02_A_COMPLETER/``. The runner then
+validates the pending rows through ``_A_COMPLETER.xlsx``, lets
+``FolderSyncService`` move them to ``03_``, imports a bank line, arbitrates the
 reconciliation, then exports the per-category analytic workbook.
 
 The runner never deletes anything: it refuses to start when a content hash is
@@ -15,7 +17,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import shutil
 import sys
 from dataclasses import asdict, dataclass
@@ -30,8 +31,6 @@ if str(REPO_ROOT) not in sys.path:
 
 from schemas.folder_state_schema import (
     DocumentCategory,
-    DocumentSource,
-    DocumentStateRecord,
     DocumentStatus,
     FolderState,
     MissingFieldEnum,
@@ -41,13 +40,22 @@ from services.accounting_spreadsheet_export_service import CategorySummaryExport
 from services.bank_statement_parser_service import normalize_bank_rows
 from services.folder_sync_service import FolderSyncService
 from services.folder_tree_service import ensure_tree
+from services.inbox_ingestion_service import (
+    OUTCOME_A_COMPLETER,
+    OUTCOME_DUPLICATE,
+    OUTCOME_ERREUR,
+    ExtractedInvoice,
+    InboxIngestionReport,
+    InboxIngestionService,
+)
 from services.sqlite_accounting_store import SqliteAccountingStore
 
 DEFAULT_TENANT = "default"
 DEFAULT_ROOT = REPO_ROOT / "workspace" / "document_flow"
 DEFAULT_DB = REPO_ROOT / "data" / "accounting" / "accounting.sqlite3"
 DEFAULT_EXPORT_DIR = REPO_ROOT / "workspace" / "exports" / "accounting"
-STOP_CHOICES = ("inbox", "en_cours", "a_completer", "valide")
+STOP_CHOICES = ("inbox", "ingestion", "a_completer", "valide")
+EXTRACTOR_CHOICES = ("pipeline", "manifest")
 KINDS = ("INVOICE", "CREDIT_NOTE")
 CENT = Decimal("0.01")
 
@@ -186,26 +194,43 @@ def ensure_no_collision(tree: Any, tenant: str, specs: list[DocumentSpec]) -> No
         raise SystemExit(f"TENANT_DIR_NOT_FOUND:{tenant_dir}")
 
 
-def record_of(spec: DocumentSpec) -> DocumentStateRecord:
-    return DocumentStateRecord(
-        sha256=spec.sha256,
-        nom_fichier=spec.name,
-        state=FolderState.A_COMPLETER,
-        category=spec.category,
-        champs_manquants=list(spec.missing),
-        categorie_suggeree=spec.category,
-        statut=DocumentStatus.EN_ATTENTE,
-        source=DocumentSource.MANUAL,
-        horodatage=datetime.now(timezone.utc),
-    )
+def record_of(spec: DocumentSpec) -> dict[str, Any]:
+    return {
+        "document": spec.name,
+        "sha256": spec.sha256,
+        "category": spec.category.value,
+        "missing": list(spec.missing),
+    }
 
 
-def move(source: Path, destination: Path) -> None:
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        os.replace(source, destination)
-    except OSError:
-        shutil.move(str(source), str(destination))
+class ManifestExtractor:
+    """Deterministic extractor backed by the field-validation manifest.
+
+    The ingestion orchestration stays genuine (dedup, atomic moves, workbook,
+    store, conditional routing); only the LLM/OCR field extraction is replaced
+    by the manifest truth so the P16 field validation is reproducible.
+    """
+
+    def __init__(self, specs: list[DocumentSpec]) -> None:
+        self._by_hash = {spec.sha256: spec for spec in specs}
+
+    def __call__(self, source: Path) -> ExtractedInvoice:
+        digest = sha256_file(Path(source))
+        spec = self._by_hash.get(digest)
+        if spec is None:
+            raise ValueError(f"NO_MANIFEST_ENTRY:{Path(source).name}")
+        missing = set(spec.missing)
+        return ExtractedInvoice(
+            issue_date=None if "date_piece" in missing else spec.operation_date,
+            invoice_number=None if "numero_piece" in missing else spec.piece_number,
+            supplier_name=None if "nom_fournisseur" in missing else spec.counterparty,
+            amount_ht=None if "montant_ht" in missing else spec.ht,
+            amount_tva=None if "montant_tva" in missing else spec.tva,
+            amount_ttc=None if "montant_ttc" in missing else spec.ttc,
+            category=spec.category,
+            confidence=0.5 if missing else 0.99,
+            document_type=spec.kind,
+        )
 
 
 def enrich_store(
@@ -307,36 +332,60 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     store = SqliteAccountingStore(args.db)
     service = FolderSyncService(args.tenant, store, root)
     inbox = tree.state_dir(FolderState.INBOX)
-    en_cours = tree.state_dir(FolderState.EN_COURS)
-    a_completer = tree.state_dir(FolderState.A_COMPLETER)
     tenant_dir = tree.root / args.tenant
 
     for spec in specs:
         shutil.copy2(spec.source, inbox / spec.name)
     injected = [spec.name for spec in specs]
     if args.stop_at == "inbox":
-        return summary(args, tree, injected, [], None, None, None, [], [], None)
-
-    for spec in specs:
-        move(inbox / spec.name, en_cours / spec.name)
-    if args.stop_at == "en_cours":
-        return summary(args, tree, injected, [], None, None, None, [], [], None)
-
-    for spec in specs:
-        move(en_cours / spec.name, a_completer / spec.name)
-    records = [record_of(spec) for spec in specs]
-    pipeline_report = service.sync_pipeline_to_human(records)
-    pending_report = service.sync_human_to_pipeline()
-    if args.stop_at == "a_completer":
         return summary(
-            args, tree, injected, records, pipeline_report, pending_report, None, [], [], None
+            args, tree, injected, [], None, None, [], [], None
         )
 
-    for spec in specs:
-        service.workbook.align_statut(spec.sha256, DocumentStatus.VALIDE)
-    validation_report = service.sync_human_to_pipeline()
-    if validation_report.skipped_invalid:
-        raise SystemExit("VALIDATION_REJECTED:check champs_manquants")
+    extractor = (
+        ManifestExtractor(specs) if args.extractor == "manifest" else None
+    )
+    ingestion = InboxIngestionService(
+        args.tenant, store, root, extractor=extractor
+    )
+    ingestion_report = ingestion.ingest_inbox()
+    if args.stop_at in {"ingestion", "a_completer"}:
+        return summary(
+            args,
+            tree,
+            injected,
+            [],
+            ingestion_report,
+            None,
+            [],
+            [],
+            None,
+        )
+
+    failures = [
+        document
+        for document in ingestion_report.documents
+        if document.outcome in {OUTCOME_ERREUR, OUTCOME_DUPLICATE}
+    ]
+    if failures:
+        first = failures[0]
+        raise SystemExit(
+            f"INGESTION_FAILED:{first.nom_fichier}:{first.detail or first.outcome}"
+        )
+
+    pending_hashes = {
+        document.sha256
+        for document in ingestion_report.documents
+        if document.outcome == OUTCOME_A_COMPLETER
+    }
+    validation_report = None
+    if pending_hashes:
+        for spec in specs:
+            if spec.sha256 in pending_hashes:
+                service.workbook.align_statut(spec.sha256, DocumentStatus.VALIDE)
+        validation_report = service.sync_human_to_pipeline()
+        if validation_report.skipped_invalid:
+            raise SystemExit("VALIDATION_REJECTED:check champs_manquants")
 
     enriched = enrich_store(store, args.tenant, specs, tenant_dir)
     reconciled = reconcile(store, args.tenant, specs, bank_rows)
@@ -350,9 +399,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         args,
         tree,
         injected,
-        records,
-        pipeline_report,
-        pending_report,
+        [record_of(spec) for spec in specs],
+        ingestion_report,
         validation_report,
         enriched,
         reconciled,
@@ -364,9 +412,8 @@ def summary(
     args: argparse.Namespace,
     tree: Any,
     injected: list[str],
-    records: list[DocumentStateRecord],
-    pipeline_report: Any,
-    pending_report: Any,
+    records: list[dict[str, Any]],
+    ingestion_report: InboxIngestionReport | None,
     validation_report: Any,
     enriched: list[dict[str, Any]],
     reconciled: list[dict[str, Any]],
@@ -375,15 +422,16 @@ def summary(
     return {
         "tenant": args.tenant,
         "stop_at": args.stop_at,
+        "extractor": args.extractor,
         "tree": {
             state.value: str(tree.state_dir(state))
             for state in FolderState
         },
         "injected": injected,
-        "records": [record.model_dump(mode="json") for record in records],
+        "records": records,
+        "ingestion": asdict(ingestion_report) if ingestion_report else None,
         "reports": {
-            "pipeline_to_human": asdict(pipeline_report) if pipeline_report else None,
-            "pending": asdict(pending_report) if pending_report else None,
+            "ingestion": asdict(ingestion_report) if ingestion_report else None,
             "human_to_pipeline": asdict(validation_report) if validation_report else None,
         },
         "store_lines": enriched,
@@ -404,6 +452,15 @@ def build_parser() -> argparse.ArgumentParser:
         choices=STOP_CHOICES,
         default="valide",
         help="Stop the flow after the selected stage.",
+    )
+    parser.add_argument(
+        "--extractor",
+        choices=EXTRACTOR_CHOICES,
+        default="pipeline",
+        help=(
+            "pipeline: real perception/OCR extraction; "
+            "manifest: deterministic manifest-backed field extraction."
+        ),
     )
     parser.add_argument("--json-out", default=None)
     return parser
