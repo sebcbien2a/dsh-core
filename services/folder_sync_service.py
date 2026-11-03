@@ -276,7 +276,14 @@ class FolderSyncService:
         acc.archived += 1
         acc.traces.append(f"{reason}:{path.name}->{dest.relative_to(self._tenant_dir())}")
 
-    def _persist(self, sha256: str, nom_fichier: str, status: str, rel_path: str) -> str:
+    def _persist(
+        self,
+        sha256: str,
+        nom_fichier: str,
+        status: str,
+        rel_path: str,
+        category: DocumentCategory | None = None,
+    ) -> str:
         doc_id = derive_document_id(sha256)
         line = {
             "operation_date": None,
@@ -287,6 +294,7 @@ class FolderSyncService:
             "counterparty": None,
             "invoice_id": doc_id,
             "invoice_url": rel_path,
+            "category": category.value if category is not None else None,
             "status": status,
         }
         return self._store.upsert_document_line(self._tenant_id, doc_id, line)
@@ -310,7 +318,7 @@ class FolderSyncService:
                 self._cancel_validated(acc, dest_path, digest)
                 continue
             rel_path = dest_path.relative_to(self._tenant_dir()).as_posix()
-            self._persist(digest, dest_path.name, _STATUT_VALIDE, rel_path)
+            self._persist(digest, dest_path.name, _STATUT_VALIDE, rel_path, category)
             self._workbook.align_statut(digest, DocumentStatus.VALIDE)
             acc.manual_moves += 1
             acc.traces.append(f"{digest}:MANUAL_MOVED:{rel_path}")
@@ -342,7 +350,7 @@ class FolderSyncService:
             self._archive(source, acc, "DEST_EXISTS")
             return
         rel_path = dest.relative_to(self._tenant_dir()).as_posix()
-        self._persist(digest, source.name, _STATUT_VALIDE, rel_path)
+        self._persist(digest, source.name, _STATUT_VALIDE, rel_path, category)
         os.replace(source, dest)
         acc.moved_to_03 += 1
         acc.traces.append(f"{digest}:02_A_COMPLETER->{rel_path}")

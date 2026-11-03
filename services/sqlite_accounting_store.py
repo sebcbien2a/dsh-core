@@ -19,6 +19,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from schemas.folder_state_schema import DocumentCategory
 from services.fec_export_service import FecEntry
 from services.rule_registry_service import ObsidianCandidateRuleWriter
 
@@ -42,6 +43,16 @@ _LINE_FIELDS = (
     "counterparty",
     "invoice_id",
     "invoice_url",
+    "category",
+    "amount_ht",
+    "amount_tva",
+    "amount_ttc",
+)
+_LINE_MIGRATION_COLUMNS = (
+    ("category", "TEXT"),
+    ("amount_ht", "TEXT"),
+    ("amount_tva", "TEXT"),
+    ("amount_ttc", "TEXT"),
 )
 _DECISION_FIELDS = (
     "action",
@@ -114,6 +125,15 @@ def _casefold(value: object) -> str:
     return "" if value is None else str(value).casefold()
 
 
+def _category_matches(row: dict[str, Any], selected: DocumentCategory) -> bool:
+    """True when the stored category or the reference path names ``selected``."""
+    stored = str(row.get("category") or "").strip()
+    if stored:
+        return stored == selected.value
+    reference = str(row.get("invoice_url") or "")
+    return selected.value in re.split(r"[\\/]+", reference)
+
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS accounting_entries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -154,6 +174,10 @@ CREATE TABLE IF NOT EXISTS reconciliation_lines (
     status TEXT NOT NULL DEFAULT 'PENDING',
     invoice_id TEXT,
     invoice_url TEXT,
+    category TEXT,
+    amount_ht TEXT,
+    amount_tva TEXT,
+    amount_ttc TEXT,
     created_at TEXT NOT NULL,
     PRIMARY KEY (tenant_id, line_id)
 );
@@ -204,9 +228,25 @@ class SqliteAccountingStore:
         self.rule_writer = rule_writer
         self.written_rule_paths: list[Path] = []
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        with closing(self._connect()) as conn:
+        with closing(self._connect()) as conn, conn:
             conn.execute("PRAGMA journal_mode=WAL")
             conn.executescript(_SCHEMA)
+            self._migrate(conn)
+
+    def _migrate(self, conn: sqlite3.Connection) -> None:
+        """Upgrade legacy databases in place (idempotent, additive only)."""
+        columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(reconciliation_lines)")
+        }
+        for name, declaration in _LINE_MIGRATION_COLUMNS:
+            if name not in columns:
+                conn.execute(
+                    f"ALTER TABLE reconciliation_lines ADD COLUMN {name} {declaration}"
+                )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_reconciliation_lines_category"
+            " ON reconciliation_lines (tenant_id, category)"
+        )
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path, timeout=30)
@@ -309,6 +349,57 @@ class SqliteAccountingStore:
             offset=offset,
             include_rejected=status != "ALL",
         )
+
+    def list_category_lines(
+        self, tenant_id: str, category: DocumentCategory | str
+    ) -> list[dict[str, Any]]:
+        """Non-rejected lines of one business category, in stable order.
+
+        The category comes from the dedicated column; lines written before
+        this column existed are matched on the canonical
+        ``<STATE>/<CATEGORY>/...`` segment of ``invoice_url``. ``REJETE``
+        lines are excluded even when an arbitration decision exists.
+        """
+        validate_tenant_id(tenant_id)
+        try:
+            selected = DocumentCategory(category)
+        except (TypeError, ValueError):
+            raise AccountingStoreError("INVALID_CATEGORY", repr(category)) from None
+        raw_status = "COALESCE(d.status, l.status, 'PENDING')"
+        escaped = (
+            selected.value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        )
+        pattern = f"%/{escaped}/%"
+        source = (
+            " FROM reconciliation_lines l LEFT JOIN arbitration_decisions d"
+            " ON d.tenant_id = l.tenant_id AND d.line_id = l.line_id"
+        )
+        select = (
+            "SELECT l.line_id AS line_id, l.operation_date, l.label, l.debit_amount,"
+            " l.credit_amount, l.currency, l.counterparty,"
+            f" COALESCE(d.invoice_id, l.invoice_id) AS invoice_id, l.invoice_url,"
+            " COALESCE(l.category, '') AS category,"
+            " l.amount_ht, l.amount_tva, l.amount_ttc,"
+            f" {raw_status} AS raw_status, d.action, d.debit_account, d.credit_account,"
+            " d.vat_amount, d.reason, d.arbitrated_at"
+        )
+        where = (
+            " WHERE l.tenant_id = ? AND l.status != 'REJETE'"
+            " AND COALESCE(d.status, l.status, 'PENDING') != 'REJETE'"
+            " AND (l.category = ? OR (COALESCE(l.category, '') = ''"
+            " AND l.invoice_url LIKE ? ESCAPE '\\'))"
+        )
+        with closing(self._connect()) as conn:
+            rows = conn.execute(
+                f"{select}{source}{where}"
+                " ORDER BY COALESCE(l.operation_date, ''), l.line_id",
+                (tenant_id, selected.value, pattern),
+            ).fetchall()
+        return [
+            row
+            for row in (dict(item) for item in rows)
+            if _category_matches(row, selected)
+        ]
 
     def arbitrate(self, tenant_id: str, line_id: str, decision: dict[str, Any]) -> None:
         """Persist the HITL decision for a line, atomically and only once."""
@@ -484,6 +575,8 @@ class SqliteAccountingStore:
             "SELECT l.line_id AS line_id, l.operation_date, l.label, l.debit_amount,"
             " l.credit_amount, l.currency, l.counterparty,"
             f" {invoice} AS invoice_id, l.invoice_url,"
+            " COALESCE(l.category, '') AS category,"
+            " l.amount_ht, l.amount_tva, l.amount_ttc,"
             f" {raw_status} AS raw_status, d.action, d.debit_account, d.credit_account,"
             " d.vat_amount, d.reason, d.arbitrated_at"
         )

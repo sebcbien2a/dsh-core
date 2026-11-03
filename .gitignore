@@ -33,3 +33,14 @@ workspace/imports/tariffs/*_audit.json
 
 # Durable accounting SQLite store (P13.1)
 data/accounting/
+
+# Runtime Open WebUI data (uploads, vector DB, webui.db)
+open-webui_data/
+
+# Runtime artefacts (document flow, Obsidian vault, analytic exports)
+workspace/document_flow/
+workspace/vault/
+workspace/exports/
+*.sqlite3-wal
+*.sqlite3-shm
+~$*.xlsx
