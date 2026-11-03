@@ -24,6 +24,12 @@ from schemas.folder_state_schema import (
     counterparty_account_for_payment_source,
     normalize_payment_source,
 )
+from schemas.payment_method_schema import (
+    PaymentMethodError,
+    normalize_counterparty_name,
+    normalize_expected_payment_method,
+    payment_method_matches,
+)
 from services.fec_export_service import FecEntry
 from services.rule_registry_service import ObsidianCandidateRuleWriter
 
@@ -71,6 +77,12 @@ _LINE_FIELDS = (
     "deferred_month_override",
     "payment_source",
     "counterparty_account",
+    "payment_method",
+    "payment_reference",
+    "purchase_date",
+    "due_date",
+    "fitid",
+    "remittance_reference",
 )
 _LINE_MIGRATION_COLUMNS = (
     ("category", "TEXT"),
@@ -97,6 +109,12 @@ _LINE_MIGRATION_COLUMNS = (
     ("deferred_month_override", "TEXT"),
     ("payment_source", "TEXT"),
     ("counterparty_account", "TEXT"),
+    ("payment_method", "TEXT"),
+    ("payment_reference", "TEXT"),
+    ("purchase_date", "TEXT"),
+    ("due_date", "TEXT"),
+    ("fitid", "TEXT"),
+    ("remittance_reference", "TEXT"),
 )
 _P17_LINE_SELECT = (
     " l.expense_subcategory, l.invite_restaurant, l.lieu_restaurant,"
@@ -104,7 +122,9 @@ _P17_LINE_SELECT = (
     " l.hotel_place, l.ht_accommodation, l.ht_breakfast_meals,"
     " l.tva_deductible, l.tva_non_deductible, l.is_classified_marker,"
     " l.tva_dedup_status, l.fiscal_year_mode, l.fiscal_year_target,"
-    " l.deferred_month_override, l.payment_source, l.counterparty_account"
+    " l.deferred_month_override, l.payment_source, l.counterparty_account,"
+    " l.payment_method, l.payment_reference, l.purchase_date, l.due_date,"
+    " l.fitid, l.remittance_reference"
 )
 _DECISION_FIELDS = (
     "action",
@@ -250,6 +270,12 @@ CREATE TABLE IF NOT EXISTS reconciliation_lines (
     deferred_month_override TEXT,
     payment_source TEXT,
     counterparty_account TEXT,
+    payment_method TEXT,
+    payment_reference TEXT,
+    purchase_date TEXT,
+    due_date TEXT,
+    fitid TEXT,
+    remittance_reference TEXT,
     created_at TEXT NOT NULL,
     PRIMARY KEY (tenant_id, line_id)
 );
@@ -279,6 +305,20 @@ CREATE TABLE IF NOT EXISTS candidate_rules (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_candidate_rules_tenant ON candidate_rules (tenant_id);
+
+CREATE TABLE IF NOT EXISTS counterparty_payment_rules (
+    tenant_id TEXT NOT NULL,
+    counterparty TEXT NOT NULL,
+    counterparty_key TEXT NOT NULL,
+    expected_payment_method TEXT NOT NULL,
+    confidence TEXT NOT NULL DEFAULT '1.0',
+    source TEXT NOT NULL DEFAULT 'HUMAN',
+    sample_count INTEGER NOT NULL DEFAULT 1,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (tenant_id, counterparty_key)
+);
+CREATE INDEX IF NOT EXISTS idx_counterparty_payment_rules_tenant
+    ON counterparty_payment_rules (tenant_id, expected_payment_method);
 """
 
 
@@ -694,6 +734,277 @@ class SqliteAccountingStore:
                 (tenant_id,),
             ).fetchall()
         return [json.loads(row["rule_json"]) for row in rows]
+
+    # -- counterparty payment rules (P19) --------------------------------
+
+    def set_counterparty_payment_rule(
+        self,
+        tenant_id: str,
+        counterparty: str,
+        expected_payment_method: str,
+        *,
+        confidence: float | str | Decimal = Decimal("1.0"),
+        source: str = "HUMAN",
+        sample_count: int = 1,
+    ) -> dict[str, Any]:
+        """Create or replace the usual settlement method of one counterparty."""
+        validate_tenant_id(tenant_id)
+        name = self._require_counterparty(counterparty)
+        try:
+            method = normalize_expected_payment_method(expected_payment_method)
+        except PaymentMethodError as exc:
+            raise AccountingStoreError("INVALID_PAYMENT_METHOD", exc.args[0]) from exc
+        try:
+            score = Decimal(str(confidence))
+        except Exception as exc:  # noqa: BLE001 - normalised below
+            raise AccountingStoreError("INVALID_CONFIDENCE", repr(confidence)) from exc
+        if not score.is_finite() or score < 0 or score > 1:
+            raise AccountingStoreError("INVALID_CONFIDENCE", str(confidence))
+        origin = str(source or "HUMAN").strip().upper() or "HUMAN"
+        if origin not in {"HUMAN", "LEARNED", "IMPORT"}:
+            raise AccountingStoreError("INVALID_RULE_SOURCE", origin)
+        if not isinstance(sample_count, int) or isinstance(sample_count, bool):
+            raise AccountingStoreError("INVALID_SAMPLE_COUNT", repr(sample_count))
+        if sample_count < 1:
+            raise AccountingStoreError("INVALID_SAMPLE_COUNT", repr(sample_count))
+        key = normalize_counterparty_name(name)
+        with closing(self._connect()) as conn, conn:
+            existing = conn.execute(
+                "SELECT 1 FROM counterparty_payment_rules"
+                " WHERE tenant_id = ? AND counterparty_key = ?",
+                (tenant_id, key),
+            ).fetchone()
+            if existing is None:
+                conn.execute(
+                    "INSERT INTO counterparty_payment_rules"
+                    " (tenant_id, counterparty, counterparty_key,"
+                    " expected_payment_method, confidence, source, sample_count,"
+                    " updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        tenant_id,
+                        name,
+                        key,
+                        method,
+                        str(score),
+                        origin,
+                        sample_count,
+                        _now(),
+                    ),
+                )
+            else:
+                conn.execute(
+                    "UPDATE counterparty_payment_rules SET counterparty = ?,"
+                    " expected_payment_method = ?, confidence = ?, source = ?,"
+                    " sample_count = ?, updated_at = ?"
+                    " WHERE tenant_id = ? AND counterparty_key = ?",
+                    (
+                        name,
+                        method,
+                        str(score),
+                        origin,
+                        sample_count,
+                        _now(),
+                        tenant_id,
+                        key,
+                    ),
+                )
+        rule = self.get_counterparty_payment_rule(tenant_id, name)
+        assert rule is not None
+        return rule
+
+    def get_counterparty_payment_rule(
+        self, tenant_id: str, counterparty: str
+    ) -> dict[str, Any] | None:
+        """Return the rule of one counterparty (case-insensitive lookup)."""
+        validate_tenant_id(tenant_id)
+        if not isinstance(counterparty, str) or not counterparty.strip():
+            return None
+        key = normalize_counterparty_name(counterparty)
+        with closing(self._connect()) as conn:
+            row = conn.execute(
+                "SELECT tenant_id, counterparty, expected_payment_method,"
+                " confidence, source, sample_count, updated_at"
+                " FROM counterparty_payment_rules"
+                " WHERE tenant_id = ? AND counterparty_key = ?",
+                (tenant_id, key),
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def list_counterparty_payment_rules(self, tenant_id: str) -> list[dict[str, Any]]:
+        """Every payment habit of the tenant, ordered by counterparty."""
+        validate_tenant_id(tenant_id)
+        with closing(self._connect()) as conn:
+            rows = conn.execute(
+                "SELECT tenant_id, counterparty, expected_payment_method,"
+                " confidence, source, sample_count, updated_at"
+                " FROM counterparty_payment_rules WHERE tenant_id = ?"
+                " ORDER BY counterparty_key",
+                (tenant_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def delete_counterparty_payment_rule(
+        self, tenant_id: str, counterparty: str
+    ) -> bool:
+        """Delete one rule; returns ``True`` when a row was removed."""
+        validate_tenant_id(tenant_id)
+        if not isinstance(counterparty, str) or not counterparty.strip():
+            return False
+        key = normalize_counterparty_name(counterparty)
+        with closing(self._connect()) as conn, conn:
+            cursor = conn.execute(
+                "DELETE FROM counterparty_payment_rules"
+                " WHERE tenant_id = ? AND counterparty_key = ?",
+                (tenant_id, key),
+            )
+            return cursor.rowcount > 0
+
+    def learn_counterparty_payment_rules(
+        self,
+        tenant_id: str,
+        *,
+        min_occurrences: int = 1,
+        overwrite_human: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Infer the dominant settlement method from observed bank lines."""
+        validate_tenant_id(tenant_id)
+        if (
+            not isinstance(min_occurrences, int)
+            or isinstance(min_occurrences, bool)
+            or min_occurrences < 1
+        ):
+            raise AccountingStoreError(
+                "INVALID_MIN_OCCURRENCES", repr(min_occurrences)
+            )
+        with closing(self._connect()) as conn:
+            rows = conn.execute(
+                "SELECT counterparty, payment_method, COUNT(*) AS occurrences"
+                " FROM reconciliation_lines"
+                " WHERE tenant_id = ? AND counterparty IS NOT NULL"
+                " AND TRIM(counterparty) != '' AND payment_method IS NOT NULL"
+                " AND TRIM(payment_method) != '' AND payment_method != 'AUTRE'"
+                " GROUP BY casefold(counterparty), payment_method",
+                (tenant_id,),
+            ).fetchall()
+        groups: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            name = str(row["counterparty"]).strip()
+            key = normalize_counterparty_name(name)
+            if not key:
+                continue
+            group = groups.setdefault(
+                key,
+                {"counterparty": name, "methods": {}, "total": 0},
+            )
+            group["methods"][str(row["payment_method"])] = int(row["occurrences"])
+            group["total"] += int(row["occurrences"])
+        learned: list[dict[str, Any]] = []
+        for key in sorted(groups):
+            group = groups[key]
+            if group["total"] < min_occurrences:
+                continue
+            existing = self.get_counterparty_payment_rule(
+                tenant_id, group["counterparty"]
+            )
+            if (
+                existing is not None
+                and existing["source"] == "HUMAN"
+                and not overwrite_human
+            ):
+                continue
+            method, count = sorted(
+                group["methods"].items(), key=lambda item: (-item[1], item[0])
+            )[0]
+            try:
+                expected = normalize_expected_payment_method(method)
+            except PaymentMethodError:
+                continue
+            confidence = (Decimal(count) / Decimal(group["total"])).quantize(
+                Decimal("0.0001")
+            )
+            learned.append(
+                self.set_counterparty_payment_rule(
+                    tenant_id,
+                    group["counterparty"],
+                    expected,
+                    confidence=confidence,
+                    source="LEARNED",
+                    sample_count=group["total"],
+                )
+            )
+        return learned
+
+    def filter_lines_by_payment_rule(
+        self,
+        tenant_id: str,
+        lines: list[dict[str, Any]] | None = None,
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Split lines into ``matched`` / ``mismatched`` / ``without_rule``."""
+        validate_tenant_id(tenant_id)
+        rules = {
+            normalize_counterparty_name(rule["counterparty"]): rule
+            for rule in self.list_counterparty_payment_rules(tenant_id)
+        }
+        if lines is None:
+            lines, _ = self._query_lines(
+                tenant_id, status="PENDING", limit=-1, include_rejected=False
+            )
+        result: dict[str, list[dict[str, Any]]] = {
+            "matched": [],
+            "mismatched": [],
+            "without_rule": [],
+        }
+        for line in lines:
+            enriched = dict(line)
+            rule = rules.get(
+                normalize_counterparty_name(enriched.get("counterparty"))
+            )
+            if rule is None:
+                enriched["expected_payment_method"] = None
+                enriched["payment_rule_matches"] = None
+                enriched["payment_rule_source"] = None
+                result["without_rule"].append(enriched)
+                continue
+            matches = payment_method_matches(
+                rule["expected_payment_method"], enriched.get("payment_method")
+            )
+            enriched["expected_payment_method"] = rule["expected_payment_method"]
+            enriched["payment_rule_matches"] = matches
+            enriched["payment_rule_source"] = rule["source"]
+            result["matched" if matches else "mismatched"].append(enriched)
+        return result
+
+    def prioritize_lines_by_payment_rule(
+        self,
+        tenant_id: str,
+        lines: list[dict[str, Any]] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Order candidate lines: matching habit, unknown, then mismatching."""
+        groups = self.filter_lines_by_payment_rule(tenant_id, lines)
+        ordered: list[dict[str, Any]] = []
+        for priority, bucket in enumerate(
+            ("matched", "without_rule", "mismatched")
+        ):
+            for line in groups[bucket]:
+                enriched = dict(line)
+                enriched["payment_rule_priority"] = priority
+                ordered.append(enriched)
+        return ordered
+
+    @staticmethod
+    def _require_counterparty(counterparty: object) -> str:
+        if not isinstance(counterparty, str):
+            raise AccountingStoreError("INVALID_COUNTERPARTY", repr(counterparty))
+        name = counterparty.strip()
+        if not name or len(name) > 200 or "\x00" in name:
+            raise AccountingStoreError("INVALID_COUNTERPARTY", repr(counterparty))
+        return name
+
+    save_counterparty_payment_rule = set_counterparty_payment_rule
+    upsert_counterparty_payment_rule = set_counterparty_payment_rule
+    learn_payment_rules = learn_counterparty_payment_rules
+    filter_by_payment_rule = filter_lines_by_payment_rule
+    prioritize_by_payment_rule = prioritize_lines_by_payment_rule
 
     # -- internals -------------------------------------------------------
 

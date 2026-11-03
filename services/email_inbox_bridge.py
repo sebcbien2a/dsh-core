@@ -50,6 +50,8 @@ SUPPORTED_ATTACHMENT_SUFFIXES = frozenset(
     {".pdf", ".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".webp"}
 )
 DEFAULT_MAIL_FOLDER = FolderState.INBOX.value
+DEFAULT_MAILBOX_PREFIX = ""
+APD_MAILBOX_PREFIX = "APD/"
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _UNSAFE_FILENAME = re.compile(r"[\\/\x00]")
 
@@ -185,6 +187,19 @@ def state_for_ingestion_outcome(outcome: str) -> FolderState:
     if outcome in (OUTCOME_DUPLICATE, OUTCOME_ERREUR):
         return FolderState.ARCHIVE_ERREUR
     return FolderState.EN_COURS
+
+
+def _normalize_mailbox_prefix(value: object) -> str:
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise EmailInboxBridgeError("INVALID_MAILBOX_PREFIX", repr(value))
+    prefix = value.strip().replace("\\", "/").strip("/")
+    if not prefix:
+        return ""
+    if any(ord(char) < 32 for char in prefix) or "//" in prefix:
+        raise EmailInboxBridgeError("INVALID_MAILBOX_PREFIX", repr(value))
+    return f"{prefix}/"
 
 
 class ImapMailClient:
@@ -335,12 +350,22 @@ class EmailInboxBridge:
         extractor: Any | None = None,
         process_attachments: bool = True,
         auto_sync_mail: bool = True,
+        mailbox_prefix: str = DEFAULT_MAILBOX_PREFIX,
+        min_attachment_bytes: int = 0,
     ) -> None:
         if not isinstance(profile, CompanyProfile):
             raise EmailInboxBridgeError("INVALID_PROFILE", repr(profile))
         if client is not None and imap_client is not None:
             raise EmailInboxBridgeError(
                 "INVALID_MAIL_CONFIG", "client and imap_client are exclusive"
+            )
+        if (
+            not isinstance(min_attachment_bytes, int)
+            or isinstance(min_attachment_bytes, bool)
+            or min_attachment_bytes < 0
+        ):
+            raise EmailInboxBridgeError(
+                "INVALID_MIN_ATTACHMENT_BYTES", repr(min_attachment_bytes)
             )
         self._profile = profile
         self._tenant_id = validate_tenant_id(tenant_id or profile.tenant_id)
@@ -349,6 +374,8 @@ class EmailInboxBridge:
         self._store = store
         self._process_attachments = bool(process_attachments)
         self._auto_sync_mail = bool(auto_sync_mail)
+        self._mailbox_prefix = _normalize_mailbox_prefix(mailbox_prefix)
+        self._min_attachment_bytes = min_attachment_bytes
         if ingestion is not None:
             self._ingestion = ingestion
         elif self._process_attachments and store is not None:
@@ -379,6 +406,20 @@ class EmailInboxBridge:
     def records(self) -> tuple[EmailAttachmentRecord, ...]:
         return tuple(self._records.values())
 
+    @property
+    def mailbox_prefix(self) -> str:
+        return self._mailbox_prefix
+
+    @property
+    def mailbox_folders(self) -> tuple[str, ...]:
+        return tuple(
+            f"{self._mailbox_prefix}{state.value}" for state in FolderState
+        )
+
+    def _folder(self, state: FolderState | str) -> str:
+        value = state.value if isinstance(state, FolderState) else str(state)
+        return f"{self._mailbox_prefix}{value}"
+
     def _mail_client(self) -> MailClient:
         if self._client is None:
             self._client = ImapMailClient.from_env()
@@ -387,9 +428,10 @@ class EmailInboxBridge:
     def ensure_mail_folders(self) -> tuple[str, ...]:
         """Create the six mirror folders/labels in the mailbox."""
         client = self._mail_client()
-        for folder in MAILBOX_STATES:
+        folders = self.mailbox_folders
+        for folder in folders:
             client.ensure_folder(folder)
-        return MAILBOX_STATES
+        return folders
 
     def fetch_and_stage_emails(
         self, limit: int | None = None
@@ -399,7 +441,8 @@ class EmailInboxBridge:
             raise EmailInboxBridgeError("INVALID_LIMIT", repr(limit))
         client = self._mail_client()
         mirrored = self.ensure_mail_folders()
-        messages = client.list_messages(DEFAULT_MAIL_FOLDER)
+        inbox_folder = self._folder(FolderState.INBOX)
+        messages = client.list_messages(inbox_folder)
         if limit is not None:
             messages = messages[:limit]
 
@@ -419,6 +462,12 @@ class EmailInboxBridge:
                         f"{message.message_id}:IGNORED:{attachment.filename}"
                     )
                     continue
+                if len(attachment.content) < self._min_attachment_bytes:
+                    ignored += 1
+                    traces.append(
+                        f"{message.message_id}:IGNORED_SMALL:{attachment.filename}"
+                    )
+                    continue
                 digest = _sha256_bytes(attachment.content)
                 if digest in self._records:
                     duplicates += 1
@@ -435,17 +484,17 @@ class EmailInboxBridge:
                     sha256=digest,
                     message_id=message.message_id,
                     filename=filename,
-                    mailbox_folder=DEFAULT_MAIL_FOLDER,
+                    mailbox_folder=inbox_folder,
                     staged_path=destination,
                 )
                 self._records[digest] = record
                 self._message_folders.setdefault(
-                    message.message_id, DEFAULT_MAIL_FOLDER
+                    message.message_id, inbox_folder
                 )
                 records.append(record)
                 staged += 1
                 traces.append(
-                    f"{digest}:MAIL->00_INBOX/{destination.name}"
+                    f"{digest}:MAIL->{inbox_folder}/{destination.name}"
                 )
 
                 if not self._process_attachments or self._ingestion is None:
@@ -506,21 +555,22 @@ class EmailInboxBridge:
         source = self._message_folders.get(
             record.message_id, record.mailbox_folder
         )
-        if source == target.value:
-            if record.mailbox_folder != target.value:
+        target_folder = self._folder(target)
+        if source == target_folder:
+            if record.mailbox_folder != target_folder:
                 self._records[digest] = replace(
                     record,
-                    mailbox_folder=target.value,
+                    mailbox_folder=target_folder,
                     state=target,
                 )
             return False
         self._mail_client().move_message(
-            record.message_id, source, target.value
+            record.message_id, source, target_folder
         )
-        self._message_folders[record.message_id] = target.value
+        self._message_folders[record.message_id] = target_folder
         self._records[digest] = replace(
             record,
-            mailbox_folder=target.value,
+            mailbox_folder=target_folder,
             state=target,
         )
         return True
@@ -543,6 +593,8 @@ def _error_detail(exc: BaseException) -> str:
 
 
 __all__ = [
+    "APD_MAILBOX_PREFIX",
+    "DEFAULT_MAILBOX_PREFIX",
     "DEFAULT_MAIL_FOLDER",
     "EmailAttachment",
     "EmailAttachmentRecord",
