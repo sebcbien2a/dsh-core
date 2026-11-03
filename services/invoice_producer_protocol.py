@@ -25,6 +25,7 @@ from typing import Any, Mapping, Protocol, Sequence, runtime_checkable
 from pydantic import ValidationError
 
 from schemas.invoice_schema import InvoiceSchema
+from services.hotel_expense_parser import parse_hotel_evening_stage
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -401,6 +402,19 @@ def build_invoice_payload(
     issue_date = _extract_date(flat)
     number_match = _INVOICE_NUMBER_RE.search(flat)
     address = next((line for line in lines if _ADDRESS_RE.match(line)), None)
+    hotel_breakdown = parse_hotel_evening_stage(text)
+
+    metadata: dict[str, Any] = {
+        "source_file": source_name,
+        "extraction_tool": "pymupdf_text_regex",
+        "raw_text_chars": len(flat),
+        "supplier_country": country,
+        "mention_293b": mention_293b,
+        "micro_entreprise": micro_entreprise,
+        "simulated_zero_vat": simulate_zero_vat,
+    }
+    if hotel_breakdown is not None:
+        metadata.update(hotel_breakdown.as_metadata())
 
     payload: dict[str, Any] = {
         "document_type": "INVOICE",
@@ -421,15 +435,7 @@ def build_invoice_payload(
             "tax_amount": str(tax),
             "gross_amount": str(gross),
         },
-        "metadata": {
-            "source_file": source_name,
-            "extraction_tool": "pymupdf_text_regex",
-            "raw_text_chars": len(flat),
-            "supplier_country": country,
-            "mention_293b": mention_293b,
-            "micro_entreprise": micro_entreprise,
-            "simulated_zero_vat": simulate_zero_vat,
-        },
+        "metadata": metadata,
     }
     return payload, notes
 

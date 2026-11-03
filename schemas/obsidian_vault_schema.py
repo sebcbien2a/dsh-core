@@ -46,6 +46,7 @@ RAG_DIR = "03-rag"
 GRAPH_DIR = "04-graph"
 MEMORY_DIR = "05-memoire"
 JOURNAL_DIR = "06-journal"
+COMPTA_DIR = "07-compta"
 
 ENTITIES_DIR = f"{GRAPH_DIR}/entities"
 FACTS_DIR = f"{MEMORY_DIR}/facts"

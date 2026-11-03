@@ -44,6 +44,7 @@ import yaml
 
 from schemas.obsidian_vault_schema import (
     ACTIVE_CONTEXT_FILE,
+    COMPTA_DIR,
     CONTEXT_DIR,
     DEFAULT_VAULT_ROOT,
     ENTITIES_DIR,
@@ -366,7 +367,7 @@ def ensure_vault_tree(
     base.mkdir(parents=True, exist_ok=True)
 
     dirs: dict[str, Path] = {}
-    for name in VAULT_TREE:
+    for name in (*VAULT_TREE, COMPTA_DIR):
         path = ensure_contained(base, base / name)
         if path.exists() and not path.is_dir():
             raise VaultError("NOT_A_DIRECTORY", str(path))
@@ -717,6 +718,50 @@ class VaultWriter:
 
         frontmatter: dict[str, Any] = {
             "id": f"context-{name}",
+            "type": "context",
+            "source": source_value,
+            "status": "generated",
+            "locked": False,
+            "wikilinks": list(links),
+        }
+        return self._commit(
+            path, frontmatter, text + "\n", "context", existing
+        )
+
+    def write_compta_note(
+        self,
+        name: str,
+        *,
+        body: str,
+        wikilinks: Iterable[str] = (),
+        source: str | NoteSource = NoteSource.AGENT,
+    ) -> WriteResult:
+        """Write/update the P17 accounting cockpit in ``07-compta/{name}.md``.
+
+        The historical ``01-contexte/cockpit_compta.md`` alias is kept by the
+        caller so existing Obsidian links never break. The human review layer
+        is identical to :meth:`write_context_note`: a protected note is left
+        byte-identical with ``status='preserved'``.
+        """
+        name = validate_segment(name, "INVALID_NOTE_NAME")
+        source_value = _clean_source(source)
+        text = (body or "").strip()
+        if not text:
+            raise VaultError("EMPTY_NOTE")
+
+        links = tuple(
+            dict.fromkeys(
+                str(link).strip()
+                for link in wikilinks
+                if str(link).strip()
+            )
+        )
+        path = self.tree.root / COMPTA_DIR / f"{name}.md"
+        ensure_contained(self.tree.root, path)
+        existing = self._inspect(path)
+
+        frontmatter: dict[str, Any] = {
+            "id": f"compta-{name}",
             "type": "context",
             "source": source_value,
             "status": "generated",

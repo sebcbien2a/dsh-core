@@ -17,7 +17,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
 
-from schemas.folder_state_schema import DocumentCategory, FolderState
+from schemas.folder_state_schema import (
+    DocumentCategory,
+    ExpenseSubCategory,
+    FolderState,
+)
 
 FLOW_ROOT_ENV = "DSH_DOCUMENT_FLOW_ROOT"
 DEFAULT_FLOW_ROOT = Path("workspace") / "document_flow"
@@ -86,6 +90,26 @@ class FolderTree:
             raise FolderTreeError("INVALID_CATEGORY_STATE", state.value)
         return self.state_dir(state) / DocumentCategory(category).value
 
+    def expense_subcategory_dir(
+        self,
+        state: FolderState,
+        subcategory: ExpenseSubCategory | str,
+    ) -> Path:
+        """Resolved ``FRAIS_GENERAUX/<SOUS_CAT>`` folder under ``03_``/``04_``."""
+        state = FolderState(state)
+        if state not in CATEGORISED_STATES:
+            raise FolderTreeError("INVALID_CATEGORY_STATE", state.value)
+        try:
+            selected = ExpenseSubCategory(subcategory)
+        except (TypeError, ValueError):
+            raise FolderTreeError(
+                "INVALID_EXPENSE_SUBCATEGORY", repr(subcategory)
+            ) from None
+        return (
+            self.category_dir(state, DocumentCategory.FRAIS_GENERAUX)
+            / selected.value
+        )
+
     def rejet_manuel_dir(self) -> Path:
         return self.state_dir(FolderState.ARCHIVE_ERREUR) / REJET_MANUEL_DIR
 
@@ -120,6 +144,11 @@ def ensure_tree(
     for state in CATEGORISED_STATES:
         for category in DocumentCategory:
             _mkdir(state_dirs[state] / category.value)
+
+    for state in CATEGORISED_STATES:
+        frais_generaux = state_dirs[state] / DocumentCategory.FRAIS_GENERAUX.value
+        for subcategory in ExpenseSubCategory:
+            _mkdir(frais_generaux / subcategory.value)
 
     _mkdir(state_dirs[FolderState.ARCHIVE_ERREUR] / REJET_MANUEL_DIR)
 

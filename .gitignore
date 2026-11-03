@@ -44,3 +44,8 @@ workspace/exports/
 *.sqlite3-wal
 *.sqlite3-shm
 ~$*.xlsx
+
+# Outils et artefacts locaux du générateur de sites
+run_site_builder.py
+test.html
+workspace/*.html

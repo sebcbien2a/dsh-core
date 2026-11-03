@@ -37,6 +37,7 @@ from typing import Any, Callable
 from schemas.folder_state_schema import DocumentCategory, FolderState
 from services.accounting_spreadsheet_export_service import (
     CategorySummaryExporter,
+    PersonalExpenseNoteExporter,
     SupplierLedgerExporter,
     collect_supplier_diagnostics,
 )
@@ -60,9 +61,13 @@ DEFAULT_TENANT = "default"
 DEFAULT_POLL_INTERVAL = 5.0
 DEFAULT_SETTLE_DELAY = 2.0
 COCKPIT_NOTE_NAME = "cockpit_compta"
+COCKPIT_COMPTA_NOTE_NAME = "Cockpit_Compta"
 COCKPIT_NOTE_LINKS = (
     "01-contexte/active",
     "04-graph/entities/comptabilite",
+)
+COCKPIT_COMPTA_NOTE_LINKS = COCKPIT_NOTE_LINKS + (
+    "07-compta/Cockpit_Compta",
 )
 
 
@@ -410,19 +415,50 @@ class DocumentFlowWatcher:
             self._logger.info("Auto-export grand livre: %s", ledger.name)
 
         try:
-            result = self._resolve_vault_writer().write_context_note(
-                COCKPIT_NOTE_NAME,
-                body=self._build_cockpit_body(),
+            notes = PersonalExpenseNoteExporter(
+                self._store, export_dir=self._export_dir
+            ).export(self._tenant_id)
+        except Exception as exc:  # noqa: BLE001 - export never blocks
+            errors.append(f"PERSONAL_NOTE:{_error_detail(exc)}")
+            self._logger.warning(
+                "Auto-export note de frais dirigeant en échec: %s", exc
+            )
+        else:
+            for month, path in notes.paths.items():
+                traces.append(f"EXPORT:PERSONAL_NOTE:{month}:{path.name}")
+
+        try:
+            writer = self._resolve_vault_writer()
+            body = self._build_cockpit_body()
+            primary_result = writer.write_compta_note(
+                COCKPIT_COMPTA_NOTE_NAME,
+                body=body,
                 wikilinks=COCKPIT_NOTE_LINKS,
+            )
+            alias_body = (
+                body
+                + "\n> Note principale : "
+                "[[07-compta/Cockpit_Compta|Cockpit comptable]]\n"
+            )
+            alias_result = writer.write_context_note(
+                COCKPIT_NOTE_NAME,
+                body=alias_body,
+                wikilinks=COCKPIT_COMPTA_NOTE_LINKS,
             )
         except Exception as exc:  # noqa: BLE001 - export never blocks
             detail = _error_detail(exc)
             errors.append(f"COCKPIT:{detail}")
             self._logger.warning("Auto-export cockpit en échec: %s", detail)
         else:
-            traces.append(f"EXPORT:COCKPIT:{result.status}")
+            traces.append(f"EXPORT:COCKPIT:{alias_result.status}")
+            traces.append(
+                "EXPORT:COCKPIT_07_COMPTA:"
+                f"{primary_result.status}"
+            )
             self._logger.info(
-                "Cockpit comptable mis à jour: %s", result.status
+                "Cockpit comptable mis à jour: %s (07-compta: %s)",
+                alias_result.status,
+                primary_result.status,
             )
 
         return tuple(traces), tuple(errors)
@@ -485,6 +521,7 @@ class DocumentFlowWatcher:
 
     def _build_cockpit_body(self) -> str:
         pending = self._count_pending_pieces()
+        pending_names = self._pending_piece_names()
         latest = self._latest_validated_pieces()
         alerts = self._reconciliation_alerts()
 
@@ -498,9 +535,13 @@ class DocumentFlowWatcher:
             "",
             f"- **{pending}** pièce(s) en attente de complétion.",
             "",
-            "## Dernières pièces validées par catégorie",
-            "",
         ]
+        if pending_names:
+            for name in pending_names:
+                lines.append(f"- [{name}](02_A_COMPLETER/{name})")
+        else:
+            lines.append("- _(aucune pièce en attente)_")
+        lines.extend(["", "## Dernières pièces validées par catégorie", ""])
         if latest:
             for category, pieces in latest:
                 lines.append(f"### {category.value}")
@@ -534,21 +575,25 @@ class DocumentFlowWatcher:
                 "",
                 f"- [[{COCKPIT_NOTE_LINKS[0]}|Contexte actif]]",
                 f"- [[{COCKPIT_NOTE_LINKS[1]}|Comptabilité]]",
+                "- [[07-compta/Cockpit_Compta|Cockpit comptable 07-compta]]",
                 "",
             ]
         )
         return "\n".join(lines)
 
     def _count_pending_pieces(self) -> int:
+        return len(self._pending_piece_names())
+
+    def _pending_piece_names(self) -> list[str]:
         directory = self._tree.state_dir(FolderState.A_COMPLETER)
         try:
-            return sum(
-                1
+            return sorted(
+                path.name
                 for path in directory.iterdir()
                 if path.is_file() and not path.name.startswith("~$")
             )
         except OSError:
-            return 0
+            return []
 
     def _latest_validated_pieces(
         self,
@@ -758,6 +803,7 @@ def _unlink_quietly(path: Path) -> None:
 
 
 __all__ = [
+    "COCKPIT_COMPTA_NOTE_NAME",
     "COCKPIT_NOTE_NAME",
     "DEFAULT_POLL_INTERVAL",
     "DEFAULT_SETTLE_DELAY",

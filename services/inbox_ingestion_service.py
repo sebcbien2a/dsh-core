@@ -42,6 +42,9 @@ from schemas.folder_state_schema import (
     DocumentStatus,
     FolderState,
     MissingFieldEnum,
+    PaymentSource,
+    counterparty_account_for_payment_source,
+    normalize_payment_source,
 )
 from schemas.invoice_schema import InvoiceSchema
 from services.acompleter_workbook_service import (
@@ -53,6 +56,7 @@ from services.acompleter_workbook_service import (
     derive_document_id,
 )
 from services.folder_tree_service import ensure_tree, validate_tenant_id
+from services.hotel_expense_parser import parse_hotel_evening_stage
 from services.invoice_producer_protocol import PdfInvoiceProducer
 from services.vault_accounting_bridge import (
     STATUS_PARTIAL,
@@ -283,6 +287,18 @@ def _category_from_payload(
     return _infer_category(source_name, supplier_name, raw_text[:4000])
 
 
+def _payload_value(payload: Mapping[str, Any], key: str) -> Any:
+    for container in (
+        payload,
+        payload.get("metadata"),
+        payload.get("invoice"),
+        payload.get("data"),
+    ):
+        if isinstance(container, Mapping) and container.get(key) is not None:
+            return container.get(key)
+    return None
+
+
 def _confidence_from_invoice(
     invoice: InvoiceSchema, payload: Mapping[str, Any]
 ) -> float:
@@ -315,6 +331,14 @@ class ExtractedInvoice:
     currency: str = "EUR"
     document_type: str = "INVOICE"
     extraction_tool: str | None = None
+    payment_source: PaymentSource | str | None = None
+    counterparty_account: str | None = None
+    expense_subcategory: str | None = None
+    hotel_place: str | None = None
+    ht_accommodation: Decimal | None = None
+    ht_breakfast_meals: Decimal | None = None
+    tva_deductible: Decimal | None = None
+    tva_non_deductible: Decimal | None = None
     raw: Mapping[str, Any] = field(default_factory=dict, compare=False)
 
     def __post_init__(self) -> None:
@@ -339,6 +363,25 @@ class ExtractedInvoice:
         )
         document_type = str(self.document_type or "INVOICE").strip().upper()
         object.__setattr__(self, "document_type", document_type or "INVOICE")
+        source = normalize_payment_source(self.payment_source)
+        object.__setattr__(self, "payment_source", source)
+        account = (
+            counterparty_account_for_payment_source(source)
+            or _clean_text(self.counterparty_account)
+        )
+        object.__setattr__(self, "counterparty_account", account)
+        object.__setattr__(
+            self, "expense_subcategory", _clean_text(self.expense_subcategory)
+        )
+        object.__setattr__(self, "hotel_place", _clean_text(self.hotel_place))
+        object.__setattr__(self, "ht_accommodation", _to_decimal(self.ht_accommodation))
+        object.__setattr__(
+            self, "ht_breakfast_meals", _to_decimal(self.ht_breakfast_meals)
+        )
+        object.__setattr__(self, "tva_deductible", _to_decimal(self.tva_deductible))
+        object.__setattr__(
+            self, "tva_non_deductible", _to_decimal(self.tva_non_deductible)
+        )
         object.__setattr__(
             self, "raw", self.raw if isinstance(self.raw, Mapping) else {}
         )
@@ -391,6 +434,34 @@ def extracted_from_invoice(
             source_name=source_name,
             supplier_name=supplier_name,
         )
+    payment_source = _payload_value(payload, "payment_source")
+    if payment_source is None:
+        payment_source = metadata.get("payment_source")
+    expense_subcategory = _payload_value(payload, "expense_subcategory")
+    if expense_subcategory is None:
+        expense_subcategory = metadata.get("expense_subcategory")
+    hotel_fields = {
+        key: _payload_value(payload, key)
+        for key in (
+            "hotel_place",
+            "ht_accommodation",
+            "ht_breakfast_meals",
+            "tva_deductible",
+            "tva_non_deductible",
+        )
+    }
+    hotel_fields = {
+        key: value
+        for key, value in hotel_fields.items()
+        if value is not None
+    }
+    if not hotel_fields and (
+        expense_subcategory == "HOTELLERIE"
+        or parse_hotel_evening_stage(payload) is not None
+    ):
+        breakdown = parse_hotel_evening_stage(payload)
+        if breakdown is not None:
+            hotel_fields = breakdown.as_metadata()
     return ExtractedInvoice(
         issue_date=invoice.reference.issue_date,
         invoice_number=invoice.reference.invoice_number,
@@ -407,6 +478,13 @@ def extracted_from_invoice(
         currency=invoice.amount.currency,
         document_type=invoice.document_type.value,
         extraction_tool=tool,
+        payment_source=payment_source,
+        expense_subcategory=expense_subcategory,
+        hotel_place=hotel_fields.get("hotel_place"),
+        ht_accommodation=hotel_fields.get("ht_accommodation"),
+        ht_breakfast_meals=hotel_fields.get("ht_breakfast_meals"),
+        tva_deductible=hotel_fields.get("tva_deductible"),
+        tva_non_deductible=hotel_fields.get("tva_non_deductible"),
         raw=payload,
     )
 
@@ -831,6 +909,37 @@ class InboxIngestionService:
                 str(extracted.amount_ttc) if extracted.amount_ttc is not None else None
             ),
             "document_type": extracted.document_type,
+            "expense_subcategory": extracted.expense_subcategory,
+            "hotel_place": extracted.hotel_place,
+            "ht_accommodation": (
+                str(extracted.ht_accommodation)
+                if extracted.ht_accommodation is not None
+                else None
+            ),
+            "ht_breakfast_meals": (
+                str(extracted.ht_breakfast_meals)
+                if extracted.ht_breakfast_meals is not None
+                else None
+            ),
+            "tva_deductible": (
+                str(extracted.tva_deductible)
+                if extracted.tva_deductible is not None
+                else None
+            ),
+            "tva_non_deductible": (
+                str(extracted.tva_non_deductible)
+                if extracted.tva_non_deductible is not None
+                else None
+            ),
+            "payment_source": (
+                extracted.payment_source.value
+                if extracted.payment_source is not None
+                else None
+            ),
+            "counterparty_account": (
+                extracted.counterparty_account
+                or counterparty_account_for_payment_source(extracted.payment_source)
+            ),
             "status": status.value,
         }
         return self._store.upsert_document_line(self._tenant_id, document_id, line)
