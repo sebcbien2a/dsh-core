@@ -49,3 +49,6 @@ workspace/exports/
 run_site_builder.py
 test.html
 workspace/*.html
+
+# Pytest working directory
+.pytest_tmp/

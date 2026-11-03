@@ -814,7 +814,12 @@ def reconcile_customer_invoices(
     window_after_days: int | None = None,
     only_methods: Sequence[str] | None = None,
 ) -> CustomerReconciliationReport:
-    """Letter every LCR remittance / customer transfer against open invoices."""
+    """Letter every LCR remittance / customer transfer against open invoices.
+
+    Bank credits are replayed in strict ``DTPOSTED`` ascending order, so an
+    early remittance consumes the invoices due around its own date before a
+    later slip (for example a tardy bordereau) can preempt them.
+    """
     tenant = validate_tenant_id(tenant_id)
     if not isinstance(window_days, int) or isinstance(window_days, bool) or window_days < 0:
         raise CustomerReconciliationError("INVALID_WINDOW_DAYS", repr(window_days))
@@ -859,14 +864,21 @@ def reconcile_customer_invoices(
             else {"LCR_ENCAISSEMENT_LOT", "VIREMENT", "REMISE_CHEQUES"}
         )
     )
-    payments: list[PaymentLettering] = []
-    for raw in raw_lines:
+    prepared: list[tuple[date, int, dict[str, Any]]] = []
+    for index, raw in enumerate(raw_lines):
         values = _bank_values(raw)
         if values["amount"] <= 0:
             continue
         method = str(values.get("payment_method") or "").upper()
         if method not in allowed:
             continue
+        prepared.append(
+            (values.get("operation_date") or date.max, index, values)
+        )
+    prepared.sort(key=lambda item: (item[0], item[1]))
+    payments: list[PaymentLettering] = []
+    for _, _, values in prepared:
+        method = str(values.get("payment_method") or "").upper()
         operations = values.get("operation_date")
         reference = _bank_reference(
             REMISE

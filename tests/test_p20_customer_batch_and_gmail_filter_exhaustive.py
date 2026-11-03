@@ -63,7 +63,10 @@ from services.email_inbox_bridge import (
     REASON_PDF_TOO_SMALL,
     evaluate_apd_email_eligibility,
 )
-from services.ofx_bank_statement_parser import import_ofx_statement
+from services.ofx_bank_statement_parser import (
+    import_ofx_statement,
+    parse_ofx_statement,
+)
 from services.sqlite_accounting_store import SqliteAccountingStore
 
 TENANT = "APD"
@@ -921,6 +924,95 @@ def _ofx_single_credit(fitid: str, label: str, amount: str, date: str) -> str:
         f"<NAME>{label}\n<MEMO>REGLEMENT CLIENT\n</STMTTRN>\n"
         "</BANKTRANLIST>\n</STMTRS>\n</STMTTRNRS>\n</BANKMSGSRSV1>\n</OFX>\n"
     )
+
+
+def test_chronological_bank_ordering_prevents_late_remittance_preemption(tmp_path):
+    store = make_store(tmp_path)
+    invoices = [
+        make_invoice("FA16432", "GP AUTO - 03100", "558.98", due=date(2026, 2, 28), method="LCR"),
+        make_invoice("FA16434", "Techni wheel Ostwald", "1128.00", due=date(2026, 3, 31), method="LCR"),
+        make_invoice("FA16437", "CHOLLET", "2004.17", due=date(2026, 3, 31), method="LCR"),
+        make_invoice("FA16438", "CHOLLET", "144.00", due=date(2026, 3, 31), method="LCR"),
+        make_invoice("FA16439", "CARS 18", "1011.20", due=date(2026, 3, 31), method="LCR"),
+        make_invoice("FA16440", "Calandre 18", "1942.79", due=date(2026, 3, 31), method="LCR"),
+        make_invoice("FA16441", "Calandre 18", "144.00", due=date(2026, 3, 31), method="LCR"),
+        make_invoice("FA16442", "GP auto nevers", "1171.68", due=date(2026, 3, 31), method="LCR"),
+        make_invoice("FA16443", "GP Auto 36, DP2C", "1295.33", due=date(2026, 3, 31), method="LCR"),
+        make_invoice("FA16445", "Carrosserie Chantereau Stephano", "124.24", due=date(2026, 3, 31), method="LCR"),
+        make_invoice("FA16446", "CARROSSERIE RIGAL", "140.62", due=date(2026, 3, 31), method="LCR"),
+    ]
+    import_customer_invoices(store, TENANT, invoices, update_payment_rules=False)
+    statement = parse_ofx_statement(
+        """OFXHEADER:100
+DATA:OFXSGML
+VERSION:102
+SECURITY:NONE
+ENCODING:UTF-8
+CHARSET:UTF-8
+COMPRESSION:NONE
+OLDFILEUID:NONE
+NEWFILEUID:NONE
+
+<OFX>
+<BANKMSGSRSV1>
+<STMTTRNRS>
+<TRNUID>1
+<STATUS><CODE>0<SEVERITY>INFO</STATUS>
+<STMTRS>
+<CURDEF>EUR
+<BANKACCTFROM><BANKID>14505<ACCTID>145050000208001409859</BANKACCTFROM>
+<BANKTRANLIST>
+<DTSTART>20260401
+<DTEND>20261031
+<STMTTRN>
+<TRNTYPE>CREDIT
+<DTPOSTED>20260420
+<TRNAMT>+144,00
+<FITID>CE-20260420-94694
+<NAME>REMISE ENCAISSEMENT N 94694
+<MEMO>REMISE LCR TARDIVE
+</STMTTRN>
+<STMTTRN>
+<TRNTYPE>CREDIT
+<DTPOSTED>20260410
+<TRNAMT>+9665,01
+<FITID>CE-20260410-92174
+<NAME>REMISE ENCAISSEMENT N 92174
+<MEMO>ECHEANCE 31/03/2026
+</STMTTRN>
+</BANKTRANLIST>
+</STMTRS>
+</STMTTRNRS>
+</BANKMSGSRSV1>
+</OFX>
+"""
+    )
+    report = reconcile_customer_invoices(
+        store,
+        TENANT,
+        statement,
+        window_before_days=45,
+        window_after_days=7,
+    )
+    assert [payment.bank_reference for payment in report.payments] == [
+        "REMISE 92174",
+        "REMISE 94694",
+    ]
+    early = report.by_reference("92174")
+    assert early is not None
+    assert early.matched is True
+    assert early.allocated_total == Decimal("9665.01")
+    assert len(early.invoices) == 11
+    assert "FA16441" in early.invoice_numbers
+    late = report.by_reference("94694")
+    assert late is not None
+    assert late.matched is False
+    assert late.reason == "NO_EXACT_COMBINATION"
+    by_number = {
+        row["invoice_id"]: row for row in store.list_customer_invoices(TENANT)
+    }
+    assert by_number["FA16441"]["reconciliation_status"] == PAID_STATUS
+    assert by_number["FA16441"]["reconciliation_reference"] == "REMISE 92174"
 
 
 def test_lcr_priority_survives_one_off_cheque_mention(tmp_path):
