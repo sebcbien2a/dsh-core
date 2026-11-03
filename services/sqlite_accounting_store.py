@@ -47,12 +47,14 @@ _LINE_FIELDS = (
     "amount_ht",
     "amount_tva",
     "amount_ttc",
+    "document_type",
 )
 _LINE_MIGRATION_COLUMNS = (
     ("category", "TEXT"),
     ("amount_ht", "TEXT"),
     ("amount_tva", "TEXT"),
     ("amount_ttc", "TEXT"),
+    ("document_type", "TEXT"),
 )
 _DECISION_FIELDS = (
     "action",
@@ -178,6 +180,7 @@ CREATE TABLE IF NOT EXISTS reconciliation_lines (
     amount_ht TEXT,
     amount_tva TEXT,
     amount_ttc TEXT,
+    document_type TEXT,
     created_at TEXT NOT NULL,
     PRIMARY KEY (tenant_id, line_id)
 );
@@ -246,6 +249,10 @@ class SqliteAccountingStore:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_reconciliation_lines_category"
             " ON reconciliation_lines (tenant_id, category)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_reconciliation_lines_supplier"
+            " ON reconciliation_lines (tenant_id, counterparty)"
         )
 
     def _connect(self) -> sqlite3.Connection:
@@ -379,7 +386,7 @@ class SqliteAccountingStore:
             " l.credit_amount, l.currency, l.counterparty,"
             f" COALESCE(d.invoice_id, l.invoice_id) AS invoice_id, l.invoice_url,"
             " COALESCE(l.category, '') AS category,"
-            " l.amount_ht, l.amount_tva, l.amount_ttc,"
+            " l.amount_ht, l.amount_tva, l.amount_ttc, l.document_type,"
             f" {raw_status} AS raw_status, d.action, d.debit_account, d.credit_account,"
             " d.vat_amount, d.reason, d.arbitrated_at"
         )
@@ -400,6 +407,66 @@ class SqliteAccountingStore:
             for row in (dict(item) for item in rows)
             if _category_matches(row, selected)
         ]
+
+    def list_supplier_ledger(
+        self, tenant_id: str, supplier: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Return the chronological non-rejected supplier ledger rows.
+
+        Document lines are kept only when their status is ``VALIDE``. Bank
+        lines are kept when they carry a movement or an arbitration decision,
+        so both attached and candidate payments remain visible. ``supplier``
+        is a case-insensitive partial match on ``counterparty``.
+        """
+        validate_tenant_id(tenant_id)
+        if supplier is not None and not isinstance(supplier, str):
+            raise AccountingStoreError("INVALID_SUPPLIER", repr(supplier))
+        raw_status = "COALESCE(d.status, l.status, 'PENDING')"
+        source = (
+            " FROM reconciliation_lines l LEFT JOIN arbitration_decisions d"
+            " ON d.tenant_id = l.tenant_id AND d.line_id = l.line_id"
+        )
+        select = (
+            "SELECT l.line_id AS line_id, l.operation_date, l.label, l.counterparty,"
+            " COALESCE(NULLIF(l.counterparty, ''), '') AS supplier,"
+            " l.debit_amount, l.credit_amount, l.currency,"
+            " COALESCE(d.invoice_id, l.invoice_id) AS invoice_id,"
+            " l.invoice_id AS document_invoice_id, l.invoice_url,"
+            " COALESCE(l.category, '') AS category,"
+            " l.amount_ht, l.amount_tva, l.amount_ttc,"
+            " COALESCE(l.document_type, '') AS document_type,"
+            f" {raw_status} AS raw_status, d.action AS decision_action,"
+            " d.invoice_id AS decision_invoice_id, d.debit_account, d.credit_account"
+        )
+        where = [
+            "l.tenant_id = ?",
+            "l.status != 'REJETE'",
+            "COALESCE(d.status, l.status, 'PENDING') != 'REJETE'",
+            "(l.status = 'VALIDE'"
+            " OR l.debit_amount IS NOT NULL"
+            " OR l.credit_amount IS NOT NULL"
+            " OR d.action IS NOT NULL)",
+        ]
+        params: list[Any] = [tenant_id]
+        needle = supplier.strip().casefold() if supplier else ""
+        if needle:
+            escaped = (
+                needle.replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_")
+            )
+            where.append(
+                "casefold(COALESCE(l.counterparty, '')) LIKE ? ESCAPE '\\'"
+            )
+            params.append(f"%{escaped}%")
+        sql = (
+            f"{select}{source} WHERE {' AND '.join(where)}"
+            " ORDER BY casefold(COALESCE(l.counterparty, '')),"
+            " COALESCE(l.operation_date, ''), l.line_id"
+        )
+        with closing(self._connect()) as conn:
+            rows = conn.execute(sql, params).fetchall()
+        return [dict(row) for row in rows]
 
     def arbitrate(self, tenant_id: str, line_id: str, decision: dict[str, Any]) -> None:
         """Persist the HITL decision for a line, atomically and only once."""
@@ -576,7 +643,7 @@ class SqliteAccountingStore:
             " l.credit_amount, l.currency, l.counterparty,"
             f" {invoice} AS invoice_id, l.invoice_url,"
             " COALESCE(l.category, '') AS category,"
-            " l.amount_ht, l.amount_tva, l.amount_ttc,"
+            " l.amount_ht, l.amount_tva, l.amount_ttc, l.document_type,"
             f" {raw_status} AS raw_status, d.action, d.debit_account, d.credit_account,"
             " d.vat_amount, d.reason, d.arbitrated_at"
         )
