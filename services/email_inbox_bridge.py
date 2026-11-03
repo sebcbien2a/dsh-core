@@ -24,6 +24,7 @@ import hashlib
 import imaplib
 import os
 import re
+import unicodedata
 from dataclasses import dataclass, replace
 from email import message_from_bytes
 from email.message import Message
@@ -52,8 +53,100 @@ SUPPORTED_ATTACHMENT_SUFFIXES = frozenset(
 DEFAULT_MAIL_FOLDER = FolderState.INBOX.value
 DEFAULT_MAILBOX_PREFIX = ""
 APD_MAILBOX_PREFIX = "APD/"
+INBOX_FOLDER = "INBOX"
+
+# P20 - strict lexical eligibility for a raw Gmail INBOX scan. A message is
+# aspirated only when it carries at least one PDF >= 5 KiB *and* one accounting
+# keyword appears in its subject, body or attachment filename. Everything else
+# must stay untouched in INBOX (never moved, labelled or deleted).
+APD_ELIGIBILITY_KEYWORDS: tuple[str, ...] = (
+    "facture",
+    "factura",
+    "invoice",
+    "avoir",
+    "credit note",
+    "bordereau",
+    "lcr",
+    "releve",
+    "quittance",
+    "recu",
+    "facturation",
+)
+MIN_APD_PDF_BYTES = 5 * 1024
+ELIGIBLE_REASON = "ELIGIBLE"
+REASON_NO_PDF = "PDF_ABSENT"
+REASON_PDF_TOO_SMALL = "PDF_INFERIEUR_A_5_KO"
+REASON_NO_KEYWORD = "MOT_CLE_COMPTABLE_ABSENT"
+
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _UNSAFE_FILENAME = re.compile(r"[\\/\x00]")
+_HTML_TAG = re.compile(r"<[^>]+>")
+_WHITESPACE = re.compile(r"\s+")
+
+
+def _fold_text(value: Any) -> str:
+    text = unicodedata.normalize("NFKD", str(value or ""))
+    text = "".join(char for char in text if not unicodedata.combining(char))
+    return _WHITESPACE.sub(" ", text).strip().casefold()
+
+
+@dataclass(frozen=True)
+class EmailEligibility:
+    """P20 lexical decision for one message read from a raw INBOX."""
+
+    eligible: bool
+    reason: str = ELIGIBLE_REASON
+    matched_keyword: str | None = None
+    pdf_attachments: tuple[str, ...] = ()
+
+
+def evaluate_apd_email_eligibility(
+    message: EmailMessage,
+    *,
+    min_pdf_bytes: int = MIN_APD_PDF_BYTES,
+) -> EmailEligibility:
+    """Apply the strict P20 rule to one message without any mailbox mutation.
+
+    A valid message needs both a documented PDF (suffix ``.pdf`` and at least
+    ``min_pdf_bytes`` bytes) and an accounting keyword in the subject, body or
+    any attachment filename. The function is pure and side-effect free.
+    """
+    if not isinstance(min_pdf_bytes, int) or isinstance(min_pdf_bytes, bool):
+        raise EmailInboxBridgeError("INVALID_MIN_ATTACHMENT_BYTES", repr(min_pdf_bytes))
+    if min_pdf_bytes < 0:
+        raise EmailInboxBridgeError("INVALID_MIN_ATTACHMENT_BYTES", repr(min_pdf_bytes))
+    pdfs = [
+        attachment
+        for attachment in message.attachments
+        if attachment.suffix == ".pdf"
+    ]
+    if not pdfs:
+        return EmailEligibility(False, REASON_NO_PDF)
+    large_pdfs = tuple(
+        attachment.filename
+        for attachment in pdfs
+        if len(attachment.content) >= min_pdf_bytes
+    )
+    if not large_pdfs:
+        return EmailEligibility(False, REASON_PDF_TOO_SMALL)
+    haystack = _fold_text(
+        " ".join(
+            (
+                message.subject,
+                message.body,
+                *(attachment.filename for attachment in message.attachments),
+            )
+        )
+    )
+    for keyword in APD_ELIGIBILITY_KEYWORDS:
+        if _fold_text(keyword) in haystack:
+            return EmailEligibility(
+                True,
+                ELIGIBLE_REASON,
+                keyword,
+                large_pdfs,
+            )
+    return EmailEligibility(False, REASON_NO_KEYWORD, pdf_attachments=large_pdfs)
 
 
 class EmailInboxBridgeError(ValueError):
@@ -90,6 +183,7 @@ class EmailMessage:
     subject: str = ""
     sender: str = ""
     attachments: tuple[EmailAttachment, ...] = ()
+    body: str = ""
 
 
 @dataclass(frozen=True)
@@ -123,6 +217,10 @@ class EmailIngestionReport:
     ingestion: tuple[InboxIngestionReport, ...] = ()
     errors: tuple[str, ...] = ()
     traces: tuple[str, ...] = ()
+    source_folder: str = ""
+    fallback_used: bool = False
+    messages_ignored: int = 0
+    eligibility: tuple[EmailEligibility, ...] = ()
 
 
 @runtime_checkable
@@ -202,6 +300,20 @@ def _normalize_mailbox_prefix(value: object) -> str:
     return f"{prefix}/"
 
 
+def _normalize_mail_folder(folder: object) -> str:
+    if not isinstance(folder, str):
+        raise EmailInboxBridgeError("INVALID_MAIL_FOLDER", repr(folder))
+    value = folder.strip()
+    if (
+        not value
+        or len(value) > 200
+        or any(ord(char) < 32 for char in value)
+        or "\x00" in value
+    ):
+        raise EmailInboxBridgeError("INVALID_MAIL_FOLDER", repr(folder))
+    return value
+
+
 class ImapMailClient:
     """Small stdlib IMAP client (lazy network, configurable via environment).
 
@@ -265,7 +377,9 @@ class ImapMailClient:
             return
 
     def list_messages(self, folder: str) -> list[EmailMessage]:
-        status, _ = self.connection.select(folder)
+        # BODY.PEEK keeps the \Seen flag untouched: a dry-run must never mark
+        # a Gmail message as read. The client also never issues DELETE/EXPUNGE.
+        status, _ = self.connection.select(folder, readonly=True)
         if status != "OK":
             return []
         status, data = self.connection.search(None, "ALL")
@@ -273,7 +387,7 @@ class ImapMailClient:
             return []
         messages: list[EmailMessage] = []
         for uid in data[0].split():
-            status, payload = self.connection.fetch(uid, "(RFC822)")
+            status, payload = self.connection.fetch(uid, "(BODY.PEEK[])")
             if status != "OK" or not payload:
                 continue
             raw = payload[0]
@@ -287,6 +401,7 @@ class ImapMailClient:
                     subject=str(parsed.get("Subject") or ""),
                     sender=str(parsed.get("From") or ""),
                     attachments=tuple(_attachments(parsed)),
+                    body=_message_body(parsed),
                 )
             )
         return messages
@@ -294,6 +409,12 @@ class ImapMailClient:
     def move_message(
         self, message_id: str, source_folder: str, target_folder: str
     ) -> None:
+        """Mirror one message to another label without ever deleting it.
+
+        Gmail supports the IMAP ``MOVE`` extension. When the server refuses it
+        we deliberately raise instead of falling back to ``COPY`` + ``STORE
+        \\Deleted`` + ``EXPUNGE``: the absolute P20 rule forbids deleting mail.
+        """
         self.ensure_folder(target_folder)
         status, _ = self.connection.select(source_folder)
         if status != "OK":
@@ -304,15 +425,39 @@ class ImapMailClient:
             "MOVE", message_id.encode("ascii"), target_folder
         )
         if status != "OK":
-            status, _ = self.connection.uid(
-                "COPY", message_id.encode("ascii"), target_folder
+            raise EmailInboxBridgeError(
+                "MAIL_MOVE_FAILED", f"{message_id}:{source_folder}"
             )
-            if status != "OK":
-                raise EmailInboxBridgeError(
-                    "MAIL_MOVE_FAILED", f"{message_id}:{source_folder}"
-                )
-            self.connection.uid("STORE", message_id.encode("ascii"), "+FLAGS", "(\\Deleted)")
-            self.connection.expunge()
+
+
+def _part_text(part: Message) -> str:
+    payload = part.get_payload(decode=True)
+    if not isinstance(payload, bytes):
+        return ""
+    charset = part.get_content_charset() or "utf-8"
+    try:
+        return payload.decode(charset, "replace")
+    except LookupError:
+        return payload.decode("utf-8", "replace")
+
+
+def _message_body(parsed: Message) -> str:
+    """Extract a bounded plain-text body (HTML tags stripped) for P20 rules."""
+    if not parsed.is_multipart():
+        return _part_text(parsed)
+    plain: list[str] = []
+    html: list[str] = []
+    for part in parsed.walk():
+        if part.is_multipart():
+            continue
+        content_type = part.get_content_type()
+        if content_type == "text/plain":
+            plain.append(_part_text(part))
+        elif content_type == "text/html":
+            html.append(_part_text(part))
+    text = "\n".join(plain) if plain else "\n".join(html)
+    text = _HTML_TAG.sub(" ", text)
+    return _WHITESPACE.sub(" ", text).strip()[:20_000]
 
 
 def _attachments(parsed: Message) -> list[EmailAttachment]:
@@ -434,26 +579,62 @@ class EmailInboxBridge:
         return folders
 
     def fetch_and_stage_emails(
-        self, limit: int | None = None
+        self,
+        limit: int | None = None,
+        *,
+        folder: str | None = None,
     ) -> EmailIngestionReport:
-        """Manual trigger: stage attachments then run the extraction pipeline."""
+        """Manual trigger: stage attachments then run the extraction pipeline.
+
+        When ``folder`` is omitted the APD inbox label is scanned first. If it
+        is empty the runner falls back to the standard Gmail ``INBOX`` and then
+        applies the strict P20 lexical filter: only eligible messages are
+        aspirated, every other message is left strictly untouched.
+        """
         if limit is not None and limit < 0:
             raise EmailInboxBridgeError("INVALID_LIMIT", repr(limit))
         client = self._mail_client()
         mirrored = self.ensure_mail_folders()
-        inbox_folder = self._folder(FolderState.INBOX)
-        messages = client.list_messages(inbox_folder)
+        requested = self._folder(FolderState.INBOX)
+        if folder is not None:
+            requested = _normalize_mail_folder(folder)
+        messages = client.list_messages(requested)
+        fallback_used = False
+        if not messages and folder is None and requested != INBOX_FOLDER:
+            inbox_messages = client.list_messages(INBOX_FOLDER)
+            if inbox_messages:
+                messages = inbox_messages
+                requested = INBOX_FOLDER
+                fallback_used = True
+        filter_applied = requested.strip().upper() == INBOX_FOLDER
+        scanned_messages = len(messages)
         if limit is not None:
             messages = messages[:limit]
 
         staged = duplicates = ignored = moves = 0
+        messages_ignored = 0
         records: list[EmailAttachmentRecord] = []
         ingestion_reports: list[InboxIngestionReport] = []
+        eligibility_results: list[EmailEligibility] = []
         errors: list[str] = []
         traces: list[str] = []
         attachments_seen = 0
 
         for message in messages:
+            if filter_applied:
+                eligibility = evaluate_apd_email_eligibility(
+                    message,
+                    min_pdf_bytes=max(
+                        self._min_attachment_bytes, MIN_APD_PDF_BYTES
+                    ),
+                )
+                eligibility_results.append(eligibility)
+                if not eligibility.eligible:
+                    messages_ignored += 1
+                    traces.append(
+                        f"{message.message_id}:MESSAGE_IGNORED:{eligibility.reason}"
+                    )
+                    continue
             for attachment in message.attachments:
                 attachments_seen += 1
                 if not attachment.supported:
@@ -484,17 +665,17 @@ class EmailInboxBridge:
                     sha256=digest,
                     message_id=message.message_id,
                     filename=filename,
-                    mailbox_folder=inbox_folder,
+                    mailbox_folder=requested,
                     staged_path=destination,
                 )
                 self._records[digest] = record
                 self._message_folders.setdefault(
-                    message.message_id, inbox_folder
+                    message.message_id, requested
                 )
                 records.append(record)
                 staged += 1
                 traces.append(
-                    f"{digest}:MAIL->{inbox_folder}/{destination.name}"
+                    f"{digest}:MAIL->{requested}/{destination.name}"
                 )
 
                 if not self._process_attachments or self._ingestion is None:
@@ -523,7 +704,7 @@ class EmailInboxBridge:
                         traces.append(f"{digest}:MAIL_SYNC_ERROR:{detail}")
 
         return EmailIngestionReport(
-            scanned_messages=len(messages),
+            scanned_messages=scanned_messages,
             attachments_seen=attachments_seen,
             staged=staged,
             duplicates=duplicates,
@@ -534,6 +715,10 @@ class EmailInboxBridge:
             ingestion=tuple(ingestion_reports),
             errors=tuple(errors),
             traces=tuple(traces),
+            source_folder=requested,
+            fallback_used=fallback_used,
+            messages_ignored=messages_ignored,
+            eligibility=tuple(eligibility_results),
         )
 
     def sync_email_folder_state(
@@ -593,18 +778,27 @@ def _error_detail(exc: BaseException) -> str:
 
 
 __all__ = [
+    "APD_ELIGIBILITY_KEYWORDS",
     "APD_MAILBOX_PREFIX",
     "DEFAULT_MAILBOX_PREFIX",
     "DEFAULT_MAIL_FOLDER",
+    "ELIGIBLE_REASON",
     "EmailAttachment",
     "EmailAttachmentRecord",
+    "EmailEligibility",
     "EmailInboxBridge",
     "EmailInboxBridgeError",
     "EmailIngestionReport",
     "EmailMessage",
     "ImapMailClient",
+    "INBOX_FOLDER",
     "MAILBOX_STATES",
     "MailClient",
+    "MIN_APD_PDF_BYTES",
+    "REASON_NO_KEYWORD",
+    "REASON_NO_PDF",
+    "REASON_PDF_TOO_SMALL",
     "SUPPORTED_ATTACHMENT_SUFFIXES",
+    "evaluate_apd_email_eligibility",
     "state_for_ingestion_outcome",
 ]

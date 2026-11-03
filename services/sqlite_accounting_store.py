@@ -17,7 +17,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from schemas.folder_state_schema import (
     DocumentCategory,
@@ -83,6 +83,16 @@ _LINE_FIELDS = (
     "due_date",
     "fitid",
     "remittance_reference",
+    "client_siret",
+    "client_vat_number",
+    "payment_terms",
+    "reconciliation_status",
+    "reconciliation_date",
+    "reconciliation_reference",
+    "reconciliation_amount",
+    "source_status",
+    "balance_due",
+    "company_name",
 )
 _LINE_MIGRATION_COLUMNS = (
     ("category", "TEXT"),
@@ -115,6 +125,16 @@ _LINE_MIGRATION_COLUMNS = (
     ("due_date", "TEXT"),
     ("fitid", "TEXT"),
     ("remittance_reference", "TEXT"),
+    ("client_siret", "TEXT"),
+    ("client_vat_number", "TEXT"),
+    ("payment_terms", "TEXT"),
+    ("reconciliation_status", "TEXT"),
+    ("reconciliation_date", "TEXT"),
+    ("reconciliation_reference", "TEXT"),
+    ("reconciliation_amount", "TEXT"),
+    ("source_status", "TEXT"),
+    ("balance_due", "TEXT"),
+    ("company_name", "TEXT"),
 )
 _P17_LINE_SELECT = (
     " l.expense_subcategory, l.invite_restaurant, l.lieu_restaurant,"
@@ -124,7 +144,10 @@ _P17_LINE_SELECT = (
     " l.tva_dedup_status, l.fiscal_year_mode, l.fiscal_year_target,"
     " l.deferred_month_override, l.payment_source, l.counterparty_account,"
     " l.payment_method, l.payment_reference, l.purchase_date, l.due_date,"
-    " l.fitid, l.remittance_reference"
+    " l.fitid, l.remittance_reference, l.client_siret, l.client_vat_number,"
+    " l.payment_terms, l.reconciliation_status, l.reconciliation_date,"
+    " l.reconciliation_reference, l.reconciliation_amount, l.source_status,"
+    " l.balance_due, l.company_name"
 )
 _DECISION_FIELDS = (
     "action",
@@ -206,6 +229,49 @@ def _category_matches(row: dict[str, Any], selected: DocumentCategory) -> bool:
     return selected.value in re.split(r"[\\/]+", reference)
 
 
+def _normalize_fallback_methods(
+    value: Any,
+    *,
+    primary: str,
+) -> tuple[str, ...]:
+    """Normalise a fallback method list, preserving priority order."""
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        raw = re.split(r"[,;|/\s]+", value)
+    else:
+        try:
+            raw = [str(item) for item in value]
+        except TypeError:
+            raise AccountingStoreError(
+                "INVALID_FALLBACK_METHODS", repr(value)
+            ) from None
+    methods: list[str] = []
+    for item in raw:
+        if not str(item).strip():
+            continue
+        try:
+            method = normalize_expected_payment_method(item)
+        except PaymentMethodError as exc:
+            raise AccountingStoreError(
+                "INVALID_FALLBACK_METHODS", repr(item)
+            ) from exc
+        if method != primary and method not in methods:
+            methods.append(method)
+    return tuple(methods)
+
+
+def _rule_from_row(row: sqlite3.Row | Mapping[str, Any]) -> dict[str, Any]:
+    data = dict(row)
+    raw = str(data.get("fallback_methods") or "")
+    data["fallback_methods"] = [
+        item
+        for item in re.split(r"[,;|/\s]+", raw)
+        if item and item != data.get("expected_payment_method")
+    ]
+    return data
+
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS accounting_entries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -276,6 +342,16 @@ CREATE TABLE IF NOT EXISTS reconciliation_lines (
     due_date TEXT,
     fitid TEXT,
     remittance_reference TEXT,
+    client_siret TEXT,
+    client_vat_number TEXT,
+    payment_terms TEXT,
+    reconciliation_status TEXT,
+    reconciliation_date TEXT,
+    reconciliation_reference TEXT,
+    reconciliation_amount TEXT,
+    source_status TEXT,
+    balance_due TEXT,
+    company_name TEXT,
     created_at TEXT NOT NULL,
     PRIMARY KEY (tenant_id, line_id)
 );
@@ -311,6 +387,7 @@ CREATE TABLE IF NOT EXISTS counterparty_payment_rules (
     counterparty TEXT NOT NULL,
     counterparty_key TEXT NOT NULL,
     expected_payment_method TEXT NOT NULL,
+    fallback_methods TEXT NOT NULL DEFAULT '',
     confidence TEXT NOT NULL DEFAULT '1.0',
     source TEXT NOT NULL DEFAULT 'HUMAN',
     sample_count INTEGER NOT NULL DEFAULT 1,
@@ -355,6 +432,15 @@ class SqliteAccountingStore:
                 conn.execute(
                     f"ALTER TABLE reconciliation_lines ADD COLUMN {name} {declaration}"
                 )
+        rule_columns = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(counterparty_payment_rules)")
+        }
+        if "fallback_methods" not in rule_columns:
+            conn.execute(
+                "ALTER TABLE counterparty_payment_rules"
+                " ADD COLUMN fallback_methods TEXT NOT NULL DEFAULT ''"
+            )
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_reconciliation_lines_category"
             " ON reconciliation_lines (tenant_id, category)"
@@ -362,6 +448,10 @@ class SqliteAccountingStore:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_reconciliation_lines_supplier"
             " ON reconciliation_lines (tenant_id, counterparty)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_reconciliation_lines_payment"
+            " ON reconciliation_lines (tenant_id, reconciliation_status)"
         )
 
     def _connect(self) -> sqlite3.Connection:
@@ -532,6 +622,112 @@ class SqliteAccountingStore:
             include_rejected=False,
         )
         return rows
+
+    def list_customer_invoices(self, tenant_id: str) -> list[dict[str, Any]]:
+        """Return the non-rejected customer invoices imported in bulk (P20).
+
+        LCR sub-payment rows created by the P19 bordereau allocator are sales
+        lines too, but they are not invoices: only ``CUSTOMER_INVOICE`` rows
+        (or the historical ``SALE-`` prefix) are returned.
+        """
+        validate_tenant_id(tenant_id)
+        rows, _ = self._query_lines(
+            tenant_id,
+            status="ALL",
+            limit=-1,
+            include_rejected=False,
+        )
+        invoices: list[dict[str, Any]] = []
+        for row in rows:
+            if str(row.get("category") or "") != DocumentCategory.VENTES_CLIENTS.value:
+                continue
+            document_type = str(row.get("document_type") or "").strip().upper()
+            line_id = str(row.get("line_id") or "")
+            if document_type in {
+                "CUSTOMER_INVOICE",
+                "SALE",
+                "SALE_INVOICE",
+                "VENTE_CLIENT",
+            } or (line_id.startswith("SALE-")):
+                invoices.append(row)
+        return invoices
+
+    def reset_customer_invoice_reconciliation(self, tenant_id: str) -> int:
+        """Clear payment lettering on customer invoices (idempotent reruns)."""
+        validate_tenant_id(tenant_id)
+        with closing(self._connect()) as conn, conn:
+            cursor = conn.execute(
+                "UPDATE reconciliation_lines SET reconciliation_status = ?,"
+                " reconciliation_date = NULL, reconciliation_reference = NULL,"
+                " reconciliation_amount = NULL"
+                " WHERE tenant_id = ? AND category = ?"
+                " AND document_type = ? AND status != 'REJETE'",
+                (
+                    "EN_ATTENTE_REGLEMENT",
+                    tenant_id,
+                    DocumentCategory.VENTES_CLIENTS.value,
+                    "CUSTOMER_INVOICE",
+                ),
+            )
+            return cursor.rowcount
+
+    def reconcile_customer_invoice(
+        self,
+        tenant_id: str,
+        line_id: str,
+        *,
+        reconciliation_date: str | date,
+        reference: str,
+        amount: str | Decimal | None = None,
+        status: str = "PAYEE_RAPPROCHEE",
+    ) -> bool:
+        """Persist the bank lettering of one customer invoice (P20).
+
+        Returns ``True`` when a customer-invoice row was updated. The document
+        itself keeps its ``VALIDE`` life-cycle status; payment lettering lives
+        in the dedicated ``reconciliation_*`` columns so a re-import can never
+        confuse a paid invoice with an unposted document.
+        """
+        validate_tenant_id(tenant_id)
+        _validate_line_id(line_id)
+        if isinstance(reconciliation_date, date):
+            date_value = reconciliation_date.isoformat()
+        else:
+            date_value = str(reconciliation_date or "").strip()
+            try:
+                date_value = date.fromisoformat(date_value[:10]).isoformat()
+            except ValueError:
+                raise AccountingStoreError(
+                    "INVALID_RECONCILIATION_DATE", repr(reconciliation_date)
+                ) from None
+        reference_value = str(reference or "").strip()
+        if not reference_value or "\x00" in reference_value:
+            raise AccountingStoreError("INVALID_RECONCILIATION_REFERENCE", repr(reference))
+        status_value = str(status or "").strip().upper()
+        if status_value not in {"PAYEE_RAPPROCHEE", "EN_ATTENTE_REGLEMENT"}:
+            raise AccountingStoreError("INVALID_RECONCILIATION_STATUS", status_value)
+        amount_value = None if amount is None else str(Decimal(str(amount)))
+        with closing(self._connect()) as conn, conn:
+            cursor = conn.execute(
+                "UPDATE reconciliation_lines SET reconciliation_status = ?,"
+                " reconciliation_date = ?, reconciliation_reference = ?,"
+                " reconciliation_amount = ?"
+                " WHERE tenant_id = ? AND line_id = ?"
+                " AND category = ? AND status != 'REJETE'",
+                (
+                    status_value,
+                    date_value,
+                    reference_value,
+                    amount_value,
+                    tenant_id,
+                    line_id,
+                    DocumentCategory.VENTES_CLIENTS.value,
+                ),
+            )
+            return cursor.rowcount > 0
+
+    update_customer_invoice_reconciliation = reconcile_customer_invoice
+    mark_customer_invoice_paid = reconcile_customer_invoice
 
     def list_supplier_ledger(
         self, tenant_id: str, supplier: str | None = None
@@ -746,14 +942,23 @@ class SqliteAccountingStore:
         confidence: float | str | Decimal = Decimal("1.0"),
         source: str = "HUMAN",
         sample_count: int = 1,
+        fallback_methods: str | list[str] | tuple[str, ...] | None = None,
     ) -> dict[str, Any]:
-        """Create or replace the usual settlement method of one counterparty."""
+        """Create or replace the usual settlement method of one counterparty.
+
+        ``fallback_methods`` keeps alternative accepted channels (P20): a
+        customer whose main habit is ``LCR`` may also pay a small invoice by
+        ``CHEQUE`` or ``VIREMENT`` without losing its LCR priority.
+        """
         validate_tenant_id(tenant_id)
         name = self._require_counterparty(counterparty)
         try:
             method = normalize_expected_payment_method(expected_payment_method)
         except PaymentMethodError as exc:
             raise AccountingStoreError("INVALID_PAYMENT_METHOD", exc.args[0]) from exc
+        fallbacks = _normalize_fallback_methods(
+            fallback_methods, primary=method
+        )
         try:
             score = Decimal(str(confidence))
         except Exception as exc:  # noqa: BLE001 - normalised below
@@ -768,6 +973,7 @@ class SqliteAccountingStore:
         if sample_count < 1:
             raise AccountingStoreError("INVALID_SAMPLE_COUNT", repr(sample_count))
         key = normalize_counterparty_name(name)
+        fallback_text = ",".join(fallbacks)
         with closing(self._connect()) as conn, conn:
             existing = conn.execute(
                 "SELECT 1 FROM counterparty_payment_rules"
@@ -778,13 +984,15 @@ class SqliteAccountingStore:
                 conn.execute(
                     "INSERT INTO counterparty_payment_rules"
                     " (tenant_id, counterparty, counterparty_key,"
-                    " expected_payment_method, confidence, source, sample_count,"
-                    " updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    " expected_payment_method, fallback_methods, confidence,"
+                    " source, sample_count, updated_at)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         tenant_id,
                         name,
                         key,
                         method,
+                        fallback_text,
                         str(score),
                         origin,
                         sample_count,
@@ -794,12 +1002,13 @@ class SqliteAccountingStore:
             else:
                 conn.execute(
                     "UPDATE counterparty_payment_rules SET counterparty = ?,"
-                    " expected_payment_method = ?, confidence = ?, source = ?,"
-                    " sample_count = ?, updated_at = ?"
+                    " expected_payment_method = ?, fallback_methods = ?,"
+                    " confidence = ?, source = ?, sample_count = ?, updated_at = ?"
                     " WHERE tenant_id = ? AND counterparty_key = ?",
                     (
                         name,
                         method,
+                        fallback_text,
                         str(score),
                         origin,
                         sample_count,
@@ -823,12 +1032,12 @@ class SqliteAccountingStore:
         with closing(self._connect()) as conn:
             row = conn.execute(
                 "SELECT tenant_id, counterparty, expected_payment_method,"
-                " confidence, source, sample_count, updated_at"
+                " fallback_methods, confidence, source, sample_count, updated_at"
                 " FROM counterparty_payment_rules"
                 " WHERE tenant_id = ? AND counterparty_key = ?",
                 (tenant_id, key),
             ).fetchone()
-        return dict(row) if row is not None else None
+        return _rule_from_row(row) if row is not None else None
 
     def list_counterparty_payment_rules(self, tenant_id: str) -> list[dict[str, Any]]:
         """Every payment habit of the tenant, ordered by counterparty."""
@@ -836,12 +1045,22 @@ class SqliteAccountingStore:
         with closing(self._connect()) as conn:
             rows = conn.execute(
                 "SELECT tenant_id, counterparty, expected_payment_method,"
-                " confidence, source, sample_count, updated_at"
+                " fallback_methods, confidence, source, sample_count, updated_at"
                 " FROM counterparty_payment_rules WHERE tenant_id = ?"
                 " ORDER BY counterparty_key",
                 (tenant_id,),
             ).fetchall()
-        return [dict(row) for row in rows]
+        return [_rule_from_row(row) for row in rows]
+
+    def get_counterparty_payment_methods(
+        self, tenant_id: str, counterparty: str
+    ) -> tuple[str, ...]:
+        """Return primary + fallback methods, primary first."""
+        rule = self.get_counterparty_payment_rule(tenant_id, counterparty)
+        if rule is None:
+            return ()
+        methods = [rule["expected_payment_method"], *rule.get("fallback_methods", [])]
+        return tuple(dict.fromkeys(methods))
 
     def delete_counterparty_payment_rule(
         self, tenant_id: str, counterparty: str
@@ -930,6 +1149,9 @@ class SqliteAccountingStore:
                     confidence=confidence,
                     source="LEARNED",
                     sample_count=group["total"],
+                    fallback_methods=(
+                        existing.get("fallback_methods") if existing else None
+                    ),
                 )
             )
         return learned

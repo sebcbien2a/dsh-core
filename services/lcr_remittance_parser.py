@@ -54,12 +54,12 @@ _TRANSMISSION = re.compile(
 )
 _ACCOUNT = re.compile(
     r"(?:compte|numero\s*de\s*compte|n\s*de\s*compte)"
-    r"[^\d]{0,24}((?:\d[ \u00a0]?){11,})",
+    r"[^\d]{0,80}((?:\d[ \u00a0]?){11,})",
     re.IGNORECASE,
 )
 _OPERATION_COUNT = re.compile(
-    r"(?:nombre\s*(?:d\s*)?operations?|nb\s*operations?)"
-    r"[^\d]{0,12}(\d+)",
+    r"(?:nombre\s*(?:d\s*)?operations?\b(?!\s*ecartees)|nb\s*operations?)"
+    r"[^\d]{0,48}(\d+)",
     re.IGNORECASE,
 )
 _OPERATION_COUNT_REVERSED = re.compile(
@@ -67,7 +67,7 @@ _OPERATION_COUNT_REVERSED = re.compile(
 )
 _TOTAL_CREDIT = re.compile(
     r"(?:montant\s*total\s*au\s*credit|total\s*au\s*credit|"
-    r"montant\s*total|total\s*credit)",
+    r"montant\s*au\s*credit|mt\s*total|montant\s*total|total\s*credit)",
     re.IGNORECASE,
 )
 
@@ -151,14 +151,19 @@ def _amount_after(folded: str, pattern: re.Pattern[str]) -> Decimal | None:
     match = pattern.search(folded)
     if match is None:
         return None
-    tail = folded[match.end() : match.end() + 80]
-    amount_match = _AMOUNT_TOKEN.search(tail)
-    if amount_match is None:
+    tail = folded[match.end() : match.end() + 120]
+    candidates: list[Decimal] = []
+    for amount_match in _AMOUNT_TOKEN.finditer(tail):
+        try:
+            candidates.append(parse_ofx_amount(amount_match.group(0)))
+        except Exception:  # noqa: BLE001 - absent/invalid amount is optional
+            continue
+    if not candidates:
         return None
-    try:
-        return parse_ofx_amount(amount_match.group(0))
-    except Exception:  # noqa: BLE001 - absent/invalid amount is optional
-        return None
+    # Real Caisse d'Epargne slips print the operation count just before the
+    # total (``Montant au credit - Devise 7 9 240,48 EUR``): the total is the
+    # largest amount of the short tail, never the count.
+    return max(candidates)
 
 
 @dataclass(frozen=True)
@@ -393,6 +398,86 @@ def _line_from_whitespace(line: str) -> LcrRemittanceLine | None:
     )
 
 
+
+
+_BLOCK_RANK = re.compile(r"^\s*(\d{1,3})\s*$")
+_BLOCK_DIGITS = re.compile(r"^(.*?)(\d{9,})$")
+
+
+def _parse_block_lines(text: str) -> tuple[LcrRemittanceLine, ...]:
+    """Parse the multi-line table layout of real Caisse d'Epargne slips.
+
+    The PDF text layer prints the rank, drawer, domiciliation, acceptance, due
+    date and amount on separate lines (and sometimes splits a drawer over two
+    lines). This fallback state machine reconstructs those rows without ever
+    altering the PDF.
+    """
+    lines = [
+        re.sub(r"\s+", " ", line.replace("\u00a0", " ")).strip()
+        for line in text.splitlines()
+    ]
+    rows: list[LcrRemittanceLine] = []
+    index = 0
+    while index < len(lines):
+        rank_match = _BLOCK_RANK.fullmatch(lines[index])
+        if rank_match is None:
+            index += 1
+            continue
+        rank = int(rank_match.group(1))
+        cursor = index + 1
+        acceptance = ""
+        due_date: date | None = None
+        amount: Decimal | None = None
+        domiciliation = ""
+        drawer_parts: list[str] = []
+        while cursor < len(lines) and cursor <= index + 10:
+            line = lines[cursor]
+            folded = _fold(line)
+            if not line:
+                cursor += 1
+                continue
+            if not acceptance and folded in ACCEPTANCE_CODES:
+                acceptance = folded
+            elif due_date is None and _parse_due_date(line) is not None:
+                due_date = _parse_due_date(line)
+            elif amount is None and _AMOUNT_AT_END.search(line):
+                amount_match = _AMOUNT_AT_END.search(line)
+                if amount_match is not None:
+                    try:
+                        amount = parse_ofx_amount(amount_match.group("amount"))
+                    except Exception:  # noqa: BLE001 - row ignored below
+                        amount = None
+            elif _BLOCK_DIGITS.fullmatch(line) is not None:
+                digits_match = _BLOCK_DIGITS.fullmatch(line)
+                if digits_match is not None:
+                    if digits_match.group(1).strip():
+                        drawer_parts.append(digits_match.group(1).strip())
+                    domiciliation = digits_match.group(2)
+            elif amount is None:
+                drawer_parts.append(line)
+            cursor += 1
+            if acceptance and due_date is not None and amount is not None:
+                break
+        if acceptance and due_date is not None and amount is not None:
+            drawer = _clean(" ".join(drawer_parts))
+            if drawer:
+                rows.append(
+                    LcrRemittanceLine(
+                        drawer=drawer,
+                        rank=rank,
+                        domiciliation=_clean(domiciliation),
+                        acceptance=acceptance,
+                        due_date=due_date,
+                        amount=amount,
+                        raw=" ".join(lines[index:cursor]),
+                    )
+                )
+                index = cursor
+                continue
+        index += 1
+    return tuple(rows)
+
+
 def _parse_lines(text: str) -> tuple[LcrRemittanceLine, ...]:
     lines: list[LcrRemittanceLine] = []
     for raw in text.splitlines():
@@ -412,6 +497,8 @@ def _parse_lines(text: str) -> tuple[LcrRemittanceLine, ...]:
             parsed = _line_from_whitespace(line)
         if parsed is not None:
             lines.append(parsed)
+    if not lines:
+        lines.extend(_parse_block_lines(text))
     return tuple(lines)
 
 

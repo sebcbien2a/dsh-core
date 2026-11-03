@@ -28,13 +28,16 @@ if str(REPO_ROOT) not in sys.path:
 
 from services.email_inbox_bridge import (  # noqa: E402
     APD_MAILBOX_PREFIX,
+    INBOX_FOLDER,
     SUPPORTED_ATTACHMENT_SUFFIXES,
     EmailAttachment,
+    EmailEligibility,
     EmailInboxBridge,
     EmailInboxBridgeError,
     EmailMessage,
     ImapMailClient,
     MailClient,
+    evaluate_apd_email_eligibility,
 )
 
 GMAIL_HOST = "imap.gmail.com"
@@ -72,6 +75,7 @@ class AttachmentPreview:
     documentary: bool
     eligible: bool
     reason: str | None = None
+    mime_type: str = "application/octet-stream"
 
 
 @dataclass(frozen=True)
@@ -80,6 +84,9 @@ class MessagePreview:
     subject: str
     sender: str
     attachments: tuple[AttachmentPreview, ...] = ()
+    eligible: bool = True
+    reason: str | None = None
+    matched_keyword: str | None = None
 
 
 @dataclass(frozen=True)
@@ -92,10 +99,21 @@ class DryRunReport:
     ignored_type: int
     messages: tuple[MessagePreview, ...] = ()
     min_attachment_bytes: int = MIN_ATTACHMENT_BYTES
+    filter_applied: bool = False
+    fallback_used: bool = False
+    eligibility: tuple[EmailEligibility, ...] = ()
 
     @property
     def ignored(self) -> int:
         return self.ignored_size + self.ignored_type
+
+    @property
+    def messages_eligible(self) -> int:
+        return sum(1 for message in self.messages if message.eligible)
+
+    @property
+    def messages_ignored(self) -> int:
+        return sum(1 for message in self.messages if not message.eligible)
 
 
 @dataclass(frozen=True)
@@ -198,6 +216,7 @@ def preview_attachment(
         documentary=documentary,
         eligible=reason is None,
         reason=reason,
+        mime_type=attachment.mime_type,
     )
 
 
@@ -206,8 +225,11 @@ def build_dry_run_report(
     *,
     folder: str,
     min_bytes: int = MIN_ATTACHMENT_BYTES,
+    filter_lexical: bool = False,
+    fallback_used: bool = False,
 ) -> DryRunReport:
     previews: list[MessagePreview] = []
+    eligibilities: list[EmailEligibility] = []
     attachments_seen = eligible = ignored_size = ignored_type = 0
     for message in messages:
         attachment_previews: list[AttachmentPreview] = []
@@ -221,12 +243,29 @@ def build_dry_run_report(
                 ignored_size += 1
             else:
                 ignored_type += 1
+        message_eligible = True
+        reason: str | None = None
+        matched_keyword: str | None = None
+        if filter_lexical:
+            decision = evaluate_apd_email_eligibility(
+                message, min_pdf_bytes=min_bytes
+            )
+            eligibilities.append(decision)
+            message_eligible = decision.eligible
+            reason = None if decision.eligible else decision.reason
+            matched_keyword = decision.matched_keyword
+        elif not any(item.eligible for item in attachment_previews):
+            message_eligible = False
+            reason = "AUCUNE_PIECE_ELIGIBLE"
         previews.append(
             MessagePreview(
                 message_id=message.message_id,
                 subject=message.subject,
                 sender=message.sender,
                 attachments=tuple(attachment_previews),
+                eligible=message_eligible,
+                reason=reason,
+                matched_keyword=matched_keyword,
             )
         )
     return DryRunReport(
@@ -238,6 +277,9 @@ def build_dry_run_report(
         ignored_type=ignored_type,
         messages=tuple(previews),
         min_attachment_bytes=min_bytes,
+        filter_applied=filter_lexical,
+        fallback_used=fallback_used,
+        eligibility=tuple(eligibilities),
     )
 
 
@@ -247,12 +289,26 @@ def run_dry_run(
     config: ApdMailConfig,
     limit: int | None = None,
     min_bytes: int = MIN_ATTACHMENT_BYTES,
+    folder: str | None = None,
 ) -> DryRunReport:
-    messages = client.list_messages(config.inbox_folder)
+    requested = folder or config.inbox_folder
+    messages = client.list_messages(requested)
+    fallback_used = False
+    if not messages and folder is None and requested.strip().upper() != INBOX_FOLDER:
+        inbox_messages = client.list_messages(INBOX_FOLDER)
+        if inbox_messages:
+            messages = inbox_messages
+            requested = INBOX_FOLDER
+            fallback_used = True
     if limit is not None:
         messages = messages[:limit]
+    filter_lexical = requested.strip().upper() == INBOX_FOLDER
     return build_dry_run_report(
-        messages, folder=config.inbox_folder, min_bytes=min_bytes
+        messages,
+        folder=requested,
+        min_bytes=min_bytes,
+        filter_lexical=filter_lexical,
+        fallback_used=fallback_used,
     )
 
 
@@ -264,12 +320,31 @@ def print_dry_run(report: DryRunReport) -> None:
         f"Boite : {report.folder} | Messages : {report.messages_scanned}"
         f" | Pieces : {report.attachments_seen}"
     )
+    if report.fallback_used:
+        print("Fallback automatique : APD/00_INBOX vide -> INBOX")
+    if report.filter_applied:
+        print(
+            "Filtre lexical P20 : PDF >= 5 Ko + mot-cle comptable obligatoires"
+        )
     for message in report.messages:
-        print(f"- Message {message.message_id}: {message.subject or '(sans objet)'}")
+        if report.filter_applied:
+            state = "ELIGIBLE" if message.eligible else f"IGNORE ({message.reason})"
+            keyword = (
+                f" | mot-cle={message.matched_keyword}"
+                if message.matched_keyword
+                else ""
+            )
+            print(
+                f"- Message {message.message_id} [{state}{keyword}]:"
+                f" {message.subject or '(sans objet)'}"
+            )
+        else:
+            print(f"- Message {message.message_id}: {message.subject or '(sans objet)'}")
         for attachment in message.attachments:
             state = "ELIGIBLE" if attachment.eligible else f"IGNOREE ({attachment.reason})"
             print(
-                f"    {attachment.filename} ({attachment.size} octets) -> {state}"
+                f"    {attachment.filename} ({attachment.size} octets,"
+                f" {attachment.mime_type}) -> {state}"
             )
     print("-" * 78)
     print(
@@ -277,6 +352,12 @@ def print_dry_run(report: DryRunReport) -> None:
         f" [taille={report.ignored_size}, type={report.ignored_type}]"
         f" | seuil={report.min_attachment_bytes} octets"
     )
+    if report.filter_applied:
+        print(
+            f"Messages : {report.messages_eligible} eligible(s),"
+            f" {report.messages_ignored} ignore(s) et laisses intacts dans INBOX"
+        )
+    print("RAPPEL : aucun message deplace, aucun message supprime, aucune piece telechargee.")
     print("=" * 78)
 
 
@@ -284,17 +365,28 @@ def print_fetch_report(report: Any) -> None:
     print("=" * 78)
     print("RELEVE GMAIL APD")
     print("=" * 78)
+    if getattr(report, "source_folder", ""):
+        print(
+            f"Boite source : {report.source_folder}"
+            + (" (fallback INBOX)" if getattr(report, "fallback_used", False) else "")
+        )
     print(
         f"Messages : {report.scanned_messages} | Pieces : {report.attachments_seen}"
         f" | Deposees : {report.staged} | Doublons : {report.duplicates}"
         f" | Ignorees : {report.ignored} | Deplacements : {report.mail_moves}"
     )
+    if getattr(report, "messages_ignored", 0):
+        print(
+            f"Messages non eligibles laisses intacts dans INBOX :"
+            f" {report.messages_ignored}"
+        )
     print(f"Labels miroirs : {', '.join(report.mirrored_folders)}")
     if report.traces:
         print(f"Traces : {len(report.traces)}")
     if report.errors:
         for error in report.errors:
             print(f"ERREUR : {error}")
+    print("Aucun e-mail n'est supprime : les messages sont uniquement deplaces/labellises.")
     print("=" * 78)
 
 
@@ -314,6 +406,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="list eligible attachments without staging or moving anything",
     )
     parser.add_argument("--limit", type=int, default=None, help="max messages")
+    parser.add_argument(
+        "--folder",
+        default=None,
+        help=(
+            "mailbox to scan (default APD/00_INBOX, automatic fallback to INBOX);"
+            " INBOX applies the strict P20 eligibility filter"
+        ),
+    )
     parser.add_argument(
         "--trigger-watcher",
         action="store_true",
@@ -342,6 +442,7 @@ def run_fetch(
             config=config,
             limit=args.limit,
             min_bytes=MIN_ATTACHMENT_BYTES,
+            folder=args.folder,
         )
         print_dry_run(report)
         return FetchReport(dry_run=True, dry_run_report=report)
@@ -358,7 +459,9 @@ def run_fetch(
         mailbox_prefix=config.mailbox_prefix,
         min_attachment_bytes=MIN_ATTACHMENT_BYTES,
     )
-    bridge_report = bridge.fetch_and_stage_emails(limit=args.limit)
+    bridge_report = bridge.fetch_and_stage_emails(
+        limit=args.limit, folder=args.folder
+    )
     print_fetch_report(bridge_report)
     watcher_report = None
     if args.trigger_watcher:
