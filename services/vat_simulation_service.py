@@ -58,6 +58,7 @@ from services.accounting_spreadsheet_export_service import (
     _summary_record,
     compute_tva_dedup,
     counterparty_account_of,
+    is_apd_self_row,
     payment_source_of,
 )
 from services.sqlite_accounting_store import (
@@ -399,6 +400,8 @@ def _selected_rows(
     """Validated lines in the CA12 scope, with duplicate VAT pieces removed."""
     selected: list[dict[str, Any]] = []
     for row in store.list_master_lines(tenant_id):
+        if is_apd_self_row(row):
+            continue
         status = str(
             row.get("raw_status") or row.get("status") or ""
         ).strip().upper()

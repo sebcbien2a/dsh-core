@@ -95,6 +95,14 @@ _TOTAL_TVA = re.compile(
     re.IGNORECASE,
 )
 _TOTAL_TTC = re.compile(r"\bTotal\s*TTC\s*[:\-]?\s*([\d\s\u00a0.,]+)", re.IGNORECASE)
+_PDF_DATE = re.compile(
+    r"\bDate\s*[:\-]?\s*(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})",
+    re.IGNORECASE,
+)
+_PDF_DUE_DATE = re.compile(
+    r"\bFacture\s+payable\s+le\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})",
+    re.IGNORECASE,
+)
 _SPACES = re.compile(r"\s+")
 
 _SAGE_HEADERS: dict[str, str] = {
@@ -580,12 +588,20 @@ def _extract_pdf_invoice(
     total_ht = _TOTAL_HT.search(joined)
     total_tva = _TOTAL_TVA.search(joined)
     total_ttc = _TOTAL_TTC.search(joined)
+    date_match = _PDF_DATE.search(joined)
+    due_match = _PDF_DUE_DATE.search(joined)
     return CustomerInvoice(
         number=number.upper(),
+        piece_date=(
+            _parse_date_value(date_match.group(1)) if date_match is not None else None
+        ),
         customer=_extract_client_name(joined, client_block),
         total_ht=_parse_decimal(total_ht.group(1)) if total_ht else Decimal("0.00"),
         total_tva=_parse_decimal(total_tva.group(1)) if total_tva else Decimal("0.00"),
         total_ttc=_parse_decimal(total_ttc.group(1)) if total_ttc else Decimal("0.00"),
+        due_date=(
+            _parse_date_value(due_match.group(1)) if due_match is not None else None
+        ),
         client_siret=_normalise_digits(siret_match.group(1)) if siret_match else "",
         client_vat_number=(
             _normalise_vat(vat_match.group(1)) if vat_match is not None else ""
@@ -837,18 +853,32 @@ def import_customer_invoices(
 def import_customer_invoice_batch(
     store: Any,
     tenant_id: str,
-    sage_source: str | Path | bytes | bytearray,
+    sage_source: str | Path | bytes | bytearray | None = None,
     *,
     pdf_source: str | Path | bytes | bytearray | None = None,
     filename: str | None = None,
     update_payment_rules: bool = True,
     split_export_dir: str | Path | None = None,
 ) -> CustomerInvoiceImportReport:
-    """Parse Sage + optional grouped PDF, merge and persist the batch."""
-    sage_invoices = parse_sage_customer_invoices(sage_source, filename=filename)
+    """Parse Sage and/or grouped PDF, merge and persist the batch.
+
+    ``sage_source`` may be ``None`` when ``pdf_source`` is supplied: the
+    grouped multi-page PDF then becomes the primary source. That covers the
+    April-October 2026 invoices that are absent from the January-March Sage
+    CSV while keeping the merge behaviour when both sources are provided.
+    """
+    if sage_source is None and pdf_source is None:
+        raise CustomerBatchImportError("NO_SOURCE")
     pdf_batch = (
         parse_multi_invoice_pdf(pdf_source) if pdf_source is not None else None
     )
+    if sage_source is not None:
+        sage_invoices = parse_sage_customer_invoices(sage_source, filename=filename)
+        invoices = merge_customer_invoices(sage_invoices, pdf_batch)
+    else:
+        if pdf_batch is None or not pdf_batch.invoices:
+            raise CustomerBatchImportError("NO_INVOICES_IN_PDF")
+        invoices = list(pdf_batch.invoices)
     if pdf_source is not None and split_export_dir is not None:
         try:
             split_customer_pdf_for_export(
@@ -856,7 +886,6 @@ def import_customer_invoice_batch(
             )
         except Exception:  # noqa: BLE001 - a split never blocks the accounting import
             pass
-    invoices = merge_customer_invoices(sage_invoices, pdf_batch)
     return import_customer_invoices(
         store,
         tenant_id,
@@ -1127,7 +1156,7 @@ class CustomerInvoiceBatchImporter:
 
     def import_batch(
         self,
-        sage_source: str | Path | bytes | bytearray,
+        sage_source: str | Path | bytes | bytearray | None = None,
         *,
         pdf_source: str | Path | bytes | bytearray | None = None,
         filename: str | None = None,

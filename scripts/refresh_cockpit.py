@@ -53,11 +53,22 @@ DOWNLOADS_PDF_NAMES: tuple[str, ...] = (
     "_data_-_[archived__IC][1].pdf",
     "boxtal_2600023334.pdf",
     "factures clients.pdf",
+    "factures clients 011225 a 311026.pdf",
+    "Bordereau_remise_deffet_encaissement.pdf",
 )
 MULTI_INVOICE_FALLBACKS: tuple[str, ...] = (
     "facture carrosserie yucel oct a mai.pdf",
     "FACTURE GP36 2023.pdf",
     "facture mai a octobre 24 garage du parc.pdf",
+)
+# These sources already exist in the internal document flow; when they are
+# absent from ``~/Downloads`` the runner now reads them in place instead of
+# reporting a missing file.
+WORKSPACE_FALLBACK_NAMES: frozenset[str] = frozenset(
+    {
+        "factures clients 011225 a 311026.pdf",
+        "Bordereau_remise_deffet_encaissement.pdf",
+    }
 )
 DEFAULT_EXPORT_DIR = REPO_ROOT / "workspace" / "exports" / "accounting"
 
@@ -85,7 +96,42 @@ def _unique_destination(directory: Path, name: str) -> Path:
         index += 1
 
 
-def copy_downloads_batch(downloads: Path, inbox: Path) -> tuple[tuple[str, ...], tuple[str, ...]]:
+def _workspace_source_path(
+    name: str,
+    workspace_root: str | os.PathLike[str],
+    tenant_id: str,
+    inbox: Path,
+) -> Path | None:
+    """Resolve a real source already present in the internal document flow."""
+    tenant_dir = Path(workspace_root).expanduser() / tenant_id
+    inbox_resolved = inbox.resolve()
+    preferred = (
+        tenant_dir / FolderState.VALIDE_PRET_FEC.value / "VENTES_CLIENTS" / name,
+        tenant_dir / FolderState.VALIDE_PRET_FEC.value / "BANQUE_FINANCE" / name,
+        tenant_dir / FolderState.EXPORT_COMPTA.value / "SOURCES_REEL" / name,
+    )
+    for candidate in preferred:
+        if candidate.is_file():
+            return candidate
+    for candidate in sorted(tenant_dir.rglob(name)):
+        if not candidate.is_file():
+            continue
+        try:
+            if candidate.resolve().is_relative_to(inbox_resolved):
+                continue
+        except ValueError:
+            continue
+        return candidate
+    return None
+
+
+def copy_downloads_batch(
+    downloads: Path,
+    inbox: Path,
+    *,
+    workspace_root: str | os.PathLike[str] | None = None,
+    tenant_id: str = DEFAULT_TENANT,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
     copied: list[str] = []
     missing: list[str] = []
     names = list(DOWNLOADS_PDF_NAMES)
@@ -97,7 +143,13 @@ def copy_downloads_batch(downloads: Path, inbox: Path) -> tuple[tuple[str, ...],
             break
     for name in names:
         source = downloads / name
-        if not source.is_file():
+        if (
+            not source.is_file()
+            and workspace_root is not None
+            and name in WORKSPACE_FALLBACK_NAMES
+        ):
+            source = _workspace_source_path(name, workspace_root, tenant_id, inbox)
+        if source is None or not source.is_file():
             missing.append(name)
             continue
         destination = _unique_destination(inbox, name)
@@ -177,7 +229,9 @@ def refresh_cockpit(
     ingested = 0
     if ingest:
         source_dir = Path(downloads).expanduser() if downloads else Path.home() / "Downloads"
-        copied, missing = copy_downloads_batch(source_dir, inbox)
+        copied, missing = copy_downloads_batch(
+            source_dir, inbox, workspace_root=tree.root, tenant_id=tenant
+        )
         if copied:
             report = InboxIngestionService(tenant, store, root).process_inbox()
             ingested = report.scanned

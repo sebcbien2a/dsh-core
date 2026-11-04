@@ -313,18 +313,18 @@ def run_dry_run(
 
 
 def print_dry_run(report: DryRunReport) -> None:
-    print("=" * 78)
-    print("RELEVE GMAIL APD - DRY-RUN (aucune piece deplacee)")
-    print("=" * 78)
+    print("=" * 78, flush=True)
+    print("RELEVE GMAIL APD - DRY-RUN (aucune piece deplacee)", flush=True)
+    print("=" * 78, flush=True)
     print(
         f"Boite : {report.folder} | Messages : {report.messages_scanned}"
-        f" | Pieces : {report.attachments_seen}"
+        f" | Pieces : {report.attachments_seen}", flush=True
     )
     if report.fallback_used:
-        print("Fallback automatique : APD/00_INBOX vide -> INBOX")
+        print("Fallback automatique : APD/00_INBOX vide -> INBOX", flush=True)
     if report.filter_applied:
         print(
-            "Filtre lexical P20 : PDF >= 5 Ko + mot-cle comptable obligatoires"
+            "Filtre lexical P20 : PDF >= 5 Ko + mot-cle comptable obligatoires", flush=True
         )
     for message in report.messages:
         if report.filter_applied:
@@ -336,58 +336,58 @@ def print_dry_run(report: DryRunReport) -> None:
             )
             print(
                 f"- Message {message.message_id} [{state}{keyword}]:"
-                f" {message.subject or '(sans objet)'}"
+                f" {message.subject or '(sans objet)'}", flush=True
             )
         else:
-            print(f"- Message {message.message_id}: {message.subject or '(sans objet)'}")
+            print(f"- Message {message.message_id}: {message.subject or '(sans objet)'}", flush=True)
         for attachment in message.attachments:
             state = "ELIGIBLE" if attachment.eligible else f"IGNOREE ({attachment.reason})"
             print(
                 f"    {attachment.filename} ({attachment.size} octets,"
-                f" {attachment.mime_type}) -> {state}"
+                f" {attachment.mime_type}) -> {state}", flush=True
             )
-    print("-" * 78)
+    print("-" * 78, flush=True)
     print(
         f"Bilan : {report.eligible} eligible(s), {report.ignored} ignoree(s)"
         f" [taille={report.ignored_size}, type={report.ignored_type}]"
-        f" | seuil={report.min_attachment_bytes} octets"
+        f" | seuil={report.min_attachment_bytes} octets", flush=True
     )
     if report.filter_applied:
         print(
             f"Messages : {report.messages_eligible} eligible(s),"
-            f" {report.messages_ignored} ignore(s) et laisses intacts dans INBOX"
+            f" {report.messages_ignored} ignore(s) et laisses intacts dans INBOX", flush=True
         )
-    print("RAPPEL : aucun message deplace, aucun message supprime, aucune piece telechargee.")
-    print("=" * 78)
+    print("RAPPEL : aucun message deplace, aucun message supprime, aucune piece telechargee.", flush=True)
+    print("=" * 78, flush=True)
 
 
 def print_fetch_report(report: Any) -> None:
-    print("=" * 78)
-    print("RELEVE GMAIL APD")
-    print("=" * 78)
+    print("=" * 78, flush=True)
+    print("RELEVE GMAIL APD", flush=True)
+    print("=" * 78, flush=True)
     if getattr(report, "source_folder", ""):
         print(
             f"Boite source : {report.source_folder}"
-            + (" (fallback INBOX)" if getattr(report, "fallback_used", False) else "")
+            + (" (fallback INBOX)" if getattr(report, "fallback_used", False) else ""), flush=True
         )
     print(
         f"Messages : {report.scanned_messages} | Pieces : {report.attachments_seen}"
         f" | Deposees : {report.staged} | Doublons : {report.duplicates}"
-        f" | Ignorees : {report.ignored} | Deplacements : {report.mail_moves}"
+        f" | Ignorees : {report.ignored} | Deplacements : {report.mail_moves}", flush=True
     )
     if getattr(report, "messages_ignored", 0):
         print(
             f"Messages non eligibles laisses intacts dans INBOX :"
-            f" {report.messages_ignored}"
+            f" {report.messages_ignored}", flush=True
         )
-    print(f"Labels miroirs : {', '.join(report.mirrored_folders)}")
+    print(f"Labels miroirs : {', '.join(report.mirrored_folders)}", flush=True)
     if report.traces:
-        print(f"Traces : {len(report.traces)}")
+        print(f"Traces : {len(report.traces)}", flush=True)
     if report.errors:
         for error in report.errors:
-            print(f"ERREUR : {error}")
-    print("Aucun e-mail n'est supprime : les messages sont uniquement deplaces/labellises.")
-    print("=" * 78)
+            print(f"ERREUR : {error}", flush=True)
+    print("Aucun e-mail n'est supprime : les messages sont uniquement deplaces/labellises.", flush=True)
+    print("=" * 78, flush=True)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -435,7 +435,7 @@ def run_fetch(
     config = resolve_mail_config(env_file=args.env_file, environ=environ)
     if args.dry_run:
         if args.trigger_watcher:
-            print("INFO : --trigger-watcher est ignore en mode --dry-run.")
+            print("INFO : --trigger-watcher est ignore en mode --dry-run.", flush=True)
         mail_client = client or build_imap_client(config)
         report = run_dry_run(
             mail_client,
@@ -474,7 +474,7 @@ def run_fetch(
             "WATCHER : "
             f"cycle={getattr(watcher_report, 'cycle', '?')} "
             f"ingested={getattr(watcher_report, 'ingested', '?')} "
-            f"errors={len(getattr(watcher_report, 'errors', ()))}"
+            f"errors={len(getattr(watcher_report, 'errors', ()))}", flush=True
         )
     return FetchReport(
         dry_run=False,
@@ -504,7 +504,7 @@ def main(
             environ=environ,
         )
     except (ApdMailConfigError, EmailInboxBridgeError) as exc:
-        print(f"ERREUR : {exc}", file=sys.stderr)
+        print(f"ERREUR : {exc}", file=sys.stderr, flush=True)
         return 2
     return report.exit_code
 

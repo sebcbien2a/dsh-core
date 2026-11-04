@@ -81,15 +81,18 @@ APD_ELIGIBILITY_KEYWORDS: tuple[str, ...] = (
     "crisol",
 )
 MIN_APD_PDF_BYTES = 5 * 1024
+# Hard socket ceiling so a stalled Gmail handshake can never hang a CLI run.
+IMAP_SOCKET_TIMEOUT = 15.0
 ELIGIBLE_REASON = "ELIGIBLE"
 REASON_NO_PDF = "PDF_ABSENT"
 REASON_PDF_TOO_SMALL = "PDF_INFERIEUR_A_5_KO"
 REASON_NO_KEYWORD = "MOT_CLE_COMPTABLE_ABSENT"
 
 _SHA256 = re.compile(r"[0-9a-f]{64}")
-_UNSAFE_FILENAME = re.compile(r"[\\/\x00]")
+_UNSAFE_FILENAME = re.compile(r'[\\/\x00-\x1f<>:"|?*]')
 _HTML_TAG = re.compile(r"<[^>]+>")
 _WHITESPACE = re.compile(r"\s+")
+_TRAILING_DOTS_SPACES = re.compile(r"[. ]+$")
 
 
 def _fold_text(value: Any) -> str:
@@ -270,8 +273,10 @@ def _sha256_text(value: object) -> str:
 
 
 def _safe_filename(filename: object, digest: str, suffix: str) -> str:
-    text = Path(str(filename or "")).name.strip()
-    if not text or _UNSAFE_FILENAME.search(text):
+    raw = Path(str(filename or "")).name.strip()
+    text = "".join(" " if _UNSAFE_FILENAME.match(char) else char for char in raw)
+    text = _TRAILING_DOTS_SPACES.sub("", _WHITESPACE.sub(" ", text).strip())
+    if not text:
         text = f"piece-{digest[:8]}{suffix}"
     if Path(text).suffix.casefold() not in SUPPORTED_ATTACHMENT_SUFFIXES:
         text = f"{Path(text).stem or 'piece'}{suffix}"
@@ -384,9 +389,13 @@ class ImapMailClient:
     def connection(self) -> imaplib.IMAP4:
         if self._connection is None:
             if self.use_ssl:
-                self._connection = imaplib.IMAP4_SSL(self.host, self.port)
+                self._connection = imaplib.IMAP4_SSL(
+                    self.host, self.port, timeout=IMAP_SOCKET_TIMEOUT
+                )
             else:
-                self._connection = imaplib.IMAP4(self.host, self.port)
+                self._connection = imaplib.IMAP4(
+                    self.host, self.port, timeout=IMAP_SOCKET_TIMEOUT
+                )
             self._connection.login(self.username, self.password)
         return self._connection
 

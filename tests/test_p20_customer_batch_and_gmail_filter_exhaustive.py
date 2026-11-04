@@ -34,6 +34,7 @@ from services.customer_invoice_batch_importer import (
     PAID_STATUS,
     PENDING_STATUS,
     SALES_WORKBOOK_HEADERS,
+    CustomerBatchImportError,
     CustomerInvoice,
     import_customer_invoice_batch,
     import_customer_invoices,
@@ -313,6 +314,76 @@ def build_multi_invoice_pdf(path: Path) -> Path:
                 else:
                     text += "Règlement par Virement\n"
             page.insert_textbox(fitz.Rect(40, 40, 560, 800), text, fontsize=9)
+    document.save(path)
+    document.close()
+    return path
+
+
+def build_realistic_invoice_pdf(path: Path) -> Path:
+    """Reproduce the real Sage bottom block: Facture N°, Date and payable le."""
+    fitz = pytest.importorskip("fitz")
+    document = fitz.open()
+    invoices = (
+        (
+            "FA16524",
+            "CALANDRE 18",
+            "30/09/2026",
+            "31/10/2026",
+            "557,56",
+            "111,51",
+            "669,07",
+        ),
+        (
+            "FA16525",
+            "GP auto 18",
+            "30/09/2026",
+            "31/10/2026",
+            "1248,03",
+            "249,61",
+            "1497,64",
+        ),
+    )
+    for number, customer, piece_date, due_date, ht, tva, ttc in invoices:
+        page = document.new_page()
+        text = (
+            "Autre S.A.S. Assistance Peintures Diffusion\n"
+            "145 chemin des Roches Vineuil\n"
+            "Agence\n"
+            "VIGNA MAJO 20110 PROPRIANO\n"
+            "41350 Vineuil\n"
+            "Capital\n"
+            ":\n"
+            "10 000,00 Euros\n"
+            "SIRET\n"
+            ":\n"
+            "810 908 392\n"
+            "N° TVA intracom :\n"
+            "FR51810 908 392\n"
+            f"{customer}\n"
+            "17 rue Henri Goyer\n"
+            "41120 Fougères-sur-Bièvre\n"
+            f"Total HT\n{ht}\n"
+            f"Total TVA\n{tva}\n"
+            f"Total TTC\n{ttc}\n"
+            "Facture N°\n"
+            f"{number}\n"
+            "Date\n"
+            f"{piece_date}\n"
+            "Client\n"
+            f"{customer}\n"
+            "Code\n"
+            "Base HT\n"
+            "Taux TVA\n"
+            "Montant TVA\n"
+            "4\n"
+            f"{ht}\n"
+            "20,00\n"
+            f"{tva}\n"
+            f"Facture payable le {due_date} pour la somme de {ttc} Euros "
+            "par LCR 30 jours fin de mois.\n"
+            "N° TVA intracom client : FR86978283372 - SIRET client : 97828337200016\n"
+        )
+        page.insert_textbox(fitz.Rect(40, 40, 560, 800), text, fontsize=9)
     document.save(path)
     document.close()
     return path
@@ -700,6 +771,53 @@ def test_grouped_pdf_is_split_logically_and_extracts_payment_terms(tmp_path):
     assert "30 jours fin de mois" in first.payment_terms
     assert batch.by_number()["FA2005"].payment_method == "VIREMENT"
     assert batch.by_number()["FA2006"].payment_method == "CHEQUE"
+
+
+def test_grouped_pdf_extracts_invoice_and_due_dates(tmp_path):
+    pdf_path = build_realistic_invoice_pdf(
+        tmp_path / "factures clients 011225 a 311026.pdf"
+    )
+    batch = parse_multi_invoice_pdf(pdf_path)
+    assert len(batch.invoices) == 2
+    first = batch.by_number()["FA16524"]
+    assert first.piece_date == date(2026, 9, 30)
+    assert first.due_date == date(2026, 10, 31)
+    assert first.customer == "CALANDRE 18"
+    assert first.total_ht == Decimal("557.56")
+    assert first.total_tva == Decimal("111.51")
+    assert first.total_ttc == Decimal("669.07")
+    assert first.payment_method == "LCR"
+    second = batch.by_number()["FA16525"]
+    assert second.piece_date == date(2026, 9, 30)
+    assert second.due_date == date(2026, 10, 31)
+    assert second.customer == "GP auto 18"
+    assert second.total_ttc == Decimal("1497.64")
+
+
+def test_pdf_only_import_uses_grouped_pdf_as_primary_source(tmp_path):
+    store = make_store(tmp_path)
+    pdf = build_realistic_invoice_pdf(
+        tmp_path / "factures clients 011225 a 311026.pdf"
+    )
+    report = import_customer_invoice_batch(store, TENANT, None, pdf_source=pdf)
+    assert report.created == 2
+    assert report.total_ht == Decimal("1805.59")
+    assert report.total_tva == Decimal("361.12")
+    assert report.total_ttc == Decimal("2166.71")
+    rows = store.list_customer_invoices(TENANT)
+    assert {row["invoice_id"] for row in rows} == {"FA16524", "FA16525"}
+    row = next(item for item in rows if item["invoice_id"] == "FA16524")
+    assert row["operation_date"] == "2026-09-30"
+    assert row["due_date"] == "2026-10-31"
+    assert row["counterparty"] == "CALANDRE 18"
+    assert row["amount_ttc"] == "669.07"
+
+
+def test_pdf_only_import_requires_a_source(tmp_path):
+    store = make_store(tmp_path)
+    with pytest.raises(CustomerBatchImportError) as error:
+        import_customer_invoice_batch(store, TENANT)
+    assert error.value.code == "NO_SOURCE"
 
 
 def test_import_batch_merges_pdf_and_populates_payment_rules(tmp_path):

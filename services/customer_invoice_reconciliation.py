@@ -203,6 +203,9 @@ def _invoice_from_row(row: Mapping[str, Any]) -> ReconciliableInvoice | None:
     line_id = str(row.get("line_id") or "").strip()
     if not line_id:
         return None
+    document_type = str(row.get("document_type") or "").strip().upper()
+    if document_type == "OFX" or line_id.upper().startswith("OFX-"):
+        return None
     amount_value = row.get("amount_ttc")
     if amount_value in (None, ""):
         amount_value = row.get("credit_amount")
@@ -312,7 +315,7 @@ def find_exact_invoice_combination(
     ]
     if not pending:
         return None
-    if len(pending) > 30:
+    if len(pending) > 40:
         pending = sorted(
             pending,
             key=lambda item: (
@@ -321,7 +324,7 @@ def find_exact_invoice_combination(
                 else 10_000,
                 item.number,
             ),
-        )[:30]
+        )[:40]
     if preferred_date is not None:
         pending.sort(
             key=lambda item: (

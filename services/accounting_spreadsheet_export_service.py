@@ -934,6 +934,43 @@ def _ledger_status(is_bank: bool, raw_status: str, matched: bool) -> str:
     return raw_status or "A_RAPPROCHER"
 
 
+APD_SELF_SIREN = "810908392"
+APD_SELF_NAME = "AUTRE S.A.S."
+_APD_SELF_TEXT_FIELDS = (
+    "counterparty",
+    "supplier",
+    "label",
+    "counterparty_name",
+    "company_name",
+    "siren",
+    "supplier_siren",
+    "counterparty_siret",
+    "client_siret",
+)
+
+
+def _digits_only(value: Any) -> str:
+    return re.sub(r"\D", "", str(value or ""))
+
+
+def is_apd_self_row(row: dict[str, Any]) -> bool:
+    """Return True when the row is APD itself (SIREN 810908392 / Autre S.A.S.).
+
+    ``client_vat_number`` is deliberately ignored: the sales workbook stores
+    APD's own VAT number in that column for every customer invoice.
+    """
+    text = " ".join(str(row.get(key) or "") for key in _APD_SELF_TEXT_FIELDS).casefold()
+    if (
+        "autre s.a.s" in text
+        or "autre sas" in text
+        or "assistance peintures diffusion" in text
+        or "assistance peintures diffusions" in text
+    ):
+        return True
+    digits = " ".join(_digits_only(row.get(key)) for key in _APD_SELF_TEXT_FIELDS)
+    return APD_SELF_SIREN in digits
+
+
 def _ledger_supplier(row: dict[str, Any]) -> str:
     value = str(row.get("supplier") or row.get("counterparty") or "").strip()
     return value or "NON_AFFECTE"
@@ -949,6 +986,8 @@ def _build_supplier_ledger_entries(
     }
     entries: list[SupplierLedgerEntry] = []
     for row in rows:
+        if is_apd_self_row(row):
+            continue
         raw_status = str(row.get("raw_status") or row.get("status") or "PENDING")
         action = str(row.get("decision_action") or "")
         if _is_bank_ledger_row(row):
