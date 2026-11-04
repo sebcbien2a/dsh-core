@@ -14,13 +14,18 @@ import os
 import shutil
 import sys
 from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from schemas.folder_state_schema import DocumentCategory, FolderState  # noqa: E402
+from schemas.folder_state_schema import (  # noqa: E402
+    DocumentCategory,
+    DocumentStatus,
+    FolderState,
+)
 from services.accounting_spreadsheet_export_service import (  # noqa: E402
     CategoryOverviewExporter,
     CategorySummaryExporter,
@@ -29,7 +34,11 @@ from services.accounting_spreadsheet_export_service import (  # noqa: E402
     PersonalExpenseNoteExporter,
     SupplierLedgerExporter,
 )
-from services.balance_simulation_service import BalanceSimulationService  # noqa: E402
+from services.apd_four_stage_pipeline import ApdFourStagePipeline  # noqa: E402
+from services.balance_simulation_service import (  # noqa: E402
+    BALANCE_FILENAME,
+    BalanceSimulationService,
+)
 from services.customer_invoice_batch_importer import (  # noqa: E402
     export_customer_sales_workbook,
 )
@@ -46,7 +55,10 @@ from services.sqlite_accounting_store import (  # noqa: E402
     DEFAULT_DB_PATH,
     SqliteAccountingStore,
 )
-from services.vat_simulation_service import VatSimulationService  # noqa: E402
+from services.vat_simulation_service import (  # noqa: E402
+    CA12_SIMULATION_FILENAME,
+    VatSimulationService,
+)
 
 DOWNLOADS_PDF_NAMES: tuple[str, ...] = (
     "Y16V_SD_INVOICE202609243956114620.pdf",
@@ -84,6 +96,12 @@ class CockpitRefreshReport:
     workbooks: tuple[Path, ...]
     ca12_path: Path | None
     balance_path: Path | None = None
+    readable_workbook: Path | None = None
+    pending_pieces: tuple[str, ...] = ()
+    vat_collected: Decimal | None = None
+    vat_deductible: Decimal | None = None
+    vat_net: Decimal | None = None
+    vat_net_b: Decimal | None = None
 
 
 def _unique_destination(directory: Path, name: str) -> Path:
@@ -234,9 +252,69 @@ def refresh_cockpit(
         copied, missing = copy_downloads_batch(
             source_dir, inbox, workspace_root=tree.root, tenant_id=tenant
         )
-        if copied:
-            report = InboxIngestionService(tenant, store, root).process_inbox()
-            ingested = report.scanned
+        report = InboxIngestionService(tenant, store, root).process_inbox()
+        ingested = report.scanned
+
+    pipeline = ApdFourStagePipeline(
+        tenant,
+        store=store,
+        root=root,
+        export_dir=base_export / tenant,
+        year=year,
+    )
+    stage_reports = pipeline.run_all()
+    workbooks = tuple(
+        dict.fromkeys(
+            path for stage_report in stage_reports for path in stage_report.workbooks
+        )
+    )
+    ca12_path = next(
+        (
+            path
+            for path in workbooks
+            if path.name == CA12_SIMULATION_FILENAME.format(year=year)
+        ),
+        None,
+    )
+    balance_path = next(
+        (
+            path
+            for path in workbooks
+            if path.name == BALANCE_FILENAME.format(year=year)
+        ),
+        None,
+    )
+    vat_collected: Decimal | None = None
+    vat_deductible: Decimal | None = None
+    vat_net: Decimal | None = None
+    vat_net_b: Decimal | None = None
+    try:
+        service = VatSimulationService(store, export_dir=base_export)
+        ca12 = service.simulate(tenant, year)
+        vat_collected = ca12.scenario_a.collected_tva
+        vat_deductible = ca12.scenario_a.deductible_total
+        vat_net = ca12.scenario_a.net_tva
+        vat_net_b = ca12.scenario_b.net_tva
+        if ca12_path is None:
+            ca12_path = service.write_report(ca12)
+    except Exception:  # noqa: BLE001 - a missing CA12 never blocks the cockpit
+        ca12_path = ca12_path
+    try:
+        balance = BalanceSimulationService(store, export_dir=base_export)
+        balance_report = balance.simulate(tenant, year)
+        if balance_path is None:
+            balance_path = balance.write_report(balance_report)
+    except Exception:  # noqa: BLE001 - a missing balance never blocks the cockpit
+        balance_path = balance_path
+
+    try:
+        pending_pieces = tuple(
+            row.filename
+            for row in pipeline._readable_rows()
+            if row.status_value == DocumentStatus.EN_ATTENTE.value
+        )
+    except Exception:  # noqa: BLE001 - the cockpit must always be written
+        pending_pieces = ()
 
     watcher = DocumentFlowWatcher(
         tenant_id=tenant,
@@ -253,23 +331,6 @@ def refresh_cockpit(
         body=body,
         wikilinks=COCKPIT_COMPTA_NOTE_LINKS,
     )
-    workbooks = refresh_workbooks(
-        tenant, store, root=root, export_dir=base_export
-    )
-    ca12_path: Path | None = None
-    try:
-        service = VatSimulationService(store, export_dir=base_export)
-        ca12 = service.simulate(tenant, year)
-        ca12_path = service.write_report(ca12)
-    except Exception:  # noqa: BLE001 - a missing CA12 never blocks the cockpit
-        ca12_path = None
-    balance_path: Path | None = None
-    try:
-        balance = BalanceSimulationService(store, export_dir=base_export)
-        balance_report = balance.simulate(tenant, year)
-        balance_path = balance.write_report(balance_report)
-    except Exception:  # noqa: BLE001 - a missing balance never blocks the cockpit
-        balance_path = None
     return CockpitRefreshReport(
         cockpit_path=result.path.resolve(),
         inbox_path=inbox,
@@ -279,6 +340,12 @@ def refresh_cockpit(
         workbooks=workbooks,
         ca12_path=ca12_path,
         balance_path=balance_path,
+        readable_workbook=pipeline.readable_path,
+        pending_pieces=pending_pieces,
+        vat_collected=vat_collected,
+        vat_deductible=vat_deductible,
+        vat_net=vat_net,
+        vat_net_b=vat_net_b,
     )
 
 
@@ -321,6 +388,33 @@ def main(argv: list[str] | None = None) -> int:
             f"Simulation Bilan & Résultat {args.year} : "
             f"{report.balance_path.resolve()}"
         )
+    if report.vat_collected is not None:
+        print(
+            f"TVA collectée {args.year} (scénario A) : "
+            f"{report.vat_collected} EUR"
+        )
+    if report.vat_deductible is not None:
+        print(
+            f"TVA déductible révisée {args.year} (scénario A) : "
+            f"{report.vat_deductible} EUR"
+        )
+    if report.vat_net is not None:
+        print(
+            f"CA12 {args.year} - TVA nette (scénario A) : "
+            f"{report.vat_net} EUR"
+        )
+    if report.vat_net_b is not None:
+        print(
+            f"CA12 {args.year} - TVA nette (scénario B) : "
+            f"{report.vat_net_b} EUR"
+        )
+    if report.readable_workbook is not None:
+        print(
+            f"État {report.readable_workbook.resolve()} : "
+            f"{len(report.pending_pieces)} pièce(s) en attente"
+        )
+        for name in report.pending_pieces:
+            print(f"  - {name}")
     return 0
 
 

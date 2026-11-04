@@ -1,7 +1,7 @@
 {
   "metadata": {
-    "version": "2.0",
-    "next_supplier_id": 4
+    "version": "2.1",
+    "next_supplier_id": 6
   },
   "suppliers": {
     "67162081300103": {
@@ -73,6 +73,63 @@
       "skills": [],
       "created_at": "2026-10-30T20:49:29.097494+00:00",
       "updated_at": "2026-10-30T20:49:29.097494+00:00"
+    },
+    "82013071400034": {
+      "supplier_id": "SUP_0004",
+      "raison_sociale": "MISE SUR ORBITE",
+      "siren": "820130714",
+      "siret": "82013071400034",
+      "tva_intra": "FR55820130714",
+      "country": "FR",
+      "aliases": [
+        "MISE SUR ORBITE",
+        "MISE SUR ORBITE SAS",
+        "MISESURORBITE",
+        "misesurorbite.fr"
+      ],
+      "verification": {
+        "status": "VERIFIED",
+        "human_validations": 1
+      },
+      "status": "ACTIVE",
+      "skills": [],
+      "accounting_rules": [
+        {
+          "category": "FRAIS_GENERAUX",
+          "expense_subcategory": "INFORMATIQUE_WEB",
+          "payment_method": "VIREMENT"
+        }
+      ],
+      "created_at": "2026-11-04T00:00:00+00:00",
+      "updated_at": "2026-11-04T00:00:00+00:00"
+    },
+    "71202305000057": {
+      "supplier_id": "SUP_0005",
+      "raison_sociale": "TRANSPORTS CATROUX",
+      "siren": "712023050",
+      "siret": "71202305000057",
+      "tva_intra": "FR55712023050",
+      "country": "FR",
+      "aliases": [
+        "CATROUX",
+        "CATROUX TRANSPORTS",
+        "TRANSPORTS CATROUX"
+      ],
+      "verification": {
+        "status": "VERIFIED",
+        "human_validations": 1
+      },
+      "status": "ACTIVE",
+      "skills": [],
+      "accounting_rules": [
+        {
+          "category": "TRANSPORTS_LOGISTIQUE",
+          "expense_subcategory": null,
+          "payment_method": "VIREMENT"
+        }
+      ],
+      "created_at": "2026-11-04T00:00:00+00:00",
+      "updated_at": "2026-11-04T00:00:00+00:00"
     }
   }
 }

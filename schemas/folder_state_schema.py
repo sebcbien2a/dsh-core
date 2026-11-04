@@ -75,11 +75,13 @@ class MissingFieldEnum(str, Enum, metaclass=_MissingFieldMeta):
 
 
 class ExpenseSubCategory(str, Enum):
-    """The four ``FRAIS_GENERAUX`` analytic sub-categories (P17).
+    """The ``FRAIS_GENERAUX`` analytic sub-categories (P17 / P22).
 
     ``HOTELLERIE`` is deliberately separated from ``RESTAURATION`` because the
     VAT of accommodation is not deductible (or only partially deductible),
-    whereas meal VAT is. Each value is also the physical sub-folder name under
+    whereas meal VAT is. ``INFORMATIQUE_WEB`` and ``HONORAIRES_JURIDIQUES``
+    were added with the P22 director arbitrations for web hosting and legal
+    fees. Each value is also the physical sub-folder name under
     ``03_VALIDE_PRET_FEC/FRAIS_GENERAUX/`` and
     ``04_EXPORT_COMPTA/FRAIS_GENERAUX/``.
     """
@@ -88,6 +90,8 @@ class ExpenseSubCategory(str, Enum):
     CARBURANT = "CARBURANT"
     TRANSPORT_PARKING = "TRANSPORT_PARKING"
     HOTELLERIE = "HOTELLERIE"
+    INFORMATIQUE_WEB = "INFORMATIQUE_WEB"
+    HONORAIRES_JURIDIQUES = "HONORAIRES_JURIDIQUES"
 
 
 class FiscalYearMode(str, Enum):

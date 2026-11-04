@@ -34,7 +34,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from schemas.folder_state_schema import DocumentCategory, FolderState
+from schemas.folder_state_schema import DocumentCategory, DocumentStatus, FolderState
 from services.accounting_spreadsheet_export_service import (
     CategorySummaryExporter,
     PersonalExpenseNoteExporter,
@@ -593,13 +593,26 @@ class DocumentFlowWatcher:
     def _pending_piece_names(self) -> list[str]:
         directory = self._tree.state_dir(FolderState.A_COMPLETER)
         try:
-            return sorted(
+            names = [
                 path.name
                 for path in directory.iterdir()
-                if path.is_file() and not path.name.startswith("~$")
-            )
+                if path.is_file()
+                and not path.name.startswith("~$")
+                and path.suffix.casefold() == ".pdf"
+            ]
         except OSError:
             return []
+        try:
+            rows = self._sync.workbook.read_rows()
+        except Exception:  # noqa: BLE001 - the cockpit must always be written
+            rows = []
+        resolved = {
+            row.nom_fichier
+            for row in rows
+            if str(row.statut or "").upper()
+            in (DocumentStatus.VALIDE.value, DocumentStatus.REJETE.value)
+        }
+        return sorted(name for name in names if name not in resolved)
 
     def _latest_validated_pieces(
         self,

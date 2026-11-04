@@ -963,14 +963,24 @@ class InboxIngestionService:
             )
             if piece_rel:
                 line["piece_pdf"] = piece_rel
+            if decision.document_number:
+                line["invoice_id"] = decision.document_number
+            if decision.payment_method:
+                line["payment_method"] = decision.payment_method
             line["source_status"] = (
                 "NON_COMPTABLE"
                 if decision.document_type == "BON_DE_COMMANDE_NON_COMPTABLE"
                 else "VALIDE_AUTOMATIQUE"
             )
-            if decision.payment_method in {"CARTE_BANCAIRE", "PRELEVEMENT_SEPA"}:
+            if decision.already_paid or decision.payment_method in {
+                "CARTE_BANCAIRE",
+                "PRELEVEMENT_SEPA",
+            }:
                 line["already_paid_on_invoice"] = "1"
                 line["balance_due"] = "0.00"
+            if decision.already_paid:
+                line["reconciliation_status"] = "PAYEE_RAPPROCHEE"
+                line["reconciliation_reference"] = "REGLEMENT_VALIDE"
             self._store.upsert_document_line(
                 self._tenant_id, derive_document_id(digest), line
             )

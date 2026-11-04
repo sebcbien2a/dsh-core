@@ -308,26 +308,94 @@ def test_bosch_order_conf_is_non_accountable(tmp_path):
     assert "non comptable" in decision.action.casefold()
 
 
-def test_pending_examples_receive_business_explanations(tmp_path):
-    holding = make_text_pdf(tmp_path / "facture creation holding.pdf", "")
-    old_invoice = make_text_pdf(
-        tmp_path / "Facture 423 du 31_05_2025_01.pdf",
-        "FACTURE 423\nDate 31/05/2025\nMontant T.T.C. 174,00\n",
+def mise_sur_orbite_text(number: str, day: str, ht: str, tva: str, ttc: str) -> str:
+    return "\n".join(
+        [
+            "MISE SUR ORBITE",
+            "19 rue des petits margois",
+            "36400 LA CHATRE - France",
+            "SIRET 82013071400034",
+            "TVA FR55820130714",
+            "SAS ASSISTANCE PENTURE DIFFUSION",
+            f"Facture #{number} du {day}",
+            "Hébergement site Internet et emails",
+            f"Total HT {ht} €",
+            "TVA 20.00%",
+            f"{tva} €",
+            f"Total TTC {ttc} €",
+            "Mode de paiement : par carte bancaire ou par virement",
+        ]
     )
+
+
+@pytest.mark.parametrize(
+    ("number", "day", "ht", "tva", "ttc"),
+    [
+        ("19544", "02/10/2026", "161,00", "32,20", "193,20"),
+        ("18417", "22/05/2026", "51,00", "10,20", "61,20"),
+    ],
+)
+def test_mise_sur_orbite_supplier_rule_validates_web_hosting_invoices(
+    tmp_path, number, day, ht, tva, ttc
+):
+    pdf = make_text_pdf(
+        tmp_path / f"{number}.pdf", mise_sur_orbite_text(number, day, ht, tva, ttc)
+    )
+    decision = evaluate_evidence(pdf)
+    assert decision is not None
+    assert decision.status is DocumentStatus.VALIDE
+    assert decision.supplier == "MISE SUR ORBITE"
+    assert decision.category is DocumentCategory.FRAIS_GENERAUX
+    assert decision.expense_subcategory == "INFORMATIQUE_WEB"
+    assert decision.document_number == number
+    assert decision.amount_ht == Decimal(ht.replace(",", "."))
+    assert decision.amount_tva == Decimal(tva.replace(",", "."))
+    assert decision.amount_ttc == Decimal(ttc.replace(",", "."))
+    assert decision.rule == "MISE_SUR_ORBITE_WEB_HOSTING"
+
+
+def test_director_arbitration_validates_holding_invoice(tmp_path):
+    holding = make_text_pdf(tmp_path / "facture creation holding.pdf", "")
+    decision = evaluate_evidence(holding)
+    assert decision is not None
+    assert decision.status is DocumentStatus.VALIDE
+    assert decision.supplier == "YASMIN CONSULTING"
+    assert decision.category is DocumentCategory.FRAIS_GENERAUX
+    assert decision.expense_subcategory == "HONORAIRES_JURIDIQUES"
+    assert decision.amount_ht == Decimal("850.00")
+    assert decision.amount_tva == Decimal("0.00")
+    assert decision.amount_ttc == Decimal("850.00")
+    assert decision.rule == "YASMIN_HOLDING_CREATION"
+    assert "création de holding" in decision.reason.casefold()
+
+
+def test_director_arbitration_validates_catroux_transport_invoice(tmp_path):
+    catroux = make_text_pdf(
+        tmp_path / "Facture 423 du 31_05_2025_01.pdf",
+        "TRANSPORTS CATROUX\nFACTURE 423\nDate 31/05/2025\n"
+        "Montant H.T. 145,00\nT.V.A. 29,00\nMontant T.T.C. 174,00\n",
+    )
+    decision = evaluate_evidence(catroux)
+    assert decision is not None
+    assert decision.status is DocumentStatus.VALIDE
+    assert decision.supplier == "TRANSPORTS CATROUX"
+    assert decision.category is DocumentCategory.TRANSPORTS_LOGISTIQUE
+    assert decision.document_number == "423"
+    assert decision.amount_ht == Decimal("145.00")
+    assert decision.amount_tva == Decimal("29.00")
+    assert decision.amount_ttc == Decimal("174.00")
+    assert decision.already_paid is True
+    assert decision.rule == "CATROUX_TRANSPORT_423"
+
+
+def test_openrouter_remains_pending_with_business_explanation(tmp_path):
     saas = make_text_pdf(
         tmp_path / "Invoice-GENMCYCQ-0001.pdf",
         "Invoice GENMCYCQ-0001\nOpenRouter, Inc\nTotal $10.85 USD\n",
     )
-    holding_decision = evaluate_evidence(holding)
-    assert holding_decision is not None
-    assert "création de holding" in holding_decision.reason
-    assert "Holding" in holding_decision.reason
-    old_decision = evaluate_evidence(old_invoice)
-    assert old_decision is not None
-    assert "31/05/2025" in old_decision.reason
-    assert "TVA sur encaissements" in old_decision.reason
     saas_decision = evaluate_evidence(saas)
     assert saas_decision is not None
+    assert saas_decision.status is DocumentStatus.EN_ATTENTE
     assert "anglais" in saas_decision.reason
     assert "SaaS" in saas_decision.reason
 
@@ -353,6 +421,12 @@ def test_stage1_validates_evidence_moves_files_and_updates_readable_workbook(tmp
         free_text(),
     )
     holding_pdf = write_pending(tree, "facture creation holding.pdf", "")
+    pending_pdf = write_pending(
+        tree,
+        "Invoice-GENMCYCQ-0001.pdf",
+        "Invoice GENMCYCQ-0001\nOpenRouter, Inc\nTotal $10.85 USD\n",
+    )
+    assert holding_pdf.exists()
     free_sha = sha(free_pdf)
     pipeline = ApdFourStagePipeline(
         TENANT,
@@ -362,16 +436,22 @@ def test_stage1_validates_evidence_moves_files_and_updates_readable_workbook(tmp
         year=YEAR,
     )
     report = pipeline.run_stage(1)
-    assert report.validated >= 1
+    assert report.validated >= 2
     assert report.pending >= 1
     # The source has been moved to the validated category.
     assert not (tree.state_dir(FolderState.A_COMPLETER) / free_pdf.name).exists()
+    assert not holding_pdf.exists()
     validated = list(
         (tree.state_dir(FolderState.VALIDE_PRET_FEC) / "FRAIS_GENERAUX").glob(
             "Facture_Free_*.pdf"
         )
     )
     assert validated
+    assert list(
+        (tree.state_dir(FolderState.VALIDE_PRET_FEC) / "FRAIS_GENERAUX").glob(
+            "facture creation holding.pdf"
+        )
+    )
     line = store.get_line(TENANT, derive_document_id(free_sha))
     assert line is not None
     assert line["status"] == "VALIDE"
@@ -379,14 +459,15 @@ def test_stage1_validates_evidence_moves_files_and_updates_readable_workbook(tmp
     assert line["amount_ttc"] == "39.99"
     assert line["piece_pdf"].startswith("PIECES_JOINTES/ACHATS/")
     # The dedicated readable workbook exists in 02_A_COMPLETER with the exact
-    # P22 headers and clickable relative links.
+    # P22 headers and clickable relative links; validated pieces are excluded.
     readable = tree.state_dir(FolderState.A_COMPLETER) / "_A_COMPLETER.xlsx"
     assert readable.is_file()
     workbook = load_workbook(readable)
     sheet = workbook.active
     assert tuple(cell.value for cell in sheet[1]) == READABLE_HEADERS
     rows = [row for row in sheet.iter_rows(min_row=2, values_only=True)]
-    assert any(row[2] == "facture creation holding.pdf" for row in rows)
+    assert any(row[2] == "Invoice-GENMCYCQ-0001.pdf" for row in rows)
+    assert not any(row[2] == "facture creation holding.pdf" for row in rows)
     link_cells = [row[-1] for row in rows if row[-1]]
     assert link_cells
     for link in link_cells:
@@ -400,12 +481,16 @@ def test_stage1_validates_evidence_moves_files_and_updates_readable_workbook(tmp
     assert legacy_sheet.column_dimensions["B"].hidden is True
     assert legacy_sheet.cell(row=1, column=18).value == "Date Pièce"
     legacy.close()
-    assert holding_pdf.exists()
+    assert pending_pdf.exists()
 
 
-def test_stage1_writes_real_business_reason_for_holding_pending(tmp_path):
+def test_stage1_writes_real_business_reason_for_openrouter_pending(tmp_path):
     tree, _tenant_dir, store = prepare_flow(tmp_path)
-    write_pending(tree, "facture creation holding.pdf", "")
+    write_pending(
+        tree,
+        "Invoice-GENMCYCQ-0001.pdf",
+        "Invoice GENMCYCQ-0001\nOpenRouter, Inc\nTotal $10.85 USD\n",
+    )
     pipeline = ApdFourStagePipeline(
         TENANT, store=store, root=tmp_path, export_dir=tmp_path / "exports"
     )
@@ -413,7 +498,8 @@ def test_stage1_writes_real_business_reason_for_holding_pending(tmp_path):
     readable = tree.state_dir(FolderState.A_COMPLETER) / "_A_COMPLETER.xlsx"
     sheet = load_workbook(readable).active
     reasons = [row[8] for row in sheet.iter_rows(min_row=2, values_only=True)]
-    assert any("création de holding" in str(reason) for reason in reasons)
+    assert any("anglais" in str(reason) for reason in reasons)
+    assert any("SaaS" in str(reason) for reason in reasons)
     assert all(reason != "numero_piece, categorie" for reason in reasons)
 
 
@@ -581,8 +667,8 @@ def test_hermes_status_pending_and_decide_document(tmp_path):
     tree, _tenant_dir, store = prepare_flow(tmp_path)
     write_pending(
         tree,
-        "Facture 423 du 31_05_2025_01.pdf",
-        "Facture 423\nDate 31/05/2025\nMontant T.T.C. 174,00\n",
+        "Invoice-GENMCYCQ-0001.pdf",
+        "Invoice GENMCYCQ-0001\nOpenRouter, Inc\nTotal $10.85 USD\n",
     )
     pipeline = ApdFourStagePipeline(
         TENANT, store=store, root=tmp_path, export_dir=tmp_path / "exports"
@@ -603,9 +689,10 @@ def test_hermes_status_pending_and_decide_document(tmp_path):
     question = next(
         item
         for item in questions
-        if item["filename"] == "Facture 423 du 31_05_2025_01.pdf"
+        if item["filename"] == "Invoice-GENMCYCQ-0001.pdf"
     )
-    assert "2025" in question["why"]
+    assert "anglais" in question["why"]
+    assert "SaaS" in question["why"]
     assert question["link"]
     result = bridge.decide_document(question["doc_id"], "VALIDER")
     assert result["status"] == "VALIDE"

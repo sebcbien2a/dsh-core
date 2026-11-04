@@ -1700,6 +1700,22 @@ EXPENSE_SUBCATEGORY_HEADERS: dict[ExpenseSubCategory, tuple[str, ...]] = {
         "TVA Non Déductible",
         "TTC",
     ),
+    ExpenseSubCategory.INFORMATIQUE_WEB: (
+        "Date",
+        "Fournisseur",
+        "Description",
+        "HT",
+        "TVA",
+        "TTC",
+    ),
+    ExpenseSubCategory.HONORAIRES_JURIDIQUES: (
+        "Date",
+        "Fournisseur",
+        "Description",
+        "HT",
+        "TVA",
+        "TTC",
+    ),
 }
 EXPENSE_SYNTHESIS_HEADERS: tuple[str, ...] = (
     "Sous-catégorie",
@@ -1791,6 +1807,30 @@ _SUBCATEGORY_KEYWORDS: tuple[tuple[ExpenseSubCategory, tuple[str, ...]], ...] = 
     (
         ExpenseSubCategory.TRANSPORT_PARKING,
         ("peage", "autoroute", "parking", "train", "sncf", "avion", "vol ", "air france", "taxi"),
+    ),
+    (
+        ExpenseSubCategory.INFORMATIQUE_WEB,
+        (
+            "hebergement site",
+            "site internet",
+            "nom de domaine",
+            "noms de domaine",
+            "informatique",
+            "logiciel",
+            "saas",
+            "openrouter",
+        ),
+    ),
+    (
+        ExpenseSubCategory.HONORAIRES_JURIDIQUES,
+        (
+            "honoraires",
+            "juridique",
+            "avocat",
+            "creation holding",
+            "frais de greffe",
+            "annonce legale",
+        ),
     ),
     (
         ExpenseSubCategory.RESTAURATION,
@@ -1988,6 +2028,20 @@ def _expense_row_values(
             tva,
             ttc,
         )
+    if subcategory in (
+        ExpenseSubCategory.INFORMATIQUE_WEB,
+        ExpenseSubCategory.HONORAIRES_JURIDIQUES,
+    ):
+        return (
+            date_value,
+            record["counterparty"],
+            _text_field(row, "label")
+            or record["invoice_id"]
+            or _text_field(row, "invoice_url"),
+            ht,
+            tva,
+            ttc,
+        )
     accommodation = _decimal_field(row, "ht_accommodation") or ht
     breakfast = _decimal_field(row, "ht_breakfast_meals") or Decimal("0.00")
     deductible, non_deductible, parsed_accommodation, parsed_meals = (
@@ -2114,7 +2168,7 @@ def _write_p17_workbook(
 
 
 class ExpenseSubCategoryExporter:
-    """Build the four ``FRAIS_GENERAUX`` sub-tables and their global summary."""
+    """Build the ``FRAIS_GENERAUX`` sub-tables and their global summary."""
 
     def __init__(
         self,

@@ -5,7 +5,7 @@ Offline-only exhaustive coverage of:
 * the APD company profile and the manual mailbox connector;
 * the six mailbox mirror folders and the PDF state follow-up;
 * the ``07-compta/Cockpit_Compta.md`` cockpit (with ``01-contexte`` alias);
-* the four ``FRAIS_GENERAUX`` sub-categories and their dedicated workbooks;
+* the six ``FRAIS_GENERAUX`` sub-categories and their dedicated workbooks;
 * the two master tables under ``04_EXPORT_COMPTA``, classification marker,
   VAT anti-duplication and the January/February fiscal-year switch;
 * P17.1: manager-funded expenses (``COMPTE_PERSO_DIRIGEANT`` /
@@ -405,6 +405,8 @@ def test_expense_subcategory_contract_and_missing_fields():
         "CARBURANT",
         "TRANSPORT_PARKING",
         "HOTELLERIE",
+        "INFORMATIQUE_WEB",
+        "HONORAIRES_JURIDIQUES",
     ]
     assert MissingFieldEnum.INVITE_RESTAURANT.value == "invite_restaurant"
     assert MissingFieldEnum.LIEU_RESTAURANT.value == "lieu_restaurant"

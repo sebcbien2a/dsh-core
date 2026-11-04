@@ -30,6 +30,7 @@ from typing import Any, Callable, Iterable
 from schemas.folder_state_schema import (
     DocumentCategory,
     DocumentStatus,
+    ExpenseSubCategory,
     FolderState,
 )
 from services.acompleter_readable_service import (
@@ -451,7 +452,7 @@ class ApdFourStagePipeline:
         source: Path,
         sha: str,
         decision: EvidenceDecision,
-    ) -> tuple[str, str]:
+    ) -> tuple[str, str | None]:
         category = decision.category
         destination_dir = self._tree.category_dir(
             FolderState.VALIDE_PRET_FEC, category
@@ -462,22 +463,53 @@ class ApdFourStagePipeline:
             inside = source_resolved.is_relative_to(destination_dir.resolve())
         except ValueError:
             inside = False
+        moved_path = source
         if not inside:
-            destination = _move(source, destination)
-            moved_path = destination
-        else:
-            moved_path = source
+            existing = None
+            if destination.is_file():
+                try:
+                    if _file_sha256(destination) == sha:
+                        existing = destination
+                except OSError:
+                    existing = None
+            if existing is not None:
+                moved_path = existing
+            else:
+                try:
+                    moved_path = _move(source, destination)
+                except OSError:
+                    # The source can be locked by OneDrive, an antivirus or an
+                    # open reader. ``_move`` may already have copied the bytes
+                    # before failing to remove the source; reuse that copy,
+                    # otherwise copy the validated piece and still persist the
+                    # business decision.
+                    try:
+                        if destination.is_file() and _file_sha256(destination) == sha:
+                            moved_path = destination
+                        else:
+                            destination = _unique_path(destination)
+                            shutil.copy2(source, destination)
+                            moved_path = destination
+                    except OSError:
+                        moved_path = source
         side = SALES_SUBDIR if category is DocumentCategory.VENTES_CLIENTS else PURCHASES_SUBDIR
-        piece = self._copy_piece_once(
-            moved_path,
-            side=side,
-            document_type=decision.document_type,
-            document_number=decision.document_number,
-            document_date=decision.document_date,
-            party=decision.supplier,
-        )
+        try:
+            piece = self._copy_piece_once(
+                moved_path,
+                side=side,
+                document_type=decision.document_type,
+                document_number=decision.document_number,
+                document_date=decision.document_date,
+                party=decision.supplier,
+            )
+        except OSError:
+            piece = None
         source_rel = _tenant_relative(moved_path, self._tenant_dir)
-        store_piece = _store_piece_relative(piece, self._export_dir)
+        store_piece = (
+            _store_piece_relative(piece, self._export_dir)
+            if piece is not None
+            else None
+        )
         return source_rel, store_piece
 
     def _copy_piece_once(
@@ -526,7 +558,7 @@ class ApdFourStagePipeline:
         source: Path,
         decision: EvidenceDecision,
         source_rel: str,
-        store_piece: str,
+        store_piece: str | None,
     ) -> None:
         non_accountable = (
             decision.document_type in NON_ACCOUNTABLE_DOCUMENT_TYPES
@@ -554,7 +586,19 @@ class ApdFourStagePipeline:
             "piece_pdf": store_piece,
             "status": DocumentStatus.VALIDE.value,
             "source_status": "NON_COMPTABLE" if non_accountable else "VALIDE_AUTOMATIQUE",
-            "balance_due": "0.00" if decision.payment_method in {"CARTE_BANCAIRE", "PRELEVEMENT_SEPA"} else None,
+            "balance_due": (
+                "0.00"
+                if decision.already_paid
+                or decision.payment_method in {"CARTE_BANCAIRE", "PRELEVEMENT_SEPA"}
+                else None
+            ),
+            "already_paid_on_invoice": "1" if decision.already_paid else None,
+            "reconciliation_status": (
+                "PAYEE_RAPPROCHEE" if decision.already_paid else None
+            ),
+            "reconciliation_reference": (
+                "REGLEMENT_VALIDE" if decision.already_paid else None
+            ),
         }
         if decision.document_type == "AVOIR":
             line["document_type"] = "AVOIR"
@@ -608,6 +652,15 @@ class ApdFourStagePipeline:
                 return
             if current.statut == DocumentStatus.EN_ATTENTE.value:
                 self._workbook.align_statut(sha, decision.status)
+            if decision.expense_subcategory:
+                try:
+                    ExpenseSubCategory(decision.expense_subcategory)
+                except ValueError:
+                    pass
+                else:
+                    self._workbook.update_p17_metadata(
+                        sha, expense_subcategory=decision.expense_subcategory
+                    )
         except WorkbookLockedError:
             return
         except AcompleterWorkbookError:
@@ -648,8 +701,13 @@ class ApdFourStagePipeline:
 
     def _write_readable_views(self) -> None:
         rows = self._readable_rows()
+        pending_rows = [
+            row
+            for row in rows
+            if row.status_value == DocumentStatus.EN_ATTENTE.value
+        ]
         try:
-            write_readable_workbook(self.readable_path, rows)
+            write_readable_workbook(self.readable_path, pending_rows)
         except Exception:  # noqa: BLE001 - manager copy is best effort
             pass
         try:
