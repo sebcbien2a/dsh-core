@@ -120,6 +120,12 @@ class DocumentFlowWatcher:
         now_fn: Callable[[], datetime] | None = None,
         logger: logging.Logger | None = None,
     ) -> None:
+        if isinstance(tenant_id, (Path, os.PathLike)) and not isinstance(
+            tenant_id, str
+        ):
+            if root is None:
+                root = tenant_id
+            tenant_id = DEFAULT_TENANT
         self._tenant_id = validate_tenant_id(tenant_id)
         self._poll_interval = _positive_float("poll_interval", poll_interval)
         self._settle_delay = _non_negative_float("settle_delay", settle_delay)

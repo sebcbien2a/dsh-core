@@ -93,6 +93,11 @@ _LINE_FIELDS = (
     "source_status",
     "balance_due",
     "company_name",
+    "piece_pdf",
+    "already_paid_on_invoice",
+    "origin_document_number",
+    "origin_document_date",
+    "is_refacturation_pair",
 )
 _LINE_MIGRATION_COLUMNS = (
     ("category", "TEXT"),
@@ -135,6 +140,11 @@ _LINE_MIGRATION_COLUMNS = (
     ("source_status", "TEXT"),
     ("balance_due", "TEXT"),
     ("company_name", "TEXT"),
+    ("piece_pdf", "TEXT"),
+    ("already_paid_on_invoice", "TEXT"),
+    ("origin_document_number", "TEXT"),
+    ("origin_document_date", "TEXT"),
+    ("is_refacturation_pair", "TEXT"),
 )
 _P17_LINE_SELECT = (
     " l.expense_subcategory, l.invite_restaurant, l.lieu_restaurant,"
@@ -147,7 +157,9 @@ _P17_LINE_SELECT = (
     " l.fitid, l.remittance_reference, l.client_siret, l.client_vat_number,"
     " l.payment_terms, l.reconciliation_status, l.reconciliation_date,"
     " l.reconciliation_reference, l.reconciliation_amount, l.source_status,"
-    " l.balance_due, l.company_name"
+    " l.balance_due, l.company_name, l.piece_pdf, l.already_paid_on_invoice,"
+    " l.origin_document_number, l.origin_document_date,"
+    " l.is_refacturation_pair"
 )
 _DECISION_FIELDS = (
     "action",
@@ -352,6 +364,11 @@ CREATE TABLE IF NOT EXISTS reconciliation_lines (
     source_status TEXT,
     balance_due TEXT,
     company_name TEXT,
+    piece_pdf TEXT,
+    already_paid_on_invoice TEXT,
+    origin_document_number TEXT,
+    origin_document_date TEXT,
+    is_refacturation_pair TEXT,
     created_at TEXT NOT NULL,
     PRIMARY KEY (tenant_id, line_id)
 );
@@ -757,6 +774,9 @@ class SqliteAccountingStore:
             " l.amount_ht, l.amount_tva, l.amount_ttc,"
             " COALESCE(l.document_type, '') AS document_type,"
             " l.payment_source, l.counterparty_account,"
+            " l.piece_pdf, l.already_paid_on_invoice,"
+            " l.origin_document_number, l.origin_document_date,"
+            " l.is_refacturation_pair,"
             f" {raw_status} AS raw_status, d.action AS decision_action,"
             " d.invoice_id AS decision_invoice_id, d.debit_account, d.credit_account"
         )

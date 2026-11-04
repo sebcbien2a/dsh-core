@@ -46,6 +46,13 @@ from schemas.folder_state_schema import (
     normalize_payment_source,
 )
 from services.folder_tree_service import ensure_tree
+from services.pdf_splitter_and_linker import (
+    PIECE_LINK_HEADER,
+    PURCHASES_SUBDIR,
+    SALES_SUBDIR,
+    find_piece_for_document,
+    relative_link,
+)
 from services.hotel_expense_parser import (
     CGI_ARTICLE_206,
     parse_hotel_evening_stage,
@@ -83,6 +90,7 @@ CATEGORY_SUMMARY_COLUMNS = (
     "Montant TVA",
     "Montant TTC",
     "Statut lettrage / rapprochement",
+    PIECE_LINK_HEADER,
 )
 CATEGORY_SUMMARY_TOTAL_LABEL = "TOTAL"
 EXPORT_DIR_ENV = "DSH_ACCOUNTING_EXPORT_DIR"
@@ -137,7 +145,7 @@ _HEADER_FILL = "1F4E78"
 _BAND_FILL = "F2F7FB"
 _TOTAL_FILL = "DDEBF7"
 _BORDER_COLOR = "B7C4D4"
-_MIN_WIDTHS = (12, 24, 18, 32, 14, 14, 14, 32)
+_MIN_WIDTHS = (12, 24, 18, 32, 14, 14, 14, 32, 32)
 
 
 class CategorySummaryExportError(ValueError):
@@ -445,6 +453,47 @@ def _display_length(value: Any) -> int:
     return len(str(value))
 
 
+def _piece_side_for_row(row: dict[str, Any]) -> str:
+    category = str(row.get("category") or "").upper()
+    return SALES_SUBDIR if category == DocumentCategory.VENTES_CLIENTS.value else PURCHASES_SUBDIR
+
+
+def _piece_link_for_row(
+    workbook_path: Path, row: dict[str, Any]
+) -> str | None:
+    stored = str(row.get("piece_pdf") or "").strip()
+    if stored:
+        candidate = Path(stored)
+        if not candidate.is_absolute():
+            candidate = workbook_path.parent / candidate
+        if candidate.is_file():
+            return relative_link(candidate, workbook_path)
+    number = str(
+        row.get("invoice_id")
+        or row.get("piece_number")
+        or row.get("reference")
+        or row.get("line_id")
+        or ""
+    )
+    found = find_piece_for_document(
+        workbook_path.parent, number, side=_piece_side_for_row(row)
+    )
+    if found is None:
+        return None
+    return relative_link(found, workbook_path)
+
+
+def _write_piece_link(cell: Any, value: Any) -> bool:
+    if not isinstance(value, str) or not value.strip():
+        return False
+    if not value.replace("\\", "/").startswith("PIECES_JOINTES/"):
+        return False
+    cell.value = value
+    cell.hyperlink = value
+    cell.font = Font(color="0563C1", underline="single")
+    return True
+
+
 def _write_category_workbook(
     category: DocumentCategory, records: list[dict[str, Any]], output_path: Path
 ) -> None:
@@ -478,9 +527,13 @@ def _write_category_workbook(
             record["tva"],
             record["ttc"],
             _text(record["status"]),
+            record.get("piece_link"),
         )
         for column, value in enumerate(values, start=1):
             cell = sheet.cell(row=offset, column=column)
+            if _write_piece_link(cell, value):
+                cell.border = border
+                continue
             if isinstance(value, Decimal):
                 cell.value = float(value)
             else:
@@ -499,7 +552,7 @@ def _write_category_workbook(
                 cell.alignment = Alignment(vertical="center", wrap_text=column in (2, 4, 8))
 
     last_data_row = len(records) + 1
-    sheet.auto_filter.ref = f"A1:{get_column_letter(len(CATEGORY_SUMMARY_COLUMNS))}{last_data_row}"
+    sheet.auto_filter.ref = f"A1:H{last_data_row}"
     sheet.freeze_panes = "A2"
 
     total_row = last_data_row + 1
@@ -571,7 +624,6 @@ class CategorySummaryExporter:
             ) from None
         selected = _as_category(category)
         rows = self._store.list_category_lines(tenant, selected)
-        records = [_summary_record(row) for row in rows]
         target = (
             Path(output_path)
             if output_path is not None
@@ -579,6 +631,9 @@ class CategorySummaryExporter:
             / tenant
             / f"SYNTHESE_{tenant}_{selected.value}.xlsx"
         )
+        records = [_summary_record(row) for row in rows]
+        for record, row in zip(records, rows):
+            record["piece_link"] = _piece_link_for_row(target, row)
         _validate_output_path(target)
         _write_category_workbook(selected, records, target)
         return target
@@ -600,6 +655,94 @@ def export_category_summary(
     return exporter.export_category_summary(tenant_id, category, output_path)
 
 
+CATEGORY_OVERVIEW_FILENAME = "SYNTHESE_CATEGORIES.xlsx"
+CATEGORY_OVERVIEW_HEADERS: tuple[str, ...] = (
+    "Date pièce",
+    "Catégorie",
+    "Tiers / Fournisseur",
+    "N° Pièce",
+    "Réf externe",
+    "Montant HT",
+    "Montant TVA",
+    "Montant TTC",
+    PIECE_LINK_HEADER,
+)
+
+
+class CategoryOverviewExporter:
+    """Build the global ``SYNTHESE_CATEGORIES.xlsx`` workbook."""
+
+    def __init__(
+        self,
+        store: Any,
+        *,
+        root: str | os.PathLike[str] | None = None,
+        export_dir: str | os.PathLike[str] | None = None,
+    ) -> None:
+        self._store = store
+        self._root = root
+        self._export_dir = Path(export_dir) if export_dir is not None else None
+
+    def export(self, tenant_id: str) -> Path:
+        tenant = validate_tenant_id(tenant_id)
+        tree = ensure_tree(tenant, self._root)
+        output_dir = (
+            self._export_dir / tenant
+            if self._export_dir is not None
+            else tree.state_dir(FolderState.EXPORT_COMPTA) / tenant
+        )
+        output_dir.mkdir(parents=True, exist_ok=True)
+        target = output_dir / CATEGORY_OVERVIEW_FILENAME
+        rows = sorted(
+            (_master_rows(self._store, tenant)),
+            key=lambda row: (
+                str(row.get("operation_date") or ""),
+                str(row.get("line_id") or ""),
+            ),
+        )
+        values: list[tuple[Any, ...]] = []
+        for row in rows:
+            record = _summary_record(row)
+            values.append(
+                (
+                    _date_cell(record["date"]),
+                    str(row.get("category") or ""),
+                    record["counterparty"],
+                    _piece_number_from_row(row)
+                    or row.get("invoice_id")
+                    or row.get("line_id")
+                    or "",
+                    record["reference"],
+                    record["ht"] or Decimal("0.00"),
+                    record["tva"] or Decimal("0.00"),
+                    record["ttc"] or Decimal("0.00"),
+                    _piece_link_for_row(target, row),
+                )
+            )
+        _write_p17_workbook(
+            target,
+            title="SYNTHESE_CATEGORIES",
+            headers=CATEGORY_OVERVIEW_HEADERS,
+            rows=values,
+        )
+        return target
+
+
+def export_category_overview(
+    tenant_id: str,
+    *,
+    root: str | os.PathLike[str] | None = None,
+    export_dir: str | os.PathLike[str] | None = None,
+    store: SqliteAccountingStore | None = None,
+) -> Path:
+    """Convenience wrapper around :class:`CategoryOverviewExporter`."""
+    return CategoryOverviewExporter(
+        store if store is not None else get_shared_sqlite_store(),
+        root=root,
+        export_dir=export_dir,
+    ).export(tenant_id)
+
+
 SUPPLIER_LEDGER_COLUMNS = (
     "Date",
     "Type",
@@ -609,6 +752,7 @@ SUPPLIER_LEDGER_COLUMNS = (
     "Crédit",
     "Solde Cumulé",
     "Code Lettrage / Statut",
+    PIECE_LINK_HEADER,
 )
 SUPPLIER_LEDGER_DIAGNOSTIC_COLUMNS = (
     "Paiement",
@@ -629,7 +773,7 @@ SUPPLIER_LEDGER_TYPE_PAIEMENT = "PAIEMENT"
 SUPPLIER_LEDGER_MAX_COMBINATION_ITEMS = 30
 SUPPLIER_LEDGER_EQUILIBRIUM_FILL = "C6EFCE"
 SUPPLIER_LEDGER_DIAGNOSTIC_FILL = "FCE4D6"
-SUPPLIER_LEDGER_MIN_WIDTHS = (12, 12, 24, 40, 14, 14, 16, 24)
+SUPPLIER_LEDGER_MIN_WIDTHS = (12, 12, 24, 40, 14, 14, 16, 24, 32)
 
 
 class SupplierLedgerExportError(ValueError):
@@ -1081,6 +1225,7 @@ def _write_supplier_ledger_sheet(
     sheet: Any,
     entries: list[SupplierLedgerEntry],
     diagnostics: list[SupplierLedgerDiagnostic],
+    workbook_path: Path | None = None,
 ) -> None:
     thin = Side(style="thin", color=_BORDER_COLOR)
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
@@ -1113,6 +1258,17 @@ def _write_supplier_ledger_sheet(
     equilibrium_rows: list[int] = []
     for index, entry in enumerate(entries, start=2):
         running = (running + entry.credit - entry.debit).quantize(_CENT)
+        piece_link = (
+            _piece_link_for_row(
+                workbook_path,
+                {
+                    "invoice_id": entry.invoice_id or entry.reference,
+                    "category": DocumentCategory.ACHATS_MARCHANDISES.value,
+                },
+            )
+            if workbook_path is not None
+            else None
+        )
         values = (
             _date_cell(entry.operation_date),
             entry.entry_type,
@@ -1122,9 +1278,15 @@ def _write_supplier_ledger_sheet(
             entry.credit,
             None,
             _text(entry.status),
+            piece_link,
         )
         for column, value in enumerate(values, start=1):
             cell = sheet.cell(row=index, column=column)
+            if column == len(SUPPLIER_LEDGER_COLUMNS) and _write_piece_link(
+                cell, value
+            ):
+                cell.border = border
+                continue
             if column == 7:
                 cell.value = (
                     f"=F{index}-E{index}"
@@ -1323,7 +1485,10 @@ def _write_supplier_ledger_workbook(
         first = False
         sheet.title = _safe_sheet_title(supplier, used_titles)
         _write_supplier_ledger_sheet(
-            sheet, entries, diagnostics.get(supplier, [])
+            sheet,
+            entries,
+            diagnostics.get(supplier, []),
+            workbook_path=output_path,
         )
     workbook.properties.creator = "DSH-Core"
     workbook.properties.title = title
@@ -1520,6 +1685,7 @@ MASTER_ACHATS_HEADERS: tuple[str, ...] = (
     "Lien Justificatif",
     "Source de Paiement",
     "Compte de Contrepartie",
+    PIECE_LINK_HEADER,
 )
 MASTER_BANQUE_TVA_HEADERS: tuple[str, ...] = (
     "Date Pièce",
@@ -1538,6 +1704,7 @@ MASTER_BANQUE_TVA_HEADERS: tuple[str, ...] = (
     "Lien Justificatif",
     "Source de Paiement",
     "Compte de Contrepartie",
+    PIECE_LINK_HEADER,
 )
 MASTER_TVA_RECAP_HEADERS: tuple[str, ...] = (
     "Exercice",
@@ -1841,6 +2008,9 @@ def _write_p17_workbook(
     for offset, values in enumerate(rows, start=2):
         for column, value in enumerate(values, start=1):
             cell = sheet.cell(row=offset, column=column)
+            if _write_piece_link(cell, value):
+                cell.border = border
+                continue
             cell.value = (
                 float(value) if isinstance(value, Decimal) else value
             )
@@ -2348,6 +2518,8 @@ class MasterTableExporter:
             else tree.state_dir(FolderState.EXPORT_COMPTA) / tenant
         )
         output_dir.mkdir(parents=True, exist_ok=True)
+        achats_path = output_dir / MASTER_ACHATS_FILENAME
+        banque_path = output_dir / MASTER_BANQUE_TVA_FILENAME
         rows = _master_rows(self._store, tenant)
         statuses, duplicates = compute_tva_dedup(rows)
         fiscal_totals = compute_fiscal_totals(rows, statuses)
@@ -2389,6 +2561,7 @@ class MasterTableExporter:
                     record["reference"],
                     payment_source_of(row),
                     counterparty_account_of(row),
+                    _piece_link_for_row(achats_path, row),
                 )
             )
             if tva != 0 or str(row.get("category") or "") in {
@@ -2410,17 +2583,16 @@ class MasterTableExporter:
                         record["reference"],
                         payment_source_of(row),
                         counterparty_account_of(row),
+                        _piece_link_for_row(banque_path, row),
                     )
                 )
 
-        achats_path = output_dir / MASTER_ACHATS_FILENAME
         _write_p17_workbook(
             achats_path,
             title="TABLEAU_MERE_ACHATS_CHARGES",
             headers=MASTER_ACHATS_HEADERS,
             rows=achats_rows,
         )
-        banque_path = output_dir / MASTER_BANQUE_TVA_FILENAME
         _write_p17_workbook(
             banque_path,
             title="TABLEAU_MERE_BANQUE_TVA",
@@ -2500,6 +2672,7 @@ PERSONAL_EXPENSE_NOTE_HEADERS: tuple[str, ...] = (
     "Source de Paiement",
     "Compte de Contrepartie",
     "Lien Justificatif",
+    PIECE_LINK_HEADER,
 )
 
 
@@ -2667,7 +2840,14 @@ class PersonalExpenseNoteExporter:
                     str(item.get("line_id") or ""),
                 ),
             )
-            values = [_personal_note_row(row) for row in month_rows]
+            path = output_dir / PERSONAL_EXPENSE_NOTE_FILENAME.format(
+                month=month_key
+            )
+            values = [
+                _personal_note_row(row)
+                + (_piece_link_for_row(path, row),)
+                for row in month_rows
+            ]
             ht = sum(
                 (value[5] for value in values if isinstance(value[5], Decimal)),
                 Decimal("0.00"),
@@ -2692,9 +2872,7 @@ class PersonalExpenseNoteExporter:
                 PaymentSource.COMPTE_PERSO_DIRIGEANT.value,
                 DIRIGEANT_COUNTERPART_ACCOUNT,
                 "",
-            )
-            path = output_dir / PERSONAL_EXPENSE_NOTE_FILENAME.format(
-                month=month_key
+                "",
             )
             _write_p17_workbook(
                 path,

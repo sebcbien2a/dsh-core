@@ -55,9 +55,34 @@ from services.acompleter_workbook_service import (
     WorkbookLockedError,
     derive_document_id,
 )
+from services.bosch_sia_invoice_parser import (
+    import_bosch_sia_document,
+    is_bosch_sia_document,
+    parse_bosch_sia_invoice,
+)
+from services.customer_invoice_batch_importer import (
+    import_customer_invoice_batch,
+    import_customer_invoices,
+    parse_multi_invoice_pdf,
+)
 from services.folder_tree_service import ensure_tree, validate_tenant_id
 from services.hotel_expense_parser import parse_hotel_evening_stage
 from services.invoice_producer_protocol import PdfInvoiceProducer
+from services.lcr_remittance_parser import parse_lcr_remittance
+from services.ofx_bank_statement_parser import import_ofx_statement
+from services.pdf_splitter_and_linker import (
+    PIECES_DIR_NAME,
+    PURCHASES_SUBDIR,
+    SALES_SUBDIR,
+    copy_unit_piece,
+    detect_customer_page_groups,
+    split_customer_invoices_pdf,
+)
+from services.settled_invoice_parser import (
+    detect_settled_supplier,
+    import_settled_invoice,
+    parse_settled_invoice,
+)
 from services.vault_accounting_bridge import (
     STATUS_PARTIAL,
     STATUS_WRITTEN,
@@ -598,6 +623,10 @@ class InboxIngestionService:
         self._store = store
         self._tree = ensure_tree(self._tenant_id, root)
         self._workbook = AcompleterWorkbook(self._tree.root / self._tenant_id)
+        self._export_root = (
+            self._tree.state_dir(FolderState.EXPORT_COMPTA) / self._tenant_id
+        )
+        self._export_root.mkdir(parents=True, exist_ok=True)
         self._extractor = extractor if extractor is not None else PipelineDocumentExtractor()
         self._vault_bridge = vault_bridge
         threshold = _clamp_confidence(confidence_threshold)
@@ -643,7 +672,7 @@ class InboxIngestionService:
         if paths is None:
             candidates = sorted(
                 (path for path in inbox.iterdir() if path.is_file()),
-                key=lambda item: item.name,
+                key=_inbox_sort_key,
             )
         else:
             candidates = self._select_inbox_paths(inbox, paths)
@@ -683,7 +712,7 @@ class InboxIngestionService:
                 continue
             seen.add(candidate)
             selected.append(candidate)
-        return sorted(selected, key=lambda item: item.name)
+        return sorted(selected, key=_inbox_sort_key)
 
     # -- pipeline --------------------------------------------------------
 
@@ -698,6 +727,8 @@ class InboxIngestionService:
         acc.traces.append(f"{digest}:00_INBOX->01_EN_COURS/{working.name}")
 
         try:
+            if self._handle_special_format(working, digest, acc):
+                return
             extracted = self._extract(working)
         except Exception as exc:
             self._archive(
@@ -715,6 +746,201 @@ class InboxIngestionService:
             self._route_valid(working, digest, extracted, acc)
         else:
             self._route_pending(working, digest, extracted, missing, acc)
+
+    # -- special unified inbox (P21) ------------------------------------
+
+    def _handle_special_format(
+        self, source: Path, digest: str, acc: _Accumulator
+    ) -> bool:
+        """Ingest OFX, Sage exports and specialised PDFs before Vision.
+
+        Only the production extractor triggers this dispatcher; injected test
+        extractors keep their historical deterministic behaviour.
+        """
+        if not isinstance(self._extractor, PipelineDocumentExtractor):
+            return False
+        suffix = source.suffix.casefold()
+        if suffix in {".ofx", ".qfx"}:
+            import_ofx_statement(self._store, self._tenant_id, source.read_bytes())
+            self._route_special_file(
+                source,
+                digest,
+                acc,
+                DocumentCategory.BANQUE_FINANCE,
+                "RELEVE OFX",
+                "CAISSE D'EPARGNE",
+                "SOURCE_OFX",
+            )
+            return True
+        if suffix in {".csv", ".xls", ".xlsx", ".xml"}:
+            try:
+                report = import_customer_invoice_batch(
+                    self._store,
+                    self._tenant_id,
+                    source,
+                    filename=source.name,
+                    update_payment_rules=False,
+                    split_export_dir=self._export_root,
+                )
+            except Exception:
+                return False
+            self._route_special_file(
+                source,
+                digest,
+                acc,
+                DocumentCategory.VENTES_CLIENTS,
+                f"EXPORT SAGE ({report.created + report.updated} factures)",
+                "SAGE",
+                "SOURCE_SAGE",
+            )
+            return True
+        if suffix != ".pdf":
+            return False
+        text = _pdf_text(source)
+        if is_bosch_sia_document(source, text=text):
+            document = parse_bosch_sia_invoice(source)
+            piece = copy_unit_piece(
+                source,
+                self._export_root,
+                side=PURCHASES_SUBDIR,
+                document_type=document.document_type,
+                document_number=document.document_number,
+                document_date=document.document_date,
+                party="BOSCH_SIA",
+                filename=document.normalized_filename,
+            )
+            import_bosch_sia_document(
+                self._store,
+                self._tenant_id,
+                document,
+                piece_pdf=_relative_piece_path(piece, self._export_root),
+            )
+            self._route_special_file(
+                source,
+                digest,
+                acc,
+                DocumentCategory.ACHATS_MARCHANDISES,
+                f"{document.document_type} {document.document_number}",
+                "ROBERT BOSCH - SIA ABRASIVES",
+                document.document_type,
+            )
+            return True
+        if detect_settled_supplier(text, source.name) is not None:
+            invoice = parse_settled_invoice(source)
+            piece = copy_unit_piece(
+                source,
+                self._export_root,
+                side=PURCHASES_SUBDIR,
+                document_type="FACTURE",
+                document_number=invoice.invoice_number,
+                document_date=invoice.invoice_date,
+                party=invoice.supplier,
+            )
+            import_settled_invoice(
+                self._store,
+                self._tenant_id,
+                invoice,
+                piece_pdf=_relative_piece_path(piece, self._export_root),
+            )
+            self._route_special_file(
+                source,
+                digest,
+                acc,
+                _category_value(invoice.category)
+                or DocumentCategory.DIVERS_A_CLASSER,
+                f"FACTURE {invoice.invoice_number}",
+                invoice.supplier,
+                "FACTURE_REGLEE",
+            )
+            return True
+        if _looks_like_lcr_bordereau(text):
+            remittance = parse_lcr_remittance(text)
+            number = str(
+                getattr(remittance, "transmission_reference", "")
+                or getattr(remittance, "reference", "")
+                or source.stem
+            )
+            copy_unit_piece(
+                source,
+                self._export_root,
+                side=PURCHASES_SUBDIR,
+                document_type="BORDEREAU",
+                document_number=number,
+                document_date=None,
+                party="CAISSE D'EPARGNE",
+            )
+            self._route_special_file(
+                source,
+                digest,
+                acc,
+                DocumentCategory.BANQUE_FINANCE,
+                f"BORDEREAU LCR {number}",
+                "CAISSE D'EPARGNE",
+                "BORDEREAU_LCR",
+            )
+            return True
+        groups = detect_customer_page_groups(_pdf_page_texts(source))
+        if groups:
+            split_customer_invoices_pdf(source, self._export_root)
+            batch = parse_multi_invoice_pdf(source)
+            import_customer_invoices(
+                self._store,
+                self._tenant_id,
+                batch.invoices,
+                update_payment_rules=False,
+            )
+            self._route_special_file(
+                source,
+                digest,
+                acc,
+                DocumentCategory.VENTES_CLIENTS,
+                f"LOT FACTURES CLIENTS ({len(batch.invoices)})",
+                "CLIENTS",
+                "CUSTOMER_INVOICE",
+            )
+            return True
+        return False
+
+    def _route_special_file(
+        self,
+        source: Path,
+        digest: str,
+        acc: _Accumulator,
+        category: DocumentCategory,
+        invoice_number: str,
+        supplier_name: str,
+        document_type: str,
+    ) -> None:
+        """Move a source batch to ``03_`` without double-counting its amounts."""
+        extracted = ExtractedInvoice(
+            invoice_number=invoice_number,
+            supplier_name=supplier_name,
+            category=category,
+            confidence=1.0,
+            document_type=document_type,
+        )
+        destination = _unique_dest(
+            self._tree.category_dir(FolderState.VALIDE_PRET_FEC, category)
+            / source.name
+        )
+        nom_fichier = destination.name
+        rel_path = destination.relative_to(
+            self._tree.root / self._tenant_id
+        ).as_posix()
+        self._persist(digest, nom_fichier, DocumentStatus.VALIDE, rel_path, extracted)
+        _move(source, destination)
+        acc.moved_to_03 += 1
+        acc.documents.append(
+            IngestedDocument(
+                nom_fichier=nom_fichier,
+                sha256=digest,
+                outcome=OUTCOME_VALIDE,
+                destination=rel_path,
+                category=category,
+                confidence=1.0,
+            )
+        )
+        acc.traces.append(f"{digest}:01_EN_COURS->{rel_path}")
 
     def _extract(self, source: Path) -> ExtractedInvoice:
         result = self._extractor(source)
@@ -779,9 +1005,14 @@ class InboxIngestionService:
             self._tree.state_dir(FolderState.A_COMPLETER) / source.name
         )
         nom_fichier = destination.name
+        rel_path = destination.relative_to(self._tree.root / self._tenant_id).as_posix()
         try:
             outcome = self._workbook.upsert(
-                digest, nom_fichier, missing, category
+                digest,
+                nom_fichier,
+                missing,
+                category,
+                piece_pdf=rel_path,
             )
         except WorkbookLockedError as exc:
             acc.deferred_lock += 1
@@ -802,7 +1033,6 @@ class InboxIngestionService:
             elif outcome == OUTCOME_UPDATED:
                 acc.rows_updated += 1
 
-        rel_path = destination.relative_to(self._tree.root / self._tenant_id).as_posix()
         try:
             self._persist(
                 digest,
@@ -1006,6 +1236,53 @@ def _error_detail(exc: BaseException) -> str:
     label = code if isinstance(code, str) and code else type(exc).__name__.upper()
     message = str(exc).strip()
     return f"{label}: {message}" if message and message != label else label
+
+
+def _inbox_sort_key(path: Path) -> tuple[int, str]:
+    """Bank statements first so already-paid invoices letter immediately."""
+    suffix = path.suffix.casefold()
+    bank_priority = 0 if suffix in {".ofx", ".qfx"} else 1
+    return bank_priority, path.name
+
+
+def _pdf_page_texts(source: Path) -> list[str]:
+    try:
+        import fitz
+    except ImportError:  # pragma: no cover - dependency is installed
+        return []
+    try:
+        document = fitz.open(str(source))
+    except Exception:  # noqa: BLE001 - caller falls back to Vision
+        return []
+    try:
+        return [page.get_text("text") for page in document]
+    finally:
+        document.close()
+
+
+def _pdf_text(source: Path) -> str:
+    return "\n".join(_pdf_page_texts(source))
+
+
+def _looks_like_lcr_bordereau(text: str) -> bool:
+    folded = _fold(text)
+    return (
+        ("bordereau" in folded and ("lcr" in folded or "effets" in folded))
+        or "remise encaissement" in folded
+        or "montant total au credit" in folded
+    )
+
+
+def _relative_piece_path(piece: Path | None, export_root: Path) -> str | None:
+    if piece is None:
+        return None
+    try:
+        return piece.relative_to(export_root).as_posix()
+    except ValueError:
+        try:
+            return piece.relative_to(export_root.parent).as_posix()
+        except ValueError:
+            return None
 
 
 __all__ = [

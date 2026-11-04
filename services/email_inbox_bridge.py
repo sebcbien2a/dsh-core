@@ -65,12 +65,20 @@ APD_ELIGIBILITY_KEYWORDS: tuple[str, ...] = (
     "invoice",
     "avoir",
     "credit note",
+    "refacturation",
     "bordereau",
     "lcr",
     "releve",
     "quittance",
     "recu",
     "facturation",
+    "smtrt",
+    "boxtal",
+    "free",
+    "bosch",
+    "sia",
+    "total",
+    "crisol",
 )
 MIN_APD_PDF_BYTES = 5 * 1024
 ELIGIBLE_REASON = "ELIGIBLE"
@@ -115,10 +123,14 @@ def evaluate_apd_email_eligibility(
         raise EmailInboxBridgeError("INVALID_MIN_ATTACHMENT_BYTES", repr(min_pdf_bytes))
     if min_pdf_bytes < 0:
         raise EmailInboxBridgeError("INVALID_MIN_ATTACHMENT_BYTES", repr(min_pdf_bytes))
-    pdfs = [
+    messages = _iter_messages(message)
+    attachments = [
         attachment
-        for attachment in message.attachments
-        if attachment.suffix == ".pdf"
+        for item in messages
+        for attachment in item.attachments
+    ]
+    pdfs = [
+        attachment for attachment in attachments if attachment.suffix == ".pdf"
     ]
     if not pdfs:
         return EmailEligibility(False, REASON_NO_PDF)
@@ -132,9 +144,9 @@ def evaluate_apd_email_eligibility(
     haystack = _fold_text(
         " ".join(
             (
-                message.subject,
-                message.body,
-                *(attachment.filename for attachment in message.attachments),
+                *(item.subject or "" for item in messages),
+                *(item.body or "" for item in messages),
+                *(attachment.filename for attachment in attachments),
             )
         )
     )
@@ -184,6 +196,14 @@ class EmailMessage:
     sender: str = ""
     attachments: tuple[EmailAttachment, ...] = ()
     body: str = ""
+    nested: tuple["EmailMessage", ...] = ()
+
+
+def _iter_messages(message: EmailMessage) -> list[EmailMessage]:
+    found = [message]
+    for child in message.nested:
+        found.extend(_iter_messages(child))
+    return found
 
 
 @dataclass(frozen=True)
@@ -395,13 +415,10 @@ class ImapMailClient:
                 continue
             parsed = message_from_bytes(raw[1])
             messages.append(
-                EmailMessage(
+                parse_email_message(
+                    raw[1],
                     message_id=uid.decode("ascii", "ignore"),
                     folder=folder,
-                    subject=str(parsed.get("Subject") or ""),
-                    sender=str(parsed.get("From") or ""),
-                    attachments=tuple(_attachments(parsed)),
-                    body=_message_body(parsed),
                 )
             )
         return messages
@@ -442,29 +459,70 @@ def _part_text(part: Message) -> str:
 
 
 def _message_body(parsed: Message) -> str:
-    """Extract a bounded plain-text body (HTML tags stripped) for P20 rules."""
-    if not parsed.is_multipart():
-        return _part_text(parsed)
-    plain: list[str] = []
-    html: list[str] = []
-    for part in parsed.walk():
-        if part.is_multipart():
-            continue
-        content_type = part.get_content_type()
-        if content_type == "text/plain":
-            plain.append(_part_text(part))
-        elif content_type == "text/html":
-            html.append(_part_text(part))
-    text = "\n".join(plain) if plain else "\n".join(html)
+    """Extract bounded visible text, including attached Outlook sub-messages."""
+    texts = _message_texts(parsed)
+    text = "\n".join(texts)
     text = _HTML_TAG.sub(" ", text)
     return _WHITESPACE.sub(" ", text).strip()[:20_000]
 
 
-def _attachments(parsed: Message) -> list[EmailAttachment]:
-    found: list[EmailAttachment] = []
+def _message_texts(parsed: Message, depth: int = 0) -> list[str]:
+    if depth > 8:
+        return []
+    if not parsed.is_multipart():
+        return [_part_text(parsed)]
+    plain: list[str] = []
+    html: list[str] = []
+    nested: list[str] = []
     for part in parsed.walk():
+        if part.is_multipart():
+            continue
+        content_type = part.get_content_type()
+        if content_type == "message/rfc822":
+            continue
+        filename = part.get_filename() or ""
+        if Path(filename).suffix.casefold() == ".eml":
+            payload = part.get_payload(decode=True)
+            if isinstance(payload, bytes):
+                nested.extend(_message_texts(message_from_bytes(payload), depth + 1))
+            continue
+        if content_type == "text/plain":
+            plain.append(_part_text(part))
+        elif content_type == "text/html":
+            html.append(_part_text(part))
+    if not plain and html:
+        plain = html
+    for part in parsed.walk():
+        if part.get_content_type() != "message/rfc822":
+            continue
+        payload = part.get_payload()
+        if isinstance(payload, list):
+            for sub_message in payload:
+                if isinstance(sub_message, Message):
+                    subject = str(sub_message.get("Subject") or "").strip()
+                    if subject:
+                        nested.append(subject)
+    return [*plain, *nested]
+
+
+def _attachments(parsed: Message, depth: int = 0) -> list[EmailAttachment]:
+    """Flatten every attachment, recursively unpacking Outlook sub-messages."""
+    found: list[EmailAttachment] = []
+    if depth > 8:
+        return found
+    for part in parsed.walk():
+        content_type = part.get_content_type()
+        if content_type == "message/rfc822":
+            continue
         filename = part.get_filename()
         if not filename:
+            continue
+        if Path(filename).suffix.casefold() == ".eml":
+            payload = part.get_payload(decode=True)
+            if isinstance(payload, bytes) and payload:
+                found.extend(
+                    _attachments(message_from_bytes(payload), depth + 1)
+                )
             continue
         payload = part.get_payload(decode=True)
         if not isinstance(payload, bytes):
@@ -473,10 +531,23 @@ def _attachments(parsed: Message) -> list[EmailAttachment]:
             EmailAttachment(
                 filename=filename,
                 content=payload,
-                mime_type=part.get_content_type(),
+                mime_type=content_type,
             )
         )
     return found
+
+
+def parse_email_message(raw: bytes, *, message_id: str = "", folder: str = "") -> EmailMessage:
+    """Parse one raw RFC-822 message, flattening nested ``message/rfc822``."""
+    parsed = message_from_bytes(raw)
+    return EmailMessage(
+        message_id=message_id,
+        folder=folder or DEFAULT_MAIL_FOLDER,
+        subject=str(parsed.get("Subject") or ""),
+        sender=str(parsed.get("From") or ""),
+        attachments=tuple(_attachments(parsed)),
+        body=_message_body(parsed),
+    )
 
 
 class EmailInboxBridge:
@@ -795,6 +866,7 @@ __all__ = [
     "MAILBOX_STATES",
     "MailClient",
     "MIN_APD_PDF_BYTES",
+    "parse_email_message",
     "REASON_NO_KEYWORD",
     "REASON_NO_PDF",
     "REASON_PDF_TOO_SMALL",

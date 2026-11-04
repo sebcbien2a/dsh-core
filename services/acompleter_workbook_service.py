@@ -41,6 +41,7 @@ from services.folder_tree_service import (
     resolve_flow_root,
     validate_tenant_id,
 )
+from services.pdf_splitter_and_linker import PIECE_LINK_HEADER
 
 WORKBOOK_NAME = "_A_COMPLETER.xlsx"
 SHEET_NAME = "A_COMPLETER"
@@ -65,6 +66,7 @@ P17_EXTENSION_HEADERS: tuple[str, ...] = (
     "Mois Décalé",
     "Source de Paiement",
     "Compte de Contrepartie",
+    PIECE_LINK_HEADER,
 )
 EXTENDED_HEADERS: tuple[str, ...] = HEADERS + P17_EXTENSION_HEADERS
 LOCK_GLOB = "~$*.xlsx"
@@ -244,6 +246,8 @@ class AcompleterWorkbook:
         nom_fichier: str,
         champs_manquants: Iterable[object],
         categorie_suggeree: DocumentCategory | str,
+        *,
+        piece_pdf: str | None = None,
     ) -> str:
         """Idempotent, non-destructive upsert keyed on the content hash.
 
@@ -261,6 +265,9 @@ class AcompleterWorkbook:
         wb = self._load_workbook()
         ws = wb[SHEET_NAME]
         try:
+            link_column = (
+                self._ensure_piece_link_column(ws) if piece_pdf else None
+            )
             target_row = None
             for index in range(2, ws.max_row + 1):
                 if _cell_text(ws.cell(row=index, column=2).value).strip().lower() == key:
@@ -278,6 +285,9 @@ class AcompleterWorkbook:
                         PIPELINE_STATUS,
                     ]
                 )
+                target_row = ws.max_row
+                if link_column is not None and piece_pdf:
+                    self._write_piece_link(ws, target_row, link_column, piece_pdf)
                 ws.auto_filter.ref = f"A1:F{ws.max_row}"
                 self._atomic_save(wb)
                 return OUTCOME_CREATED
@@ -291,6 +301,11 @@ class AcompleterWorkbook:
                 cell = ws.cell(row=target_row, column=column)
                 if _cell_text(cell.value).strip() != new_value:
                     cell.value = new_value
+                    changed = True
+            if link_column is not None and piece_pdf:
+                cell = ws.cell(row=target_row, column=link_column)
+                if _cell_text(cell.value).strip() != piece_pdf:
+                    self._write_piece_link(ws, target_row, link_column, piece_pdf)
                     changed = True
             if not changed:
                 return OUTCOME_UNCHANGED
@@ -409,7 +424,11 @@ class AcompleterWorkbook:
             if target_row is None:
                 return None
             if ws.max_column < len(EXTENDED_HEADERS):
-                return {header: "" for header in P17_EXTENSION_HEADERS}
+                return {
+                    header: ""
+                    for header in P17_EXTENSION_HEADERS
+                    if header != PIECE_LINK_HEADER
+                }
             return {
                 header: _cell_text(
                     ws.cell(
@@ -418,6 +437,7 @@ class AcompleterWorkbook:
                     ).value
                 )
                 for header in P17_EXTENSION_HEADERS
+                if header != PIECE_LINK_HEADER
             }
         finally:
             _close(wb)
@@ -500,6 +520,31 @@ class AcompleterWorkbook:
             "Source de Paiement": payment_source_value,
             "Compte de Contrepartie": counterparty_account_value,
         }
+
+    @staticmethod
+    def _ensure_piece_link_column(ws: Any) -> int:
+        from openpyxl.styles import Font
+
+        column = EXTENDED_HEADERS.index(PIECE_LINK_HEADER) + 1
+        cell = ws.cell(row=1, column=column)
+        if _cell_text(cell.value).strip() != PIECE_LINK_HEADER:
+            cell.value = PIECE_LINK_HEADER
+            cell.font = Font(bold=True)
+        return column
+
+    @staticmethod
+    def _write_piece_link(
+        ws: Any, row: int, column: int, piece_pdf: str
+    ) -> None:
+        from openpyxl.styles import Font
+
+        link = str(piece_pdf or "").replace("\\", "/").strip()
+        if not link or link.startswith("/") or re.match(r"^[A-Za-z]:", link):
+            return
+        cell = ws.cell(row=row, column=column)
+        cell.value = link
+        cell.hyperlink = link
+        cell.font = Font(color="0563C1", underline="single")
 
     @staticmethod
     def _find_row(ws: Any, key: str) -> int | None:

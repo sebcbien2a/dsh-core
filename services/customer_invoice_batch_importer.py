@@ -35,6 +35,13 @@ from schemas.payment_method_schema import (
     payment_method_matches,
 )
 from services.folder_tree_service import ensure_tree
+from services.pdf_splitter_and_linker import (
+    PIECE_LINK_HEADER,
+    SALES_SUBDIR,
+    find_piece_for_document,
+    relative_link,
+    split_customer_invoices_pdf,
+)
 from services.sqlite_accounting_store import (
     AccountingStoreError,
     get_shared_sqlite_store,
@@ -136,6 +143,7 @@ SALES_WORKBOOK_HEADERS: tuple[str, ...] = (
     "Date Rapprochement",
     "Référence OFX",
     "Montant Rapproché",
+    "Pièce PDF (Clic)",
 )
 
 
@@ -834,12 +842,20 @@ def import_customer_invoice_batch(
     pdf_source: str | Path | bytes | bytearray | None = None,
     filename: str | None = None,
     update_payment_rules: bool = True,
+    split_export_dir: str | Path | None = None,
 ) -> CustomerInvoiceImportReport:
     """Parse Sage + optional grouped PDF, merge and persist the batch."""
     sage_invoices = parse_sage_customer_invoices(sage_source, filename=filename)
     pdf_batch = (
         parse_multi_invoice_pdf(pdf_source) if pdf_source is not None else None
     )
+    if pdf_source is not None and split_export_dir is not None:
+        try:
+            split_customer_pdf_for_export(
+                pdf_source, split_export_dir, filename=filename
+            )
+        except Exception:  # noqa: BLE001 - a split never blocks the accounting import
+            pass
     invoices = merge_customer_invoices(sage_invoices, pdf_batch)
     return import_customer_invoices(
         store,
@@ -899,11 +915,15 @@ def _write_sales_workbook(
     status_column = SALES_WORKBOOK_HEADERS.index(
         "Statut Rapprochement Bancaire"
     ) + 1
+    link_column = SALES_WORKBOOK_HEADERS.index(PIECE_LINK_HEADER) + 1
     for offset, values in enumerate(rows, start=2):
         for column, value in enumerate(values, start=1):
             cell = sheet.cell(row=offset, column=column)
             cell.value = float(value) if isinstance(value, Decimal) else value
             cell.border = border
+            if column == link_column and isinstance(value, str) and value:
+                cell.hyperlink = value
+                cell.font = Font(color="0563C1", underline="single")
             if offset % 2 == 0:
                 cell.fill = PatternFill("solid", fgColor=_BAND_FILL)
             if isinstance(value, Decimal):
@@ -955,6 +975,39 @@ def _row_date(value: Any) -> date | None:
 
 def customer_sales_rows(store: Any, tenant_id: str) -> list[dict[str, Any]]:
     return list(store.list_customer_invoices(tenant_id))
+
+
+def _relative_piece_link(workbook_path: Path, row: Mapping[str, Any]) -> str | None:
+    """Resolve the split piece of one invoice as a relative OneDrive link."""
+    stored = str(row.get("piece_pdf") or "").strip()
+    if stored:
+        candidate = Path(stored)
+        if not candidate.is_absolute():
+            candidate = workbook_path.parent / candidate
+        if candidate.is_file():
+            return relative_link(candidate, workbook_path)
+    number = str(row.get("invoice_id") or row.get("line_id") or "")
+    found = find_piece_for_document(
+        workbook_path.parent, number, side=SALES_SUBDIR
+    )
+    if found is None:
+        return None
+    return relative_link(found, workbook_path)
+
+
+def split_customer_pdf_for_export(
+    pdf_source: str | Path | bytes | bytearray,
+    export_dir: str | Path,
+    *,
+    filename: str | None = None,
+) -> Any:
+    """Physically split a grouped customer PDF next to the export workbooks."""
+    if isinstance(pdf_source, (bytes, bytearray)):
+        target = Path(export_dir) / (filename or MULTI_INVOICE_PDF_FILENAME)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(bytes(pdf_source))
+        pdf_source = target
+    return split_customer_invoices_pdf(pdf_source, export_dir)
 
 
 def export_customer_sales_workbook(
@@ -1023,6 +1076,7 @@ def export_customer_sales_workbook(
                 _parse_decimal(row.get("reconciliation_amount"))
                 if row.get("reconciliation_amount")
                 else (ttc if status == PAID_STATUS else None),
+                _relative_piece_link(path, row),
             )
         )
     total_row = (
@@ -1049,6 +1103,7 @@ def export_customer_sales_workbook(
         "",
         None,
         "",
+        None,
         None,
     )
     _write_sales_workbook(path, table_rows, total_row=total_row)
@@ -1077,6 +1132,7 @@ class CustomerInvoiceBatchImporter:
         pdf_source: str | Path | bytes | bytearray | None = None,
         filename: str | None = None,
         update_payment_rules: bool = True,
+        split_export_dir: str | Path | None = None,
     ) -> CustomerInvoiceImportReport:
         return import_customer_invoice_batch(
             self.store,
@@ -1085,6 +1141,7 @@ class CustomerInvoiceBatchImporter:
             pdf_source=pdf_source,
             filename=filename,
             update_payment_rules=update_payment_rules,
+            split_export_dir=split_export_dir,
         )
 
     def import_invoices(
