@@ -55,6 +55,11 @@ from services.acompleter_workbook_service import (
     WorkbookLockedError,
     derive_document_id,
 )
+from services.apd_evidence_rules import (
+    EvidenceDecision,
+    evaluate_evidence,
+)
+from services.acompleter_readable_service import ReadableRow
 from services.bosch_sia_invoice_parser import (
     import_bosch_sia_document,
     is_bosch_sia_document,
@@ -825,6 +830,13 @@ class InboxIngestionService:
                 document.document_type,
             )
             return True
+        evidence = evaluate_evidence(source, filename=source.name, text=text)
+        if evidence is not None:
+            if evidence.is_valid:
+                self._route_evidence_valid(source, digest, evidence, acc)
+            else:
+                self._route_evidence_pending(source, digest, evidence, acc)
+            return True
         if detect_settled_supplier(text, source.name) is not None:
             invoice = parse_settled_invoice(source)
             piece = copy_unit_piece(
@@ -901,6 +913,164 @@ class InboxIngestionService:
             return True
         return False
 
+    def _route_evidence_valid(
+        self,
+        source: Path,
+        digest: str,
+        decision: EvidenceDecision,
+        acc: _Accumulator,
+    ) -> None:
+        category = decision.category
+        side = SALES_SUBDIR if category is DocumentCategory.VENTES_CLIENTS else PURCHASES_SUBDIR
+        piece = copy_unit_piece(
+            source,
+            self._export_root,
+            side=side,
+            document_type=decision.document_type,
+            document_number=decision.document_number,
+            document_date=decision.document_date,
+            party=decision.supplier,
+        )
+        extracted = ExtractedInvoice(
+            issue_date=decision.document_date,
+            invoice_number=decision.document_number,
+            supplier_name=decision.supplier,
+            amount_ht=decision.amount_ht,
+            amount_tva=decision.amount_tva,
+            amount_ttc=decision.amount_ttc,
+            category=category,
+            confidence=1.0,
+            document_type=decision.document_type,
+            expense_subcategory=decision.expense_subcategory,
+        )
+        destination = _unique_dest(
+            self._tree.category_dir(FolderState.VALIDE_PRET_FEC, category)
+            / source.name
+        )
+        rel_path = destination.relative_to(
+            self._tree.root / self._tenant_id
+        ).as_posix()
+        piece_rel = _relative_piece_path(piece, self._export_root)
+        self._persist(digest, destination.name, DocumentStatus.VALIDE, rel_path, extracted)
+        line = self._store.get_line(self._tenant_id, derive_document_id(digest))
+        if line is not None:
+            line = dict(line)
+            line.pop("line_id", None)
+            line["status"] = (
+                line.get("status")
+                or line.get("raw_status")
+                or DocumentStatus.VALIDE.value
+            )
+            if piece_rel:
+                line["piece_pdf"] = piece_rel
+            line["source_status"] = (
+                "NON_COMPTABLE"
+                if decision.document_type == "BON_DE_COMMANDE_NON_COMPTABLE"
+                else "VALIDE_AUTOMATIQUE"
+            )
+            if decision.payment_method in {"CARTE_BANCAIRE", "PRELEVEMENT_SEPA"}:
+                line["already_paid_on_invoice"] = "1"
+                line["balance_due"] = "0.00"
+            self._store.upsert_document_line(
+                self._tenant_id, derive_document_id(digest), line
+            )
+        _move(source, destination)
+        acc.moved_to_03 += 1
+        acc.documents.append(
+            IngestedDocument(
+                nom_fichier=destination.name,
+                sha256=digest,
+                outcome=OUTCOME_VALIDE,
+                destination=rel_path,
+                category=category,
+                confidence=1.0,
+            )
+        )
+        acc.traces.append(f"{digest}:01_EN_COURS->{rel_path}:{decision.rule}")
+
+    def _route_evidence_pending(
+        self,
+        source: Path,
+        digest: str,
+        decision: EvidenceDecision,
+        acc: _Accumulator,
+    ) -> None:
+        category = decision.category
+        destination = _unique_dest(
+            self._tree.state_dir(FolderState.A_COMPLETER) / source.name
+        )
+        rel_path = destination.relative_to(
+            self._tree.root / self._tenant_id
+        ).as_posix()
+        extracted = ExtractedInvoice(
+            issue_date=decision.document_date,
+            invoice_number=decision.document_number,
+            supplier_name=decision.supplier,
+            amount_ht=decision.amount_ht,
+            amount_tva=decision.amount_tva,
+            amount_ttc=decision.amount_ttc,
+            category=category,
+            confidence=1.0,
+            document_type=decision.document_type,
+        )
+        try:
+            outcome = self._workbook.upsert(
+                digest,
+                destination.name,
+                [],
+                category,
+                piece_pdf=rel_path,
+            )
+            if outcome == OUTCOME_CREATED:
+                acc.rows_written += 1
+            elif outcome == OUTCOME_UPDATED:
+                acc.rows_updated += 1
+            try:
+                self._workbook.write_readable_rows(
+                    [
+                        ReadableRow(
+                            sha256=digest,
+                            filename=destination.name,
+                            supplier=decision.supplier,
+                            document_number=decision.document_number,
+                            document_date=decision.document_date,
+                            amount_ht=decision.amount_ht,
+                            amount_tva=decision.amount_tva,
+                            amount_ttc=decision.amount_ttc,
+                            category=category,
+                            reason=decision.reason,
+                            action=decision.action,
+                            status=DocumentStatus.EN_ATTENTE,
+                            piece_pdf=rel_path,
+                            rule=decision.rule,
+                        )
+                    ]
+                )
+            except AcompleterWorkbookError:
+                pass
+        except WorkbookLockedError:
+            acc.deferred_lock += 1
+        self._persist(
+            digest,
+            destination.name,
+            DocumentStatus.EN_ATTENTE,
+            rel_path,
+            extracted,
+        )
+        _move(source, destination)
+        acc.moved_to_02 += 1
+        acc.documents.append(
+            IngestedDocument(
+                nom_fichier=destination.name,
+                sha256=digest,
+                outcome=OUTCOME_A_COMPLETER,
+                destination=rel_path,
+                category=category,
+                confidence=1.0,
+            )
+        )
+        acc.traces.append(f"{digest}:01_EN_COURS->{rel_path}:{decision.rule}")
+
     def _route_special_file(
         self,
         source: Path,
@@ -910,6 +1080,12 @@ class InboxIngestionService:
         invoice_number: str,
         supplier_name: str,
         document_type: str,
+        *,
+        amount_ht: Decimal | None = None,
+        amount_tva: Decimal | None = None,
+        amount_ttc: Decimal | None = None,
+        issue_date: date | None = None,
+        expense_subcategory: str | None = None,
     ) -> None:
         """Move a source batch to ``03_`` without double-counting its amounts."""
         extracted = ExtractedInvoice(
@@ -918,6 +1094,11 @@ class InboxIngestionService:
             category=category,
             confidence=1.0,
             document_type=document_type,
+            amount_ht=amount_ht,
+            amount_tva=amount_tva,
+            amount_ttc=amount_ttc,
+            issue_date=issue_date,
+            expense_subcategory=expense_subcategory,
         )
         destination = _unique_dest(
             self._tree.category_dir(FolderState.VALIDE_PRET_FEC, category)

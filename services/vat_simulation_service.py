@@ -61,6 +61,7 @@ from services.accounting_spreadsheet_export_service import (
     is_apd_self_row,
     payment_source_of,
 )
+from services.apd_evidence_rules import NON_ACCOUNTABLE_DOCUMENT_TYPES
 from services.sqlite_accounting_store import (
     AccountingStoreError,
     SqliteAccountingStore,
@@ -401,6 +402,11 @@ def _selected_rows(
     selected: list[dict[str, Any]] = []
     for row in store.list_master_lines(tenant_id):
         if is_apd_self_row(row):
+            continue
+        if (
+            str(row.get("document_type") or "").strip().upper()
+            in NON_ACCOUNTABLE_DOCUMENT_TYPES
+        ):
             continue
         status = str(
             row.get("raw_status") or row.get("status") or ""

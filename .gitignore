@@ -3,6 +3,9 @@
 __pycache__/
 *.pyc
 
+# Journaux d'exécution locaux (P22 : jamais versionnés)
+*.log
+
 # Bases de données locales (Ne jamais versionner les datas)
 qdrant_storage/
 neo4j_data/

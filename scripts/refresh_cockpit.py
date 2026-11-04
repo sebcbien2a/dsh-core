@@ -29,6 +29,7 @@ from services.accounting_spreadsheet_export_service import (  # noqa: E402
     PersonalExpenseNoteExporter,
     SupplierLedgerExporter,
 )
+from services.balance_simulation_service import BalanceSimulationService  # noqa: E402
 from services.customer_invoice_batch_importer import (  # noqa: E402
     export_customer_sales_workbook,
 )
@@ -82,6 +83,7 @@ class CockpitRefreshReport:
     ingested: int
     workbooks: tuple[Path, ...]
     ca12_path: Path | None
+    balance_path: Path | None = None
 
 
 def _unique_destination(directory: Path, name: str) -> Path:
@@ -261,6 +263,13 @@ def refresh_cockpit(
         ca12_path = service.write_report(ca12)
     except Exception:  # noqa: BLE001 - a missing CA12 never blocks the cockpit
         ca12_path = None
+    balance_path: Path | None = None
+    try:
+        balance = BalanceSimulationService(store, export_dir=base_export)
+        balance_report = balance.simulate(tenant, year)
+        balance_path = balance.write_report(balance_report)
+    except Exception:  # noqa: BLE001 - a missing balance never blocks the cockpit
+        balance_path = None
     return CockpitRefreshReport(
         cockpit_path=result.path.resolve(),
         inbox_path=inbox,
@@ -269,6 +278,7 @@ def refresh_cockpit(
         ingested=ingested,
         workbooks=workbooks,
         ca12_path=ca12_path,
+        balance_path=balance_path,
     )
 
 
@@ -306,6 +316,11 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Classeurs Excel : {len(report.workbooks)}")
     if report.ca12_path is not None:
         print(f"Simulation CA12 {args.year} : {report.ca12_path.resolve()}")
+    if report.balance_path is not None:
+        print(
+            f"Simulation Bilan & Résultat {args.year} : "
+            f"{report.balance_path.resolve()}"
+        )
     return 0
 
 

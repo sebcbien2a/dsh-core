@@ -42,6 +42,7 @@ from services.folder_tree_service import (
     validate_tenant_id,
 )
 from services.pdf_splitter_and_linker import PIECE_LINK_HEADER
+from services.acompleter_readable_service import READABLE_HEADERS, ReadableRow
 
 WORKBOOK_NAME = "_A_COMPLETER.xlsx"
 SHEET_NAME = "A_COMPLETER"
@@ -69,6 +70,11 @@ P17_EXTENSION_HEADERS: tuple[str, ...] = (
     PIECE_LINK_HEADER,
 )
 EXTENDED_HEADERS: tuple[str, ...] = HEADERS + P17_EXTENSION_HEADERS
+# P22 appends the manager-facing readable columns. They are only materialised
+# by ``write_readable_rows`` so the frozen P14/P17 creation contract is intact.
+P22_EXTENSION_HEADERS: tuple[str, ...] = READABLE_HEADERS
+P22_FIRST_COLUMN = len(EXTENDED_HEADERS) + 1
+P22_LAST_COLUMN = P22_FIRST_COLUMN + len(P22_EXTENSION_HEADERS) - 1
 LOCK_GLOB = "~$*.xlsx"
 TEMP_NAME = "_A_COMPLETER.tmp.xlsx"
 CHAMPS_SEPARATOR = ", "
@@ -311,6 +317,123 @@ class AcompleterWorkbook:
                 return OUTCOME_UNCHANGED
             self._atomic_save(wb)
             return OUTCOME_UPDATED
+        finally:
+            _close(wb)
+
+    def write_readable_rows(
+        self,
+        rows: Iterable[ReadableRow],
+        *,
+        update_status: bool = False,
+    ) -> int:
+        """Materialise the P22 readable columns on the legacy workbook.
+
+        Columns ``A``/``B`` (UUID + SHA-256) and the old ``Champs manquants`` /
+        ``Catégorie suggérée`` duplicates are hidden; the manager sees the
+        P22 headers appended at column ``R``. Human ``REJETE`` rows are never
+        overwritten. Returns the number of rows written.
+        """
+        from openpyxl.styles import Alignment, Font
+
+        self.ensure_workbook()
+        wb = self._load_workbook()
+        ws = wb[SHEET_NAME]
+        written = 0
+        try:
+            self._ensure_extension_headers(ws)
+            for column, header in enumerate(
+                P22_EXTENSION_HEADERS, start=P22_FIRST_COLUMN
+            ):
+                cell = ws.cell(row=1, column=column, value=header)
+                cell.font = Font(bold=True, color="FFFFFF")
+                from openpyxl.styles import PatternFill
+
+                cell.fill = PatternFill("solid", fgColor="1F4E78")
+                cell.alignment = Alignment(
+                    horizontal="center", vertical="center", wrap_text=True
+                )
+            for letter in ("A", "B", "D", "E", "Q"):
+                ws.column_dimensions[letter].hidden = True
+            widths = {
+                "R": 13,
+                "S": 26,
+                "T": 32,
+                "U": 18,
+                "V": 12,
+                "W": 12,
+                "X": 12,
+                "Y": 24,
+                "Z": 62,
+                "AA": 42,
+                "AB": 40,
+            }
+            for letter, width in widths.items():
+                ws.column_dimensions[letter].width = width
+
+            for row in rows:
+                key = normalize_sha256(row.sha256)
+                target = self._find_row(ws, key)
+                if target is None:
+                    ws.append(
+                        [
+                            derive_document_id(key),
+                            key,
+                            row.filename,
+                            "",
+                            row.category_value,
+                            row.status_value,
+                        ]
+                    )
+                    target = ws.max_row
+                current_status = _cell_text(
+                    ws.cell(row=target, column=6).value
+                ).strip()
+                if (
+                    update_status
+                    and current_status
+                    in (DocumentStatus.EN_ATTENTE.value, DocumentStatus.VALIDE.value)
+                    and row.status_value
+                    in (DocumentStatus.EN_ATTENTE.value, DocumentStatus.VALIDE.value)
+                ):
+                    ws.cell(row=target, column=6, value=row.status_value)
+                values = (
+                    row.document_date,
+                    row.supplier,
+                    row.filename,
+                    row.document_number,
+                    float(row.amount_ht)
+                    if row.amount_ht is not None
+                    else None,
+                    float(row.amount_tva)
+                    if row.amount_tva is not None
+                    else None,
+                    float(row.amount_ttc)
+                    if row.amount_ttc is not None
+                    else None,
+                    row.category_value,
+                    row.reason,
+                    row.action,
+                )
+                for offset, value in enumerate(values):
+                    cell = ws.cell(
+                        row=target, column=P22_FIRST_COLUMN + offset, value=value
+                    )
+                    cell.alignment = Alignment(vertical="top", wrap_text=True)
+                    if isinstance(value, float):
+                        cell.number_format = "#,##0.00"
+                link = str(row.piece_pdf or "").replace("\\", "/").strip()
+                link_cell = ws.cell(
+                    row=target, column=P22_LAST_COLUMN
+                )
+                if link and not link.startswith("/") and not re.match(
+                    r"^[A-Za-z]:", link
+                ):
+                    link_cell.value = link
+                    link_cell.hyperlink = link
+                    link_cell.font = Font(color="0563C1", underline="single")
+                written += 1
+            self._atomic_save(wb)
+            return written
         finally:
             _close(wb)
 

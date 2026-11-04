@@ -1,0 +1,30 @@
+@echo off
+chcp 65001 >nul
+title Cockpit APD - Pipeline P22 (4 etapes)
+cd /d A:\dsh-core
+echo =====================================================================
+echo   COCKPIT APD - PIPELINE P22 EN 4 ETAPES SEQUENTIELLES
+echo =====================================================================
+echo.
+echo [1/2] Execution des 4 etapes (Vision, Banque, Ventilation, Simulations)
+.venv-v3\Scripts\python.exe scripts\run_apd_four_stage_pipeline.py --tenant default --all
+if errorlevel 1 (
+    echo.
+    echo ERREUR pendant le pipeline. Consultez les messages ci-dessus.
+    pause
+    exit /b 1
+)
+echo.
+echo [2/2] Ouverture du classeur lisible et de l'interface web locale
+if exist "workspace\document_flow\default\02_A_COMPLETER\_A_COMPLETER.xlsx" (
+    start "" "workspace\document_flow\default\02_A_COMPLETER\_A_COMPLETER.xlsx"
+)
+start "APD P22 Web" /min .venv-v3\Scripts\python.exe scripts\apd_pipeline_web.py --tenant default
+timeout /t 2 >nul
+start http://127.0.0.1:8765
+echo.
+echo Pipeline termine. Classeurs dans :
+echo   workspace\document_flow\default\04_EXPORT_COMPTA\default
+echo Questions en attente :
+echo   workspace\document_flow\default\02_A_COMPLETER\_A_COMPLETER.xlsx
+pause

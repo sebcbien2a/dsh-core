@@ -46,6 +46,7 @@ from schemas.folder_state_schema import (
     normalize_payment_source,
 )
 from services.folder_tree_service import ensure_tree
+from services.apd_evidence_rules import NON_ACCOUNTABLE_DOCUMENT_TYPES
 from services.pdf_splitter_and_linker import (
     PIECE_LINK_HEADER,
     PURCHASES_SUBDIR,
@@ -987,6 +988,11 @@ def _build_supplier_ledger_entries(
     entries: list[SupplierLedgerEntry] = []
     for row in rows:
         if is_apd_self_row(row):
+            continue
+        if (
+            str(row.get("document_type") or "").strip().upper()
+            in NON_ACCOUNTABLE_DOCUMENT_TYPES
+        ):
             continue
         raw_status = str(row.get("raw_status") or row.get("status") or "PENDING")
         action = str(row.get("decision_action") or "")
@@ -2514,6 +2520,8 @@ def _master_rows(store: Any, tenant_id: str) -> list[dict[str, Any]]:
             row
             for row in rows
             if str(row.get("category") or "") != DocumentCategory.VENTES_CLIENTS.value
+            and str(row.get("document_type") or "").strip().upper()
+            not in NON_ACCOUNTABLE_DOCUMENT_TYPES
         ]
     rows: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -2521,6 +2529,11 @@ def _master_rows(store: Any, tenant_id: str) -> list[dict[str, Any]]:
         if category is DocumentCategory.VENTES_CLIENTS:
             continue
         for row in store.list_category_lines(tenant_id, category):
+            if (
+                str(row.get("document_type") or "").strip().upper()
+                in NON_ACCOUNTABLE_DOCUMENT_TYPES
+            ):
+                continue
             identifier = _line_identifier(row, len(rows))
             if identifier in seen:
                 continue
