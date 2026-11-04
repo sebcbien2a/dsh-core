@@ -5,6 +5,10 @@ The watcher automates the two human-in-the-loop entry points:
 - it ingests only files of ``00_INBOX`` whose size and ``mtime`` have been
   stable for at least ``settle_delay`` seconds (OneDrive downloads and scanner
   writes are never read half-written);
+- it also stabilises the optional OneDrive mirror
+  (``ONEDRIVE_INBOX_PATH``, default ``workspace/document_flow/default/00_INBOX``)
+  and aspirates phone/other-PC drops into ``00_INBOX``; a ``PermissionError``
+  from an open PDF/Excel leaves the file in the mirror for a later retry;
 - once the Excel lock (``~$*.xlsx``) is gone it runs
   ``FolderSyncService.sync_human_to_pipeline()`` so human ``VALIDE`` /
   ``REJETE`` decisions are applied continuously.
@@ -50,6 +54,7 @@ from services.inbox_ingestion_service import (
     OUTCOME_VALIDE,
     InboxIngestionReport,
     InboxIngestionService,
+    resolve_onedrive_inbox,
 )
 from services.obsidian_vault_service import VaultWriter
 from services.sqlite_accounting_store import get_shared_sqlite_store
@@ -90,6 +95,8 @@ class WatcherCycleReport:
     """Observable outcome of one :meth:`DocumentFlowWatcher.run_once` cycle."""
 
     stabilized: tuple[str, ...] = ()
+    mirrored: int = 0
+    deferred_io: int = 0
     ingestion: InboxIngestionReport | None = None
     sync: SyncReport | None = None
     deferred_lock: bool = False
@@ -110,6 +117,7 @@ class DocumentFlowWatcher:
         root: str | os.PathLike[str] | None = None,
         store: Any | None = None,
         ingestion: InboxIngestionService | None = None,
+        onedrive_inbox: str | os.PathLike[str] | None = None,
         sync: FolderSyncService | None = None,
         vault_bridge: Any | None = None,
         clock: Callable[[], float] | None = None,
@@ -147,7 +155,17 @@ class DocumentFlowWatcher:
             resolved_store,
             root,
             vault_bridge=vault_bridge,
+            onedrive_inbox=onedrive_inbox,
         )
+        if onedrive_inbox is not None:
+            self._onedrive_inbox = Path(onedrive_inbox).expanduser().resolve()
+        else:
+            mirror = getattr(self._ingestion, "onedrive_inbox", None)
+            self._onedrive_inbox = (
+                Path(mirror).expanduser().resolve()
+                if mirror is not None
+                else resolve_onedrive_inbox(self._tenant_id, root)
+            )
         self._sync = sync or FolderSyncService(
             self._tenant_id,
             resolved_store,
@@ -185,6 +203,10 @@ class DocumentFlowWatcher:
     @property
     def ingestion(self) -> InboxIngestionService:
         return self._ingestion
+
+    @property
+    def onedrive_inbox(self) -> Path:
+        return self._onedrive_inbox
 
     @property
     def sync(self) -> FolderSyncService:
@@ -300,6 +322,30 @@ class DocumentFlowWatcher:
         ready = self._stabilized_paths(moment)
         traces: list[str] = []
         ingestion_report: InboxIngestionReport | None = None
+        mirrored = 0
+        deferred_io = 0
+
+        mirror_ready = (
+            self._stabilized_paths(moment, self._onedrive_inbox)
+            if self._onedrive_inbox != self._tree.state_dir(FolderState.INBOX)
+            else []
+        )
+        if mirror_ready:
+            aspirate = getattr(self._ingestion, "aspirate_onedrive", None)
+            if callable(aspirate):
+                aspiration = aspirate(mirror_ready, mirror=self._onedrive_inbox)
+                ready = ready + list(aspiration.moved)
+                mirrored = len(aspiration.moved)
+                deferred_io = len(aspiration.locked)
+                for destination in aspiration.moved:
+                    traces.append(f"MIRRORED:{destination.name}")
+                for name in aspiration.locked:
+                    traces.append(f"MIRROR_LOCKED:{name}")
+                    self._logger.debug(
+                        "Miroir OneDrive verrouillé (réessai différé): %s", name
+                    )
+                for detail in aspiration.failed:
+                    traces.append(f"MIRROR_FAILED:{detail}")
 
         if ready:
             names = ", ".join(path.name for path in ready)
@@ -364,6 +410,8 @@ class DocumentFlowWatcher:
 
         return WatcherCycleReport(
             stabilized=tuple(path.name for path in ready),
+            mirrored=mirrored,
+            deferred_io=deferred_io,
             ingestion=ingestion_report,
             sync=sync_report,
             deferred_lock=deferred,
@@ -673,11 +721,17 @@ class DocumentFlowWatcher:
         )
         return alerts
 
-    def _stabilized_paths(self, now: float) -> list[Path]:
-        inbox = self._tree.state_dir(FolderState.INBOX)
+    def _stabilized_paths(
+        self, now: float, directory: Path | None = None
+    ) -> list[Path]:
+        inbox = directory or self._tree.state_dir(FolderState.INBOX)
+        try:
+            entries = sorted(inbox.iterdir(), key=lambda item: item.name)
+        except OSError:
+            return []
         current: dict[Path, tuple[int, int]] = {}
         ready: list[Path] = []
-        for path in sorted(inbox.iterdir(), key=lambda item: item.name):
+        for path in entries:
             if not path.is_file() or path.name.startswith("~$"):
                 continue
             try:
@@ -704,7 +758,7 @@ class DocumentFlowWatcher:
             if now - previous[1] >= self._settle_delay:
                 ready.append(path)
         for path in tuple(self._seen):
-            if path not in current:
+            if path.parent == inbox and path not in current:
                 del self._seen[path]
         return ready
 

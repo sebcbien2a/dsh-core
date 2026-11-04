@@ -25,6 +25,7 @@ from services.document_flow_watcher import (
     DocumentFlowWatcher,
     WatcherAlreadyRunningError,
 )
+from services import inbox_ingestion_service as iis
 from services.folder_sync_service import FolderSyncService
 from services.folder_tree_service import ensure_tree
 from services.inbox_ingestion_service import ExtractedInvoice, InboxIngestionService
@@ -85,12 +86,17 @@ def build(
     auto_export: bool = True,
     vault_writer=None,
     export_dir=None,
+    onedrive_inbox=None,
 ):
     root = tmp_path / "flow"
     tree = ensure_tree(TENANT, root)
     store = SqliteAccountingStore(tmp_path / "accounting.sqlite3")
     ingestion = InboxIngestionService(
-        TENANT, store, root, extractor=extractor or constant(complete())
+        TENANT,
+        store,
+        root,
+        extractor=extractor or constant(complete()),
+        onedrive_inbox=onedrive_inbox,
     )
     sync = FolderSyncService(TENANT, store, root)
     watcher = DocumentFlowWatcher(
@@ -100,6 +106,7 @@ def build(
         root=root,
         store=store,
         ingestion=ingestion,
+        onedrive_inbox=onedrive_inbox,
         sync=sync,
         clock=clock,
         auto_export=auto_export,
@@ -222,6 +229,83 @@ def test_process_inbox_ignores_paths_outside_inbox(tmp_path):
     assert report.scanned == 0
     assert outside.is_file()
     assert list(tree.state_dir(FolderState.INBOX).iterdir()) == []
+
+
+# -- OneDrive mirror ----------------------------------------------------------
+
+
+def test_onedrive_mirror_is_stabilised_aspirated_then_ingested(tmp_path):
+    clock = [0.0]
+    mirror = tmp_path / "OneDrive" / "00_INBOX"
+    put(mirror, "mobile.pdf", b"%PDF-1.4 mobile")
+    tree, _store, watcher, _ingestion, _sync = build(
+        tmp_path, clock=lambda: clock[0], onedrive_inbox=mirror
+    )
+
+    assert watcher.onedrive_inbox == mirror.resolve()
+    first = watcher.run_once()
+    assert first.stabilized == ()
+    assert (mirror / "mobile.pdf").is_file()
+
+    clock[0] = 2.0
+    second = watcher.run_once()
+
+    assert second.stabilized == ("mobile.pdf",)
+    assert second.mirrored == 1
+    assert second.deferred_io == 0
+    assert second.ingestion is not None
+    assert second.ingestion.moved_to_03 == 1
+    assert any(trace == "MIRRORED:mobile.pdf" for trace in second.traces)
+    assert (mirror / "mobile.pdf").exists() is False
+    assert (
+        tree.category_dir(
+            FolderState.VALIDE_PRET_FEC, DocumentCategory.FRAIS_GENERAUX
+        )
+        / "mobile.pdf"
+    ).is_file()
+
+
+def test_mirror_permission_error_is_retried_on_the_next_cycle(
+    tmp_path, monkeypatch
+):
+    clock = [0.0]
+    mirror = tmp_path / "OneDrive" / "00_INBOX"
+    put(mirror, "mobile.pdf", b"%PDF-1.4 mobile")
+    tree, _store, watcher, _ingestion, _sync = build(
+        tmp_path, clock=lambda: clock[0], onedrive_inbox=mirror
+    )
+    real_move = iis._move
+
+    def locked_move(source, destination):
+        if Path(source).parent.resolve() == mirror.resolve():
+            raise PermissionError("fichier ouvert dans un lecteur")
+        return real_move(source, destination)
+
+    monkeypatch.setattr(iis, "_move", locked_move)
+    watcher.run_once()
+    clock[0] = 2.0
+    deferred = watcher.run_once()
+
+    assert deferred.mirrored == 0
+    assert deferred.deferred_io == 1
+    assert "MIRROR_LOCKED:mobile.pdf" in deferred.traces
+    assert (mirror / "mobile.pdf").is_file()
+
+    monkeypatch.setattr(iis, "_move", real_move)
+    clock[0] = 4.0
+    retried = watcher.run_once()
+
+    assert retried.mirrored == 1
+    assert retried.deferred_io == 0
+    assert retried.ingestion is not None
+    assert retried.ingestion.moved_to_03 == 1
+    assert (mirror / "mobile.pdf").exists() is False
+    assert (
+        tree.category_dir(
+            FolderState.VALIDE_PRET_FEC, DocumentCategory.FRAIS_GENERAUX
+        )
+        / "mobile.pdf"
+    ).is_file()
 
 
 # -- full cycle ---------------------------------------------------------------

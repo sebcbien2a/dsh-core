@@ -20,6 +20,13 @@ Routing is deterministic:
 * unreadable file, corrupt document or extraction failure ->
   ``05_ARCHIVE_ERREUR/``.
 
+An optional OneDrive mirror (``ONEDRIVE_INBOX_PATH``, default
+``workspace/document_flow/default/00_INBOX``) can receive drops from a phone or
+another computer: full scans aspirate it into ``00_INBOX`` first, while the
+watcher only surrenders size/``mtime``-stabilised files. A ``PermissionError``
+on a file held open by a PDF reader or Excel is reported as deferred and the
+next cycle retries.
+
 Nothing is ever deleted and every move is traced in the returned report.
 """
 
@@ -70,7 +77,11 @@ from services.customer_invoice_batch_importer import (
     import_customer_invoices,
     parse_multi_invoice_pdf,
 )
-from services.folder_tree_service import ensure_tree, validate_tenant_id
+from services.folder_tree_service import (
+    ensure_tree,
+    resolve_flow_root,
+    validate_tenant_id,
+)
 from services.hotel_expense_parser import parse_hotel_evening_stage
 from services.invoice_producer_protocol import PdfInvoiceProducer
 from services.lcr_remittance_parser import parse_lcr_remittance
@@ -99,6 +110,7 @@ _CENT = Decimal("0.01")
 _DEFAULT_CONFIDENCE_THRESHOLD = 0.75
 _DETERMINISTIC_TOOLS = frozenset({"pymupdf_text_regex"})
 _UNKNOWN_SUPPLIER = "FOURNISSEUR_INCONNU"
+ONEDRIVE_INBOX_ENV = "ONEDRIVE_INBOX_PATH"
 
 OUTCOME_VALIDE = "VALIDE"
 OUTCOME_A_COMPLETER = "A_COMPLETER"
@@ -197,6 +209,25 @@ def _move(source: Path, destination: Path) -> None:
         os.replace(source, destination)
     except OSError:
         shutil.move(str(source), str(destination))
+
+
+def resolve_onedrive_inbox(
+    tenant_id: str, root: str | os.PathLike[str] | None = None
+) -> Path:
+    """Resolve the OneDrive drop folder mirrored from a phone or another PC.
+
+    ``ONEDRIVE_INBOX_PATH`` wins; otherwise the canonical tenant ``00_INBOX``
+    is returned (``workspace/document_flow/default/00_INBOX`` by default), so
+    the mirror sweep is a harmless no-op when no external folder is configured.
+    """
+    raw = os.environ.get(ONEDRIVE_INBOX_ENV, "").strip()
+    if raw:
+        return Path(raw).expanduser().resolve()
+    return (
+        resolve_flow_root(root)
+        / validate_tenant_id(tenant_id)
+        / FolderState.INBOX.value
+    ).resolve()
 
 
 def _clean_text(value: Any) -> str | None:
@@ -551,6 +582,15 @@ class PipelineDocumentExtractor:
 
 
 @dataclass(frozen=True)
+class MirrorAspirationReport:
+    """Result of sweeping an external OneDrive drop folder into ``00_INBOX``."""
+
+    moved: tuple[Path, ...] = ()
+    locked: tuple[str, ...] = ()
+    failed: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class IngestedDocument:
     """Observable outcome for one file scanned in ``00_INBOX``."""
 
@@ -576,6 +616,8 @@ class InboxIngestionReport:
     rows_written: int = 0
     rows_updated: int = 0
     deferred_lock: int = 0
+    mirrored: int = 0
+    deferred_io: int = 0
     vault_events: int = 0
     documents: tuple[IngestedDocument, ...] = ()
     traces: tuple[str, ...] = ()
@@ -591,6 +633,8 @@ class _Accumulator:
         self.rows_written = 0
         self.rows_updated = 0
         self.deferred_lock = 0
+        self.mirrored = 0
+        self.deferred_io = 0
         self.vault_events = 0
         self.documents: list[IngestedDocument] = []
         self.traces: list[str] = []
@@ -605,6 +649,8 @@ class _Accumulator:
             rows_written=self.rows_written,
             rows_updated=self.rows_updated,
             deferred_lock=self.deferred_lock,
+            mirrored=self.mirrored,
+            deferred_io=self.deferred_io,
             vault_events=self.vault_events,
             documents=tuple(self.documents),
             traces=tuple(self.traces),
@@ -623,10 +669,16 @@ class InboxIngestionService:
         extractor: Callable[[Path], Any] | None = None,
         confidence_threshold: float = _DEFAULT_CONFIDENCE_THRESHOLD,
         vault_bridge: Any | None = None,
+        onedrive_inbox: str | os.PathLike[str] | None = None,
     ) -> None:
         self._tenant_id = validate_tenant_id(tenant_id)
         self._store = store
         self._tree = ensure_tree(self._tenant_id, root)
+        self._onedrive_inbox = (
+            Path(onedrive_inbox).expanduser().resolve()
+            if onedrive_inbox is not None
+            else resolve_onedrive_inbox(self._tenant_id, root)
+        )
         self._workbook = AcompleterWorkbook(self._tree.root / self._tenant_id)
         self._export_root = (
             self._tree.state_dir(FolderState.EXPORT_COMPTA) / self._tenant_id
@@ -655,6 +707,10 @@ class InboxIngestionService:
     def vault_bridge(self) -> Any | None:
         return self._vault_bridge
 
+    @property
+    def onedrive_inbox(self) -> Path:
+        return self._onedrive_inbox
+
     def ingest_inbox(self) -> InboxIngestionReport:
         """Scan ``00_INBOX`` and route every file; never raises on one file."""
         return self.process_inbox()
@@ -672,13 +728,19 @@ class InboxIngestionService:
         """
         inbox = self._tree.state_dir(FolderState.INBOX)
         acc = _Accumulator()
+        if paths is None:
+            self._record_aspiration(acc)
         archived_hashes = self._archived_hashes()
         claimed: set[str] = set()
         if paths is None:
-            candidates = sorted(
-                (path for path in inbox.iterdir() if path.is_file()),
-                key=_inbox_sort_key,
-            )
+            try:
+                candidates = sorted(
+                    (path for path in inbox.iterdir() if path.is_file()),
+                    key=_inbox_sort_key,
+                )
+            except OSError as exc:
+                acc.traces.append(f"INBOX_UNREADABLE:{_error_detail(exc)}")
+                return acc.report()
         else:
             candidates = self._select_inbox_paths(inbox, paths)
         for path in candidates:
@@ -718,6 +780,93 @@ class InboxIngestionService:
             seen.add(candidate)
             selected.append(candidate)
         return sorted(selected, key=_inbox_sort_key)
+
+    # -- OneDrive mirror -------------------------------------------------
+
+    def aspirate_onedrive(
+        self,
+        paths: Iterable[str | Path] | None = None,
+        *,
+        mirror: str | os.PathLike[str] | None = None,
+    ) -> MirrorAspirationReport:
+        """Move phone/other-PC drops from the OneDrive mirror into ``00_INBOX``.
+
+        ``paths=None`` sweeps the whole mirror. An explicit iterable (the
+        watcher only passes size/``mtime``-stabilised files) must resolve inside
+        the mirror. Files locked by an open PDF/Excel reader raise
+        ``PermissionError``; they are reported as ``locked`` and left in place so
+        the next cycle retries instead of crashing the pipeline.
+        """
+        inbox = self._tree.state_dir(FolderState.INBOX)
+        mirror_root = (
+            self._onedrive_inbox
+            if mirror is None
+            else Path(mirror).expanduser().resolve()
+        )
+        if mirror_root == inbox:
+            return MirrorAspirationReport()
+
+        moved: list[Path] = []
+        locked: list[str] = []
+        failed: list[str] = []
+        if paths is None:
+            try:
+                candidates = sorted(
+                    (
+                        path
+                        for path in mirror_root.iterdir()
+                        if path.is_file() and not path.name.startswith("~$")
+                    ),
+                    key=_inbox_sort_key,
+                )
+            except OSError as exc:
+                return MirrorAspirationReport(failed=(_error_detail(exc),))
+        else:
+            candidates = []
+            seen: set[Path] = set()
+            for raw in paths:
+                try:
+                    candidate = Path(raw).resolve()
+                except (OSError, TypeError, ValueError):
+                    continue
+                if (
+                    candidate in seen
+                    or not candidate.is_file()
+                    or candidate.name.startswith("~$")
+                    or candidate.parent != mirror_root
+                ):
+                    continue
+                seen.add(candidate)
+                candidates.append(candidate)
+            candidates.sort(key=_inbox_sort_key)
+
+        for path in candidates:
+            destination = _unique_dest(inbox / path.name)
+            try:
+                _move(path, destination)
+            except PermissionError:
+                locked.append(path.name)
+                continue
+            except OSError as exc:
+                failed.append(f"{path.name}:{_error_detail(exc)}")
+                continue
+            moved.append(destination)
+        return MirrorAspirationReport(
+            moved=tuple(moved),
+            locked=tuple(locked),
+            failed=tuple(failed),
+        )
+
+    def _record_aspiration(self, acc: _Accumulator) -> None:
+        result = self.aspirate_onedrive()
+        acc.mirrored += len(result.moved)
+        acc.deferred_io += len(result.locked)
+        for destination in result.moved:
+            acc.traces.append(f"MIRRORED:{destination.name}")
+        for name in result.locked:
+            acc.traces.append(f"MIRROR_LOCKED:{name}")
+        for detail in result.failed:
+            acc.traces.append(f"MIRROR_FAILED:{detail}")
 
     # -- pipeline --------------------------------------------------------
 
@@ -1412,7 +1561,11 @@ class InboxIngestionService:
     def _archived_hashes(self) -> set[str]:
         hashes: set[str] = set()
         archive = self._tree.state_dir(FolderState.ARCHIVE_ERREUR)
-        for path in archive.rglob("*"):
+        try:
+            entries = list(archive.rglob("*"))
+        except OSError:
+            return hashes
+        for path in entries:
             if not path.is_file() or path.name.startswith("~$"):
                 continue
             try:
@@ -1481,10 +1634,13 @@ __all__ = [
     "InboxIngestionReport",
     "InboxIngestionService",
     "IngestedDocument",
+    "MirrorAspirationReport",
+    "ONEDRIVE_INBOX_ENV",
     "OUTCOME_A_COMPLETER",
     "OUTCOME_DUPLICATE",
     "OUTCOME_ERREUR",
     "OUTCOME_VALIDE",
     "PipelineDocumentExtractor",
     "extracted_from_invoice",
+    "resolve_onedrive_inbox",
 ]

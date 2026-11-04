@@ -29,6 +29,7 @@ from services.document_flow_watcher import (
     DocumentFlowWatcher,
     WatcherAlreadyRunningError,
 )
+from services.inbox_ingestion_service import resolve_onedrive_inbox
 from services.sqlite_accounting_store import (
     SqliteAccountingStore,
     get_shared_sqlite_store,
@@ -56,6 +57,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--root",
         default=None,
         help="Racine du flux documentaire (défaut: DSH_DOCUMENT_FLOW_ROOT).",
+    )
+    parser.add_argument(
+        "--onedrive-inbox",
+        default=None,
+        help=(
+            "Dossier miroir OneDrive aspiré automatiquement (défaut: "
+            "ONEDRIVE_INBOX_PATH ou workspace/document_flow/default/00_INBOX)."
+        ),
     )
     parser.add_argument(
         "--db",
@@ -98,23 +107,31 @@ def main(argv: list[str] | None = None) -> int:
         if args.db
         else get_shared_sqlite_store()
     )
+    onedrive_inbox = (
+        args.onedrive_inbox
+        or resolve_onedrive_inbox(args.tenant, args.root)
+    )
     watcher = DocumentFlowWatcher(
         tenant_id=args.tenant,
         poll_interval=args.interval,
         settle_delay=args.settle_delay,
         root=args.root,
         store=store,
+        onedrive_inbox=onedrive_inbox,
         auto_export=args.auto_export,
     )
+    LOGGER.info("Dossier miroir OneDrive surveillé: %s", watcher.onedrive_inbox)
 
     try:
         if args.once:
             report = watcher.run_once()
             LOGGER.info(
                 "Cycle terminé: %d fichier(s) stabilisé(s), "
-                "ingestion=%s, sync=%s, verrou_excel=%s, "
-                "exports=%d, erreurs_export=%d",
+                "miroir=%d, verrous_io=%d, ingestion=%s, sync=%s, "
+                "verrou_excel=%s, exports=%d, erreurs_export=%d",
                 len(report.stabilized),
+                report.mirrored,
+                report.deferred_io,
                 "oui" if report.ingestion else "non",
                 "différée" if report.deferred_lock else "oui",
                 "présent" if report.deferred_lock else "absent",

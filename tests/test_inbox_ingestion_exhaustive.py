@@ -122,6 +122,108 @@ def test_empty_inbox_reports_nothing_and_never_calls_extractor(tmp_path):
     )
 
 
+def test_resolve_onedrive_inbox_uses_env_then_canonical_default(
+    tmp_path, monkeypatch
+):
+    monkeypatch.delenv(iis.ONEDRIVE_INBOX_ENV, raising=False)
+    assert iis.resolve_onedrive_inbox(TENANT, tmp_path / "flow") == (
+        tmp_path / "flow" / TENANT / FolderState.INBOX.value
+    ).resolve()
+
+    mirror = tmp_path / "OneDrive" / "00_INBOX"
+    monkeypatch.setenv(iis.ONEDRIVE_INBOX_ENV, str(mirror))
+    assert iis.resolve_onedrive_inbox(TENANT, tmp_path / "flow") == mirror.resolve()
+
+
+def test_onedrive_mirror_defaults_to_the_canonical_inbox(tmp_path, monkeypatch):
+    monkeypatch.delenv(iis.ONEDRIVE_INBOX_ENV, raising=False)
+    _tree, _store, service, inbox, _tenant = build(tmp_path)
+    assert service.onedrive_inbox == inbox.resolve()
+
+
+def test_ingest_inbox_aspirates_the_onedrive_mirror(tmp_path, monkeypatch):
+    mirror = tmp_path / "OneDrive" / "00_INBOX"
+    put(mirror, "mobile.pdf", b"%PDF-1.4 mobile")
+    monkeypatch.setenv(iis.ONEDRIVE_INBOX_ENV, str(mirror))
+
+    tree, _store, service, inbox, _tenant = build(
+        tmp_path, constant(complete())
+    )
+    report = service.ingest_inbox()
+
+    assert report.mirrored == 1
+    assert report.deferred_io == 0
+    assert report.moved_to_03 == 1
+    assert list(mirror.iterdir()) == []
+    assert list(inbox.iterdir()) == []
+    assert any(trace == "MIRRORED:mobile.pdf" for trace in report.traces)
+    assert (
+        tree.category_dir(
+            FolderState.VALIDE_PRET_FEC, DocumentCategory.FRAIS_GENERAUX
+        )
+        / "mobile.pdf"
+    ).is_file()
+
+
+def test_mirror_permission_error_is_deferred_then_retried(
+    tmp_path, monkeypatch
+):
+    mirror = tmp_path / "OneDrive" / "00_INBOX"
+    put(mirror, "mobile.pdf", b"%PDF-1.4 mobile")
+    monkeypatch.setenv(iis.ONEDRIVE_INBOX_ENV, str(mirror))
+
+    tree, _store, service, _inbox, _tenant = build(
+        tmp_path, constant(complete())
+    )
+    real_move = iis._move
+
+    def locked_move(source, destination):
+        if Path(source).parent.resolve() == mirror.resolve():
+            raise PermissionError("fichier ouvert dans un lecteur")
+        return real_move(source, destination)
+
+    monkeypatch.setattr(iis, "_move", locked_move)
+    first = service.ingest_inbox()
+
+    assert first.mirrored == 0
+    assert first.deferred_io == 1
+    assert first.moved_to_03 == 0
+    assert (mirror / "mobile.pdf").is_file()
+    assert "MIRROR_LOCKED:mobile.pdf" in first.traces
+
+    monkeypatch.setattr(iis, "_move", real_move)
+    second = service.ingest_inbox()
+
+    assert second.mirrored == 1
+    assert second.deferred_io == 0
+    assert second.moved_to_03 == 1
+    assert (mirror / "mobile.pdf").exists() is False
+    assert (
+        tree.category_dir(
+            FolderState.VALIDE_PRET_FEC, DocumentCategory.FRAIS_GENERAUX
+        )
+        / "mobile.pdf"
+    ).is_file()
+
+
+def test_process_inbox_explicit_paths_do_not_sweep_the_mirror(
+    tmp_path, monkeypatch
+):
+    mirror = tmp_path / "OneDrive" / "00_INBOX"
+    put(mirror, "mobile.pdf", b"%PDF-1.4 mobile")
+    monkeypatch.setenv(iis.ONEDRIVE_INBOX_ENV, str(mirror))
+
+    _tree, _store, service, inbox, _tenant = build(
+        tmp_path, constant(complete())
+    )
+    put(inbox, "local.pdf", b"%PDF-1.4 local")
+    report = service.process_inbox([inbox / "local.pdf"])
+
+    assert report.mirrored == 0
+    assert report.moved_to_03 == 1
+    assert (mirror / "mobile.pdf").is_file()
+
+
 def test_invalid_confidence_threshold_is_rejected(tmp_path):
     store = SqliteAccountingStore(tmp_path / "accounting.sqlite3")
     with pytest.raises(ValueError):
