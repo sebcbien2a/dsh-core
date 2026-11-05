@@ -27,8 +27,10 @@ from schemas.folder_state_schema import (  # noqa: E402
     FolderState,
 )
 from services.accounting_spreadsheet_export_service import (  # noqa: E402
+    CLIENT_LEDGER_FILENAME,
     CategoryOverviewExporter,
     CategorySummaryExporter,
+    ClientLedgerExporter,
     ExpenseSubCategoryExporter,
     MasterTableExporter,
     PersonalExpenseNoteExporter,
@@ -49,7 +51,11 @@ from services.document_flow_watcher import (  # noqa: E402
     DocumentFlowWatcher,
 )
 from services.folder_tree_service import ensure_tree  # noqa: E402
-from services.inbox_ingestion_service import InboxIngestionService  # noqa: E402
+from services.inbox_ingestion_service import (  # noqa: E402
+    UNIFIED_TENANT_IDS,
+    InboxIngestionService,
+    sync_workbooks_to_onedrive,
+)
 from services.obsidian_vault_service import VaultWriter  # noqa: E402
 from services.sqlite_accounting_store import (  # noqa: E402
     DEFAULT_DB_PATH,
@@ -197,6 +203,10 @@ def refresh_workbooks(
         tenant_id
     )
     exported.append(ledger)
+    client_ledger = ClientLedgerExporter(store, export_dir=export_dir).export(
+        tenant_id
+    )
+    exported.append(client_ledger)
     overview = CategoryOverviewExporter(
         store, root=root, export_dir=export_dir
     ).export(tenant_id)
@@ -221,7 +231,9 @@ def refresh_workbooks(
             store, export_dir=export_dir
         ).export_category_summary(tenant_id, category)
         exported.append(path)
-    return tuple(dict.fromkeys(exported))
+    paths = tuple(dict.fromkeys(exported))
+    sync_workbooks_to_onedrive(paths, root=root)
+    return paths
 
 
 def refresh_cockpit(
@@ -244,6 +256,11 @@ def refresh_cockpit(
         else tree.state_dir(FolderState.EXPORT_COMPTA)
     )
     store = SqliteAccountingStore(db_path or DEFAULT_DB_PATH)
+    for unified_tenant in UNIFIED_TENANT_IDS:
+        try:
+            ensure_tree(unified_tenant, root)
+        except Exception:  # noqa: BLE001 - a future company never blocks
+            continue
     copied: tuple[str, ...] = ()
     missing: tuple[str, ...] = ()
     ingested = 0
@@ -268,6 +285,7 @@ def refresh_cockpit(
             path for stage_report in stage_reports for path in stage_report.workbooks
         )
     )
+    sync_workbooks_to_onedrive(workbooks, root=root)
     ca12_path = next(
         (
             path
@@ -289,7 +307,9 @@ def refresh_cockpit(
     vat_net: Decimal | None = None
     vat_net_b: Decimal | None = None
     try:
-        service = VatSimulationService(store, export_dir=base_export)
+        service = VatSimulationService(
+            store, export_dir=base_export, cash_basis=True
+        )
         ca12 = service.simulate(tenant, year)
         vat_collected = ca12.scenario_a.collected_tva
         vat_deductible = ca12.scenario_a.deductible_total

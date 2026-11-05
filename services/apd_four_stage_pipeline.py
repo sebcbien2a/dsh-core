@@ -28,10 +28,13 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from schemas.folder_state_schema import (
+    DEFERRED_MONTHS,
+    DIRIGEANT_COUNTERPART_ACCOUNT,
     DocumentCategory,
     DocumentStatus,
     ExpenseSubCategory,
     FolderState,
+    PaymentSource,
 )
 from services.acompleter_readable_service import (
     READABLE_FILENAME,
@@ -43,6 +46,9 @@ from services.acompleter_workbook_service import (
     AcompleterWorkbookError,
     WorkbookLockedError,
     derive_document_id,
+)
+from services.accounting_memory_learning_service import (
+    AccountingMemoryLearningService,
 )
 from services.apd_evidence_rules import (
     EvidenceDecision,
@@ -89,6 +95,10 @@ PURCHASE_CATEGORIES = frozenset(
     }
 )
 PAID_STATUSES = frozenset({"PAYEE_RAPPROCHEE", "PAYE", "SOLDEE"})
+PCG_PURCHASES_GOODS = "607000"
+PCG_SERVICES = "622600"
+PCG_SENSITIVE_EXPENSES = "623800"
+UNIFIED_TENANT_PREPARATION = ("HOLDING_APD", "SCI_APD")
 _CHUNK = 1 << 16
 _COHERENCE_FILENAME = "RAPPORT_COHERENCE_PIECES.xlsx"
 
@@ -247,6 +257,12 @@ class ApdFourStagePipeline:
         self._workbook = AcompleterWorkbook(self._tenant_dir)
         self._a_completer_dir = self._tree.state_dir(FolderState.A_COMPLETER)
         self._last_reports: dict[int, StageReport] = {}
+        self._memory = AccountingMemoryLearningService()
+        for sibling in UNIFIED_TENANT_PREPARATION:
+            try:
+                ensure_tree(sibling, root)
+            except Exception:  # noqa: BLE001 - a missing future company never blocks
+                continue
 
     @property
     def tenant_id(self) -> str:
@@ -279,6 +295,402 @@ class ApdFourStagePipeline:
     @property
     def readable_path(self) -> Path:
         return self._a_completer_dir / READABLE_FILENAME
+
+    # -- P24 arbitration columns & human decisions -----------------------
+
+    def _arbitration_defaults(
+        self,
+        line: dict[str, Any] | None,
+        *,
+        category: str | None = None,
+        subcategory: str | None = None,
+    ) -> dict[str, str]:
+        from services.accounting_spreadsheet_export_service import (
+            _infer_expense_subcategory,
+            is_personal_expense,
+            payment_source_of,
+        )
+
+        source = dict(line or {})
+        category_value = str(
+            source.get("category") or category or DocumentCategory.DIVERS_A_CLASSER.value
+        )
+        inferred = _infer_expense_subcategory(source) if line else None
+        sub = (
+            subcategory
+            or (inferred.value if inferred is not None else "")
+            or str(source.get("expense_subcategory") or "")
+        )
+        personal = bool(line and is_personal_expense(source))
+        payment = payment_source_of(source) if line else ""
+        if personal or payment == PaymentSource.COMPTE_PERSO_DIRIGEANT.value:
+            payment_source = PaymentSource.COMPTE_PERSO_DIRIGEANT.value
+            account = DIRIGEANT_COUNTERPART_ACCOUNT
+        else:
+            payment_source = payment or PaymentSource.BANQUE_PRO.value
+            if category_value == DocumentCategory.ACHATS_MARCHANDISES.value:
+                account = PCG_PURCHASES_GOODS
+            elif sub in {
+                ExpenseSubCategory.RESTAURATION.value,
+                ExpenseSubCategory.HOTELLERIE.value,
+                ExpenseSubCategory.FRAIS_REPRESENTATION_PRESIDENT.value,
+                ExpenseSubCategory.TRANSPORT_PARKING.value,
+            }:
+                account = PCG_SENSITIVE_EXPENSES
+            else:
+                account = PCG_SERVICES
+        raw_date = str(source.get("operation_date") or "")[:10]
+        operation_year: int | None = None
+        if raw_date:
+            try:
+                operation_year = date.fromisoformat(raw_date).year
+            except ValueError:
+                operation_year = None
+        target_text = str(source.get("fiscal_year_target") or "").strip()
+        if not target_text.isdigit():
+            target_text = str(operation_year or self._year)
+        month = str(source.get("deferred_month_override") or "").strip()
+        if not month:
+            month = "NON"
+        report = (
+            "OUI"
+            if operation_year is not None and int(target_text) != operation_year
+            else "NON"
+        )
+        mode = str(source.get("fiscal_year_mode") or "ACTUEL").strip() or "ACTUEL"
+        marker = str(source.get("is_classified_marker") or "").strip()
+        if not marker:
+            marker = (
+                f"IDENTIFIEE_CLASSEE:{sub}"
+                if sub
+                else "NON_CLASSEE"
+            )
+        return {
+            "expense_subcategory": sub,
+            "payment_source": payment_source,
+            "counterparty_account": account,
+            "fiscal_year_target": target_text,
+            "deferred_month": month,
+            "report": report,
+            "fiscal_year_mode": mode,
+            "is_classified_marker": marker,
+        }
+
+    def _readable_extra(
+        self,
+        sha: str,
+        line: dict[str, Any] | None,
+        *,
+        category: str | None = None,
+        subcategory: str | None = None,
+    ) -> dict[str, str]:
+        defaults = self._arbitration_defaults(
+            line, category=category, subcategory=subcategory
+        )
+        existing: dict[str, str] = {}
+        try:
+            existing = self._workbook.read_p17_metadata(sha) or {}
+        except (WorkbookLockedError, AcompleterWorkbookError, PermissionError, OSError):
+            existing = {}
+        return {
+            "payment_source": (
+                existing.get("Source de Paiement")
+                or defaults["payment_source"]
+            ),
+            "counterparty_account": (
+                existing.get("Compte de Contrepartie")
+                or defaults["counterparty_account"]
+            ),
+            "fiscal_year_target": (
+                existing.get("Exercice Cible")
+                or defaults["fiscal_year_target"]
+            ),
+            "deferred_month": (
+                existing.get("Mois Décalé") or defaults["deferred_month"]
+            ),
+            "report": existing.get("Report") or defaults["report"],
+        }
+
+    def prefill_arbitration_columns(self) -> int:
+        """Fill the five P24 arbitration columns for every pending row."""
+        try:
+            rows = self._workbook.read_rows()
+        except (
+            WorkbookLockedError,
+            AcompleterWorkbookError,
+            PermissionError,
+            OSError,
+        ):
+            return 0
+        written = 0
+        for row in rows:
+            line = self._store.get_line(
+                self._tenant_id, derive_document_id(row.sha256)
+            )
+            defaults = self._arbitration_defaults(
+                line, category=row.categorie_suggeree or None
+            )
+            try:
+                existing = self._workbook.read_p17_metadata(row.sha256) or {}
+            except (
+                WorkbookLockedError,
+                AcompleterWorkbookError,
+                PermissionError,
+                OSError,
+            ):
+                existing = {}
+            merged = {
+                key: existing.get(header) or value
+                for key, header, value in (
+                    ("expense_subcategory", "Sous-catégorie Frais", defaults["expense_subcategory"]),
+                    ("payment_source", "Source de Paiement", defaults["payment_source"]),
+                    (
+                        "counterparty_account",
+                        "Compte de Contrepartie",
+                        defaults["counterparty_account"],
+                    ),
+                    (
+                        "fiscal_year_target",
+                        "Exercice Cible",
+                        defaults["fiscal_year_target"],
+                    ),
+                    (
+                        "deferred_month_override",
+                        "Mois Décalé",
+                        defaults["deferred_month"],
+                    ),
+                    ("report", "Report", defaults["report"]),
+                    (
+                        "fiscal_year_mode",
+                        "Mode Exercice Fiscal",
+                        defaults["fiscal_year_mode"],
+                    ),
+                    (
+                        "is_classified_marker",
+                        "Repère Classement",
+                        defaults["is_classified_marker"],
+                    ),
+                )
+            }
+            try:
+                changed = self._workbook.update_p17_metadata(
+                    row.sha256,
+                    expense_subcategory=merged["expense_subcategory"] or None,
+                    is_classified_marker=merged["is_classified_marker"],
+                    fiscal_year_mode=merged["fiscal_year_mode"],
+                    fiscal_year_target=merged["fiscal_year_target"],
+                    deferred_month_override=merged["deferred_month_override"],
+                    payment_source=merged["payment_source"],
+                    counterparty_account=merged["counterparty_account"],
+                    report=merged["report"],
+                )
+            except (
+                WorkbookLockedError,
+                AcompleterWorkbookError,
+                PermissionError,
+                OSError,
+            ):
+                continue
+            if changed:
+                written += 1
+        return written
+
+    def apply_human_decisions(self) -> int:
+        """Read the director's Excel decisions and persist them to the ledger."""
+        try:
+            rows = self._workbook.read_rows()
+        except (
+            WorkbookLockedError,
+            AcompleterWorkbookError,
+            PermissionError,
+            OSError,
+        ):
+            return 0
+        applied = 0
+        for row in rows:
+            line = self._store.get_line(
+                self._tenant_id, derive_document_id(row.sha256)
+            )
+            if line is None:
+                continue
+            try:
+                metadata = self._workbook.read_p17_metadata(row.sha256) or {}
+            except (
+                WorkbookLockedError,
+                AcompleterWorkbookError,
+                PermissionError,
+                OSError,
+            ):
+                metadata = {}
+            status = str(row.statut or "").strip().upper()
+            if status == DocumentStatus.REJETE.value:
+                self._store.deactivate_rejected_document(
+                    self._tenant_id, row.sha256
+                )
+                self._archive_human_rejected(row.nom_fichier)
+                self._memory.remember_decision(
+                    counterparty=line.get("counterparty"),
+                    document_number=line.get("invoice_id"),
+                    category=line.get("category"),
+                    decision=DocumentStatus.REJETE.value,
+                )
+                applied += 1
+                continue
+            if status not in {
+                DocumentStatus.VALIDE.value,
+                DocumentStatus.EN_ATTENTE.value,
+            }:
+                continue
+            updated = dict(line)
+            updated.pop("line_id", None)
+            updated["status"] = status
+            category = str(
+                row.categorie_suggeree or line.get("category") or ""
+            ).strip()
+            try:
+                updated["category"] = DocumentCategory(category).value
+            except ValueError:
+                pass
+            subcategory = str(metadata.get("Sous-catégorie Frais") or "").strip()
+            if subcategory:
+                try:
+                    updated["expense_subcategory"] = ExpenseSubCategory(
+                        subcategory
+                    ).value
+                except ValueError:
+                    pass
+            payment_source = str(
+                metadata.get("Source de Paiement") or ""
+            ).strip()
+            if payment_source:
+                updated["payment_source"] = payment_source
+            account = str(metadata.get("Compte de Contrepartie") or "").strip()
+            if account:
+                updated["counterparty_account"] = account
+            target = str(metadata.get("Exercice Cible") or "").strip()
+            if target.isdigit():
+                updated["fiscal_year_target"] = target
+            month = str(metadata.get("Mois Décalé") or "").strip().upper()
+            updated["deferred_month_override"] = (
+                month if month in DEFERRED_MONTHS else None
+            )
+            mode = str(metadata.get("Mode Exercice Fiscal") or "").strip().upper()
+            if mode:
+                updated["fiscal_year_mode"] = mode
+            marker = str(metadata.get("Repère Classement") or "").strip()
+            if marker:
+                updated["is_classified_marker"] = marker
+            if status == DocumentStatus.VALIDE.value:
+                self._move_human_validated(row, updated)
+            self._store.upsert_document_line(
+                self._tenant_id,
+                derive_document_id(row.sha256),
+                updated,
+            )
+            if status == DocumentStatus.VALIDE.value:
+                self._memory.remember_decision(
+                    counterparty=updated.get("counterparty"),
+                    document_number=updated.get("invoice_id"),
+                    category=updated.get("category"),
+                    payment_source=payment_source,
+                    counterparty_account=account,
+                    fiscal_year_target=target,
+                    deferred_month=month if month in DEFERRED_MONTHS else "",
+                    report=metadata.get("Report") or "NON",
+                    decision=DocumentStatus.VALIDE.value,
+                )
+            applied += 1
+        return applied
+
+    def _move_human_validated(
+        self, row: Any, updated: dict[str, Any]
+    ) -> None:
+        category_text = str(
+            updated.get("category")
+            or row.categorie_suggeree
+            or DocumentCategory.DIVERS_A_CLASSER.value
+        )
+        try:
+            category = DocumentCategory(category_text)
+        except ValueError:
+            category = DocumentCategory.DIVERS_A_CLASSER
+        candidates = [
+            self._a_completer_dir / row.nom_fichier,
+            self._tenant_dir / row.nom_fichier,
+        ]
+        invoice_url = str(updated.get("invoice_url") or "").strip()
+        if invoice_url:
+            candidates.append(self._tenant_dir / invoice_url)
+        source = next(
+            (path for path in candidates if path.is_file()), None
+        )
+        if source is None:
+            return
+        try:
+            destination = _move(
+                source,
+                self._tree.category_dir(FolderState.VALIDE_PRET_FEC, category)
+                / source.name,
+            )
+        except OSError:
+            return
+        updated["invoice_url"] = _tenant_relative(destination, self._tenant_dir)
+        side = (
+            SALES_SUBDIR
+            if category is DocumentCategory.VENTES_CLIENTS
+            else PURCHASES_SUBDIR
+        )
+        operation_date = None
+        raw_date = str(updated.get("operation_date") or "")[:10]
+        if raw_date:
+            try:
+                operation_date = date.fromisoformat(raw_date)
+            except ValueError:
+                operation_date = None
+        try:
+            piece = self._copy_piece_once(
+                destination,
+                side=side,
+                document_type=str(updated.get("document_type") or "FACTURE"),
+                document_number=str(
+                    updated.get("invoice_id") or destination.stem
+                ),
+                document_date=operation_date,
+                party=str(updated.get("counterparty") or ""),
+            )
+            updated["piece_pdf"] = _store_piece_relative(piece, self._export_dir)
+        except OSError:
+            pass
+
+    def _archive_human_rejected(self, filename: str) -> None:
+        candidates = [
+            self._a_completer_dir / filename,
+            self._tenant_dir / filename,
+        ]
+        source = next(
+            (path for path in candidates if path.is_file()), None
+        )
+        if source is None:
+            return
+        try:
+            _move(
+                source,
+                self._tree.state_dir(FolderState.ARCHIVE_ERREUR)
+                / "REJET_MANUEL"
+                / source.name,
+            )
+        except OSError:
+            return
+
+    def _sync_mirror(self, paths: Iterable[Path]) -> None:
+        try:
+            from services.inbox_ingestion_service import (
+                sync_workbooks_to_onedrive,
+            )
+
+            sync_workbooks_to_onedrive(paths, root=self._tree.root)
+        except Exception:  # noqa: BLE001 - mirror is best effort
+            return
 
     def run_stage(self, stage: int) -> StageReport:
         if stage not in STAGE_NAMES:
@@ -329,6 +741,7 @@ class ApdFourStagePipeline:
 
     def stage1_vision_and_mother_table(self) -> StageReport:
         self._repair_stale_lock()
+        human_applied = self.apply_human_decisions()
         decisions = self._collect_evidence_decisions()
         processed = validated = pending = moved = 0
         messages: list[str] = []
@@ -377,6 +790,7 @@ class ApdFourStagePipeline:
                 )
         generic_pending = self._write_generic_pending_rows(seen)
         pending += generic_pending
+        self.prefill_arbitration_columns()
         self._write_readable_views()
         sales = self._export_sales_workbook()
         master = self._export_master_tables()
@@ -385,7 +799,9 @@ class ApdFourStagePipeline:
             for path in (sales, master.achats_path, master.banque_tva_path)
             if path is not None
         )
+        self._sync_mirror(workbooks)
         messages.append(f"Pièces traitées par règles d'évidence : {processed}")
+        messages.append(f"Décisions humaines appliquées : {human_applied}")
         messages.append(f"Validations automatiques : {validated}")
         messages.append(f"Questions en attente : {pending}")
         return StageReport(
@@ -700,6 +1116,7 @@ class ApdFourStagePipeline:
         return pending
 
     def _write_readable_views(self) -> None:
+        self.prefill_arbitration_columns()
         rows = self._readable_rows()
         pending_rows = [
             row
@@ -723,6 +1140,9 @@ class ApdFourStagePipeline:
                 continue
             seen.add(sha)
             piece_rel = self._piece_rel_for_sha(sha, path)
+            line = self._store.get_line(
+                self._tenant_id, derive_document_id(sha)
+            )
             rows.append(
                 ReadableRow(
                     sha256=sha,
@@ -739,6 +1159,12 @@ class ApdFourStagePipeline:
                     status=decision.status,
                     piece_pdf=piece_rel,
                     rule=decision.rule,
+                    extra=self._readable_extra(
+                        sha,
+                        line,
+                        category=decision.category.value,
+                        subcategory=decision.expense_subcategory,
+                    ),
                 )
             )
         for path in sorted(self._a_completer_dir.glob("*.pdf")):
@@ -772,6 +1198,9 @@ class ApdFourStagePipeline:
                     action=action,
                     status=DocumentStatus.EN_ATTENTE,
                     piece_pdf=_tenant_relative(path, self._tenant_dir),
+                    extra=self._readable_extra(
+                        sha, line, category=category_value
+                    ),
                 )
             )
         for row in self._read_workbook_rows():
@@ -817,6 +1246,15 @@ class ApdFourStagePipeline:
                     status=status,
                     piece_pdf=self._piece_rel_for_sha(
                         row.sha256, self._tenant_dir / row.nom_fichier
+                    ),
+                    extra=self._readable_extra(
+                        row.sha256,
+                        line,
+                        category=str(
+                            line.get("category")
+                            or row.categorie_suggeree
+                            or DocumentCategory.DIVERS_A_CLASSER.value
+                        ),
                     ),
                 )
             )
@@ -878,6 +1316,7 @@ class ApdFourStagePipeline:
             messages.append(f"LETTRAGE_CLIENTS_IGNORE:{exc}")
         master = self._export_master_tables()
         workbooks = (master.banque_tva_path, master.achats_path)
+        self._sync_mirror(workbooks)
         messages.append(f"Lignes OFX importées : {imported}")
         messages.append(f"Débits fournisseurs rapprochés : {reconciled}")
         return StageReport(
@@ -1046,15 +1485,18 @@ class ApdFourStagePipeline:
     # -- stage 3 ---------------------------------------------------------
 
     def stage3_ventilation_and_coherence(self) -> StageReport:
+        human_applied = self.apply_human_decisions()
         repaired = self._repair_piece_links()
         self._write_readable_views()
         workbooks = self._refresh_workbooks()
+        self._sync_mirror(workbooks)
         issues = self._coherence_issues()
         report_path = self._write_coherence_report(issues)
         if report_path is not None:
             workbooks = tuple(dict.fromkeys((*workbooks, report_path)))
         messages = [
             f"Classeurs rafraîchis : {len(workbooks)}",
+            f"Décisions humaines appliquées : {human_applied}",
             f"Liens PDF réparés : {repaired}",
             f"Anomalies de pièces : {len(issues)}",
         ]
@@ -1072,6 +1514,7 @@ class ApdFourStagePipeline:
         from services.accounting_spreadsheet_export_service import (
             CategoryOverviewExporter,
             CategorySummaryExporter,
+            ClientLedgerExporter,
             ExpenseSubCategoryExporter,
             MasterTableExporter,
             PersonalExpenseNoteExporter,
@@ -1098,6 +1541,14 @@ class ApdFourStagePipeline:
                 SupplierLedgerExporter(
                     self._store, export_dir=self._export_dir.parent
                 ).export_supplier_ledger(self._tenant_id)
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            paths.append(
+                ClientLedgerExporter(
+                    self._store, export_dir=self._export_dir.parent
+                ).export(self._tenant_id)
             )
         except Exception:  # noqa: BLE001
             pass
@@ -1327,7 +1778,9 @@ class ApdFourStagePipeline:
         balance_path: Path | None = None
         try:
             service = VatSimulationService(
-                self._store, export_dir=self._export_dir.parent
+                self._store,
+                export_dir=self._export_dir.parent,
+                cash_basis=True,
             )
             report = service.simulate(self._tenant_id, self._year)
             ca12_path = service.write_report(report)
@@ -1360,6 +1813,7 @@ class ApdFourStagePipeline:
         if balance_path is None and expected_balance.is_file():
             balance_path = expected_balance
             workbooks.append(balance_path)
+        self._sync_mirror(workbooks)
         return StageReport(
             stage=4,
             name=STAGE_NAMES[4],

@@ -111,6 +111,16 @@ _DEFAULT_CONFIDENCE_THRESHOLD = 0.75
 _DETERMINISTIC_TOOLS = frozenset({"pymupdf_text_regex"})
 _UNKNOWN_SUPPLIER = "FOURNISSEUR_INCONNU"
 ONEDRIVE_INBOX_ENV = "ONEDRIVE_INBOX_PATH"
+ONEDRIVE_COMPTA_DIR_ENV = "DSH_ONEDRIVE_COMPTA_DIR"
+ONEDRIVE_COMPTA_FOLDER = "Compta_APD"
+UNIFIED_TENANT_IDS: tuple[str, ...] = (
+    "APD",
+    "default",
+    "HOLDING_APD",
+    "SCI_APD",
+)
+EMAIL_ATTACHMENT_SUFFIXES = frozenset({".pdf", ".xml"})
+EMAIL_ARCHIVE_SUBDIR = "SOURCES_EMAIL"
 
 OUTCOME_VALIDE = "VALIDE"
 OUTCOME_A_COMPLETER = "A_COMPLETER"
@@ -228,6 +238,57 @@ def resolve_onedrive_inbox(
         / validate_tenant_id(tenant_id)
         / FolderState.INBOX.value
     ).resolve()
+
+
+def resolve_unified_inboxes(
+    tenant_id: str, root: str | os.PathLike[str] | None = None
+) -> tuple[tuple[str, Path], ...]:
+    """Return the sibling tenant inboxes merged into the principal flow.
+
+    ``APD`` and ``default`` are the historical names of the same manager
+    workspace; ``HOLDING_APD`` and ``SCI_APD`` are prepared for the future
+    companies. Every returned inbox is created on first use.
+    """
+    tenant = validate_tenant_id(tenant_id)
+    inboxes: list[tuple[str, Path]] = []
+    for sibling in UNIFIED_TENANT_IDS:
+        if sibling == tenant:
+            continue
+        try:
+            tree = ensure_tree(sibling, root)
+            inbox = tree.state_dir(FolderState.INBOX)
+            inbox.mkdir(parents=True, exist_ok=True)
+        except Exception:  # noqa: BLE001 - one bad tenant never blocks
+            continue
+        inboxes.append((sibling, inbox))
+    return tuple(inboxes)
+
+
+def resolve_onedrive_compta_mirror(
+    root: str | os.PathLike[str] | None = None,
+) -> Path | None:
+    """Resolve/create ``%UserProfile%\\OneDrive\\Compta_APD``.
+
+    The mirror is disabled for explicit test roots. It can be forced with
+    ``DSH_ONEDRIVE_COMPTA_DIR``; otherwise it is only created for the real
+    production workspace (``root=None``) when OneDrive exists.
+    """
+    raw = os.environ.get(ONEDRIVE_COMPTA_DIR_ENV, "").strip()
+    if raw:
+        base = Path(raw).expanduser()
+    elif root is None:
+        onedrive = Path.home() / "OneDrive"
+        if not onedrive.is_dir():
+            return None
+        base = onedrive / ONEDRIVE_COMPTA_FOLDER
+    else:
+        return None
+    try:
+        (base / "00_INBOX").mkdir(parents=True, exist_ok=True)
+        (base / "Tableaux_Comptables").mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return None
+    return base
 
 
 def _clean_text(value: Any) -> str | None:
@@ -670,14 +731,32 @@ class InboxIngestionService:
         confidence_threshold: float = _DEFAULT_CONFIDENCE_THRESHOLD,
         vault_bridge: Any | None = None,
         onedrive_inbox: str | os.PathLike[str] | None = None,
+        unified_tenants: Iterable[str] | None = None,
+        enable_onedrive_mirror: bool | None = None,
     ) -> None:
         self._tenant_id = validate_tenant_id(tenant_id)
         self._store = store
         self._tree = ensure_tree(self._tenant_id, root)
+        self._inbox = self._tree.state_dir(FolderState.INBOX)
         self._onedrive_inbox = (
             Path(onedrive_inbox).expanduser().resolve()
             if onedrive_inbox is not None
             else resolve_onedrive_inbox(self._tenant_id, root)
+        )
+        enabled = (
+            root is None if enable_onedrive_mirror is None else enable_onedrive_mirror
+        )
+        self._onedrive_compta_dir = (
+            resolve_onedrive_compta_mirror(root) if enabled else None
+        )
+        siblings = (
+            UNIFIED_TENANT_IDS if unified_tenants is None and root is None
+            else (() if unified_tenants is None else tuple(unified_tenants))
+        )
+        self._unified_inboxes = tuple(
+            (sibling, inbox)
+            for sibling, inbox in resolve_unified_inboxes(self._tenant_id, root)
+            if sibling in siblings
         )
         self._workbook = AcompleterWorkbook(self._tree.root / self._tenant_id)
         self._export_root = (
@@ -730,6 +809,7 @@ class InboxIngestionService:
         acc = _Accumulator()
         if paths is None:
             self._record_aspiration(acc)
+            self._aspirate_unified_inboxes(acc)
         archived_hashes = self._archived_hashes()
         claimed: set[str] = set()
         if paths is None:
@@ -803,27 +883,33 @@ class InboxIngestionService:
             if mirror is None
             else Path(mirror).expanduser().resolve()
         )
-        if mirror_root == inbox:
-            return MirrorAspirationReport()
+        mirror_roots: list[Path] = [mirror_root]
+        compta_mirror = self._onedrive_compta_dir
+        if compta_mirror is not None:
+            compta_inbox = (compta_mirror / "00_INBOX").resolve()
+            if compta_inbox != mirror_root and compta_inbox != inbox.resolve():
+                mirror_roots.append(compta_inbox)
+        mirror_roots = [path for path in mirror_roots if path != inbox.resolve()]
 
         moved: list[Path] = []
         locked: list[str] = []
         failed: list[str] = []
         if paths is None:
-            try:
-                candidates = sorted(
-                    (
+            candidates: list[Path] = []
+            for root_path in mirror_roots:
+                try:
+                    candidates.extend(
                         path
-                        for path in mirror_root.iterdir()
+                        for path in root_path.iterdir()
                         if path.is_file() and not path.name.startswith("~$")
-                    ),
-                    key=_inbox_sort_key,
-                )
-            except OSError as exc:
-                return MirrorAspirationReport(failed=(_error_detail(exc),))
+                    )
+                except OSError as exc:
+                    failed.append(_error_detail(exc))
+            candidates.sort(key=_inbox_sort_key)
         else:
             candidates = []
             seen: set[Path] = set()
+            allowed_roots = {path.resolve() for path in mirror_roots}
             for raw in paths:
                 try:
                     candidate = Path(raw).resolve()
@@ -833,7 +919,7 @@ class InboxIngestionService:
                     candidate in seen
                     or not candidate.is_file()
                     or candidate.name.startswith("~$")
-                    or candidate.parent != mirror_root
+                    or candidate.parent not in allowed_roots
                 ):
                     continue
                 seen.add(candidate)
@@ -856,6 +942,72 @@ class InboxIngestionService:
             locked=tuple(locked),
             failed=tuple(failed),
         )
+
+    def _aspirate_unified_inboxes(self, acc: _Accumulator) -> None:
+        """Merge sibling tenant inboxes (APD/default/HOLDING/SCI) into the flow."""
+        inbox = self._tree.state_dir(FolderState.INBOX)
+        for sibling, source_inbox in self._unified_inboxes:
+            if not source_inbox.is_dir():
+                continue
+            try:
+                candidates = sorted(
+                    (
+                        path
+                        for path in source_inbox.iterdir()
+                        if path.is_file() and not path.name.startswith("~$")
+                    ),
+                    key=_inbox_sort_key,
+                )
+            except OSError as exc:
+                acc.traces.append(
+                    f"UNIFIED_INBOX_UNREADABLE:{sibling}:{_error_detail(exc)}"
+                )
+                continue
+            for path in candidates:
+                destination = _unique_dest(inbox / path.name)
+                try:
+                    _move(path, destination)
+                except PermissionError:
+                    acc.deferred_io += 1
+                    acc.traces.append(f"UNIFIED_MIRROR_LOCKED:{sibling}:{path.name}")
+                    continue
+                except OSError as exc:
+                    acc.traces.append(
+                        f"UNIFIED_MIRROR_FAILED:{sibling}:{path.name}:"
+                        f"{_error_detail(exc)}"
+                    )
+                    continue
+                acc.mirrored += 1
+                acc.traces.append(f"UNIFIED_MIRRORED:{sibling}:{path.name}")
+
+    def sync_exports_to_onedrive(
+        self, paths: Iterable[str | Path]
+    ) -> tuple[Path, ...]:
+        """Copy generated workbooks to ``OneDrive\\Compta_APD\\Tableaux_Comptables``."""
+        base = self._onedrive_compta_dir
+        if base is None:
+            return ()
+        target_dir = base / "Tableaux_Comptables"
+        try:
+            target_dir.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            return ()
+        copied: list[Path] = []
+        for raw in paths:
+            source = Path(raw)
+            if not source.is_file() or source.suffix.casefold() != ".xlsx":
+                continue
+            if source.name.startswith("~$"):
+                continue
+            destination = target_dir / source.name
+            try:
+                shutil.copy2(source, destination)
+            except PermissionError:
+                continue
+            except OSError:
+                continue
+            copied.append(destination)
+        return tuple(copied)
 
     def _record_aspiration(self, acc: _Accumulator) -> None:
         result = self.aspirate_onedrive()
@@ -901,19 +1053,84 @@ class InboxIngestionService:
         else:
             self._route_pending(working, digest, extracted, missing, acc)
 
-    # -- special unified inbox (P21) ------------------------------------
+    # -- special unified inbox (P21 / P24) ------------------------------
+
+    def _ingest_eml(
+        self, source: Path, digest: str, acc: _Accumulator
+    ) -> bool:
+        """Extract ``.pdf`` / ``.xml`` attachments from an ``.eml`` message."""
+        try:
+            from services.email_inbox_bridge import parse_email_message
+
+            message = parse_email_message(
+                source.read_bytes(), message_id=source.stem
+            )
+        except Exception as exc:  # noqa: BLE001 - one bad mail never blocks
+            acc.traces.append(f"{digest}:EML_UNREADABLE:{_error_detail(exc)}")
+            self._archive(source, acc, "EML_UNREADABLE", sha256=digest)
+            return True
+        attachments = [
+            attachment
+            for attachment in message.attachments
+            if attachment.suffix in EMAIL_ATTACHMENT_SUFFIXES
+            and bool(attachment.content)
+        ]
+        if not attachments:
+            acc.traces.append(f"{digest}:EMAIL_SANS_PIECE")
+            self._archive(source, acc, "EMAIL_SANS_PIECE", sha256=digest)
+            return True
+        archive_dir = self._export_root.parent / EMAIL_ARCHIVE_SUBDIR
+        try:
+            archive_dir.mkdir(parents=True, exist_ok=True)
+            archived_mail = _unique_dest(archive_dir / source.name)
+            _move(source, archived_mail)
+        except OSError as exc:
+            acc.traces.append(f"{digest}:EML_ARCHIVE_FAILED:{_error_detail(exc)}")
+        for attachment in attachments:
+            suffix = attachment.suffix
+            safe_name = Path(str(attachment.filename or "piece")).name.strip()
+            if not safe_name or Path(safe_name).suffix.casefold() != suffix:
+                safe_name = f"{Path(safe_name).stem or 'piece'}{suffix}"
+            target = _unique_dest(self._inbox / safe_name)
+            try:
+                target.write_bytes(attachment.content)
+            except OSError as exc:
+                acc.traces.append(
+                    f"{digest}:EML_ATTACHMENT_WRITE_FAILED:{safe_name}:"
+                    f"{_error_detail(exc)}"
+                )
+                continue
+            attachment_digest = hashlib.sha256(attachment.content).hexdigest()
+            if (
+                self._store_has_document(attachment_digest)
+                or attachment_digest in self._archived_hashes()
+            ):
+                self._archive(
+                    target,
+                    acc,
+                    "DUPLICATE_SHA256",
+                    sha256=attachment_digest,
+                )
+                continue
+            acc.scanned += 1
+            self._ingest_one(target, attachment_digest, acc)
+        acc.traces.append(f"{digest}:EML_ATTACHMENTS:{len(attachments)}")
+        return True
 
     def _handle_special_format(
         self, source: Path, digest: str, acc: _Accumulator
     ) -> bool:
-        """Ingest OFX, Sage exports and specialised PDFs before Vision.
+        """Ingest OFX, Sage exports, e-mails and specialised PDFs before Vision.
 
         Only the production extractor triggers this dispatcher; injected test
-        extractors keep their historical deterministic behaviour.
+        extractors keep their historical deterministic behaviour, except for
+        ``.eml`` files whose attachments must always be unpacked.
         """
+        suffix = source.suffix.casefold()
+        if suffix == ".eml":
+            return self._ingest_eml(source, digest, acc)
         if not isinstance(self._extractor, PipelineDocumentExtractor):
             return False
-        suffix = source.suffix.casefold()
         if suffix in {".ofx", ".qfx"}:
             import_ofx_statement(self._store, self._tenant_id, source.read_bytes())
             self._route_special_file(
@@ -1632,18 +1849,53 @@ def _relative_piece_path(piece: Path | None, export_root: Path) -> str | None:
             return None
 
 
+def sync_workbooks_to_onedrive(
+    paths: Iterable[str | Path],
+    *,
+    root: str | os.PathLike[str] | None = None,
+) -> tuple[Path, ...]:
+    """Copy generated workbooks to ``OneDrive\\Compta_APD\\Tableaux_Comptables``."""
+    base = resolve_onedrive_compta_mirror(root)
+    if base is None:
+        return ()
+    target_dir = base / "Tableaux_Comptables"
+    try:
+        target_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return ()
+    copied: list[Path] = []
+    for raw in paths:
+        source = Path(raw)
+        if not source.is_file() or source.suffix.casefold() != ".xlsx":
+            continue
+        if source.name.startswith("~$"):
+            continue
+        destination = target_dir / source.name
+        try:
+            shutil.copy2(source, destination)
+        except OSError:
+            continue
+        copied.append(destination)
+    return tuple(copied)
+
+
 __all__ = [
     "ExtractedInvoice",
     "InboxIngestionReport",
     "InboxIngestionService",
     "IngestedDocument",
     "MirrorAspirationReport",
+    "ONEDRIVE_COMPTA_DIR_ENV",
     "ONEDRIVE_INBOX_ENV",
     "OUTCOME_A_COMPLETER",
     "OUTCOME_DUPLICATE",
     "OUTCOME_ERREUR",
     "OUTCOME_VALIDE",
     "PipelineDocumentExtractor",
+    "UNIFIED_TENANT_IDS",
     "extracted_from_invoice",
+    "resolve_onedrive_compta_mirror",
     "resolve_onedrive_inbox",
+    "resolve_unified_inboxes",
+    "sync_workbooks_to_onedrive",
 ]

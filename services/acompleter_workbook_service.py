@@ -68,6 +68,7 @@ P17_EXTENSION_HEADERS: tuple[str, ...] = (
     "Source de Paiement",
     "Compte de Contrepartie",
     PIECE_LINK_HEADER,
+    "Report",
 )
 EXTENDED_HEADERS: tuple[str, ...] = HEADERS + P17_EXTENSION_HEADERS
 # P22 appends the manager-facing readable columns. They are only materialised
@@ -356,16 +357,22 @@ class AcompleterWorkbook:
                 ws.column_dimensions[letter].hidden = True
             widths = {
                 "R": 13,
-                "S": 26,
-                "T": 32,
-                "U": 18,
-                "V": 12,
+                "S": 13,
+                "T": 26,
+                "U": 32,
+                "V": 18,
                 "W": 12,
                 "X": 12,
-                "Y": 24,
-                "Z": 62,
-                "AA": 42,
-                "AB": 40,
+                "Y": 12,
+                "Z": 24,
+                "AA": 62,
+                "AB": 42,
+                "AC": 22,
+                "AD": 22,
+                "AE": 14,
+                "AF": 14,
+                "AG": 10,
+                "AH": 32,
             }
             for letter, width in widths.items():
                 ws.column_dimensions[letter].width = width
@@ -413,6 +420,11 @@ class AcompleterWorkbook:
                     row.category_value,
                     row.reason,
                     row.action,
+                    row.extra.get("payment_source", ""),
+                    row.extra.get("counterparty_account", ""),
+                    row.extra.get("fiscal_year_target", ""),
+                    row.extra.get("deferred_month", ""),
+                    row.extra.get("report", ""),
                 )
                 for offset, value in enumerate(values):
                     cell = ws.cell(
@@ -486,6 +498,7 @@ class AcompleterWorkbook:
         deferred_month_override: object = None,
         payment_source: PaymentSource | str | None = None,
         counterparty_account: object = None,
+        report: object = None,
     ) -> bool:
         """Write the P17 columns of one existing row (pipeline-owned cells).
 
@@ -495,18 +508,42 @@ class AcompleterWorkbook:
         ``ROW_NOT_FOUND`` / ``INVALID_P17_VALUE`` as controlled errors.
         """
         key = normalize_sha256(sha256)
-        values = self._normalize_p17_values(
-            expense_subcategory=expense_subcategory,
-            invite_restaurant=invite_restaurant,
-            lieu_restaurant=lieu_restaurant,
-            is_classified_marker=is_classified_marker,
-            tva_dedup_status=tva_dedup_status,
-            fiscal_year_mode=fiscal_year_mode,
-            fiscal_year_target=fiscal_year_target,
-            deferred_month_override=deferred_month_override,
-            payment_source=payment_source,
-            counterparty_account=counterparty_account,
-        )
+        raw_values = {
+            "expense_subcategory": expense_subcategory,
+            "invite_restaurant": invite_restaurant,
+            "lieu_restaurant": lieu_restaurant,
+            "is_classified_marker": is_classified_marker,
+            "tva_dedup_status": tva_dedup_status,
+            "fiscal_year_mode": fiscal_year_mode,
+            "fiscal_year_target": fiscal_year_target,
+            "deferred_month_override": deferred_month_override,
+            "payment_source": payment_source,
+            "counterparty_account": counterparty_account,
+            "report": report,
+        }
+        values = self._normalize_p17_values(**raw_values)
+        raw_for_header = {
+            "Sous-catégorie Frais": expense_subcategory,
+            "Invité Restaurant": invite_restaurant,
+            "Lieu Restaurant": lieu_restaurant,
+            "Repère Classement": is_classified_marker,
+            "Statut Anti-Doublon TVA": tva_dedup_status,
+            "Mode Exercice Fiscal": fiscal_year_mode,
+            "Exercice Cible": fiscal_year_target,
+            "Mois Décalé": deferred_month_override,
+            "Source de Paiement": payment_source,
+            "Compte de Contrepartie": counterparty_account,
+            "Report": report,
+        }
+        selected = {
+            header: value
+            for header, value in values.items()
+            if raw_for_header.get(header) is not None
+            or (
+                header == "Compte de Contrepartie"
+                and payment_source is not None
+            )
+        }
         self._require_no_lock()
         if not self.workbook_path.exists():
             raise AcompleterWorkbookError(
@@ -520,7 +557,7 @@ class AcompleterWorkbook:
             if target_row is None:
                 raise AcompleterWorkbookError("ROW_NOT_FOUND", key)
             changed = extension_added
-            for header, value in values.items():
+            for header, value in selected.items():
                 column = EXTENDED_HEADERS.index(header) + 1
                 cell = ws.cell(row=target_row, column=column)
                 if _cell_text(cell.value).strip() != value:
@@ -592,8 +629,10 @@ class AcompleterWorkbook:
 
         def month(value: object) -> str:
             if value is None or text(value) == "":
-                return ""
-            candidate = text(value)
+                return "NON"
+            candidate = text(value).upper()
+            if candidate == "NON":
+                return "NON"
             if candidate.isdigit():
                 candidate = candidate.zfill(2)
             if candidate not in DEFERRED_MONTHS:
@@ -618,7 +657,7 @@ class AcompleterWorkbook:
             mandatory = counterparty_account_for_payment_source(source)
             if mandatory is not None:
                 return source.value, mandatory
-            return source.value, ""
+            return source.value, text(account)
 
         payment_source_value, counterparty_account_value = payment(
             raw_values.get("payment_source"),
@@ -642,6 +681,7 @@ class AcompleterWorkbook:
             "Mois Décalé": month(raw_values.get("deferred_month_override")),
             "Source de Paiement": payment_source_value,
             "Compte de Contrepartie": counterparty_account_value,
+            "Report": text(raw_values.get("report")).upper() or "NON",
         }
 
     @staticmethod

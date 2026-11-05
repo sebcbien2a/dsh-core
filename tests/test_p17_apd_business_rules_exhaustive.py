@@ -407,6 +407,7 @@ def test_expense_subcategory_contract_and_missing_fields():
         "HOTELLERIE",
         "INFORMATIQUE_WEB",
         "HONORAIRES_JURIDIQUES",
+        "FRAIS_REPRESENTATION_PRESIDENT",
     ]
     assert MissingFieldEnum.INVITE_RESTAURANT.value == "invite_restaurant"
     assert MissingFieldEnum.LIEU_RESTAURANT.value == "lieu_restaurant"
@@ -632,6 +633,7 @@ def test_master_tables_expose_p23_piece_and_bank_columns(tmp_path):
     )
     assert MASTER_BANQUE_TVA_HEADERS == (
         "Date Opération",
+        "Tiers / Contrepartie identifiée (Client / Fournisseur / Dirigeant)",
         "Type",
         "Libellé Opération",
         "Débit",
@@ -936,14 +938,15 @@ def test_p23_bank_mirror_letters_sales_piece_and_links_pdf(tmp_path):
     rows = rows_of(report.banque_tva_path)
 
     assert len(rows) == 1
-    assert rows[0][1] == "LCR_ENCAISSEMENT_LOT"
-    assert rows[0][2] == "REMISE ENCAISSEMENT N 94694"
-    assert rows[0][3] == 0.0
-    assert rows[0][4] == 1200.0
-    assert "FA2001" in rows[0][5]
-    assert rows[0][6] == 200.0
-    assert rows[0][7] == 0.0
-    link_cell = sheet(report.banque_tva_path).cell(row=2, column=6)
+    assert "CLIENT" in rows[0][1]
+    assert rows[0][2] == "LCR_ENCAISSEMENT_LOT"
+    assert rows[0][3] == "REMISE ENCAISSEMENT N 94694"
+    assert rows[0][4] == 0.0
+    assert rows[0][5] == 1200.0
+    assert "FA2001" in rows[0][6]
+    assert rows[0][7] == 200.0
+    assert rows[0][8] == 0.0
+    link_cell = sheet(report.banque_tva_path).cell(row=2, column=7)
     assert link_cell.hyperlink is not None
     assert "FA2001.pdf" in str(link_cell.hyperlink.target)
 
@@ -1069,6 +1072,7 @@ def test_acompleter_workbook_accepts_p17_metadata(tmp_path):
         "Mois Décalé": "01",
         "Source de Paiement": "",
         "Compte de Contrepartie": "",
+        "Report": "",
     }
 
 

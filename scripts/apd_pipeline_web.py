@@ -20,6 +20,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from services.apd_four_stage_pipeline import DEFAULT_TENANT, DEFAULT_YEAR
+from services.apd_control_panel import dashboard_html
 from services.hermes_accounting_bridge import HermesAccountingBridge
 
 
@@ -108,7 +109,11 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802 - stdlib signature
         path = urlparse(self.path).path
         if path in {"/", "/index.html"}:
-            self._send(200, PAGE.encode("utf-8"), "text/html; charset=utf-8")
+            self._send(
+                200,
+                dashboard_html().encode("utf-8"),
+                "text/html; charset=utf-8",
+            )
             return
         if path == "/api/status":
             try:

@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "updated_at": "2026-11-05T20:34:38.915138+00:00",
+  "groups": {
+    "PAINTCAR": {
+      "canonical": "PAINTCAR",
+      "members": [
+        "PAINTCAR",
+        "CRISOL COLOR",
+        "CRISOL COLOR S L",
+        "TOTCOLOR",
+        "GROUPE TOTCOLOR"
+      ],
+      "reference_prefixes": [
+        "ILA"
+      ]
+    },
+    "QREFINISH": {
+      "canonical": "QREFINISH",
+      "members": [
+        "QREFINISH",
+        "Q REFINISH",
+        "QREFINISH FRANCE"
+      ],
+      "reference_prefixes": [
+        "QREF"
+      ]
+    }
+  },
+  "aliases": {
+    "HABITAT AUTOMATISME": "SAS DIFFAM",
+    "SAS DIFFAM": "SAS DIFFAM",
+    "SMTRT": "SMTRT",
+    "LIDL": "LIDL",
+    "LE TEMPS DES CERISES": "LE TEMPS DES CERISES",
+    "SASU INDIGO GALLERY": "LE TEMPS DES CERISES",
+    "TRADEINN": "TRADEINN",
+    "CARROSSERIE YUCELL": "CARROSSERIE_YUCEL",
+    "CARROSSERIE YUCEL": "CARROSSERIE_YUCEL"
+  },
+  "suppliers": {
+    "LIDL": {
+      "invoice_numbers": [
+        "F013481860"
+      ],
+      "amount_ttc": "246.89",
+      "nature": "OUTILLAGE"
+    },
+    "LE TEMPS DES CERISES": {
+      "aliases": [
+        "SASU INDIGO GALLERY"
+      ],
+      "amounts_ttc": [
+        "37.18",
+        "528.76"
+      ],
+      "amounts_tva": [
+        "6.20",
+        "88.13"
+      ],
+      "nature": "FRAIS_REPRESENTATION_PRESIDENT"
+    },
+    "TRADEINN": {
+      "amounts_ttc": [
+        "302.39",
+        "101.66"
+      ],
+      "nature": "FRAIS_REPRESENTATION_PRESIDENT"
+    },
+    "SMTRT": {
+      "source": "SMTRT.eml"
+    },
+    "QREFINISH": {
+      "group": "QREFINISH"
+    }
+  },
+  "decisions": []
+}

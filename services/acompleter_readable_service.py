@@ -31,6 +31,11 @@ READABLE_HEADERS: tuple[str, ...] = (
     "Catégorie Proposée",
     "Pourquoi c'est en attente & Conseil IA (Argumenté)",
     "Action / Décision",
+    "Source de paiement",
+    "Compte de contrepartie",
+    "Exercice cible",
+    "Mois décalé",
+    "Report",
     "Pièce PDF (Clic)",
 )
 READABLE_SHEET = "A_COMPLETER"
@@ -192,6 +197,11 @@ def write_readable_workbook(
             row.category_value,
             row.reason,
             row.action,
+            row.extra.get("payment_source", ""),
+            row.extra.get("counterparty_account", ""),
+            row.extra.get("fiscal_year_target", ""),
+            row.extra.get("deferred_month", ""),
+            row.extra.get("report", ""),
             None,
         )
         for column, value in enumerate(values, start=1):
@@ -219,7 +229,7 @@ def write_readable_workbook(
     last_row = max(sheet.max_row, 1)
     sheet.auto_filter.ref = f"A1:{get_column_letter(len(READABLE_HEADERS))}{last_row}"
     sheet.freeze_panes = "A2"
-    widths = (12, 26, 32, 18, 12, 12, 12, 24, 62, 42, 40)
+    widths = (12, 26, 32, 18, 12, 12, 12, 24, 62, 42, 22, 22, 14, 14, 10, 32)
     for column, width in enumerate(widths, start=1):
         sheet.column_dimensions[get_column_letter(column)].width = width
     workbook.properties.creator = "DSH-Core P22"

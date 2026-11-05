@@ -99,6 +99,20 @@ EXPENSE_CATEGORIES = (
 )
 SIMULATED_CATEGORIES = COLLECTED_CATEGORIES | EXPENSE_CATEGORIES
 
+SENSITIVE_SUBCATEGORIES = frozenset(
+    {
+        ExpenseSubCategory.RESTAURATION.value,
+        ExpenseSubCategory.HOTELLERIE.value,
+        ExpenseSubCategory.FRAIS_REPRESENTATION_PRESIDENT.value,
+    }
+)
+SENSITIVE_COUNTERPARTY_KEYWORDS = (
+    "temps des cerises",
+    "indigo gallery",
+    "tradeinn",
+)
+PAID_RECONCILIATION_STATUSES = frozenset({"PAYEE_RAPPROCHEE", "PAYE", "SOLDEE"})
+
 ACOMPTE_RATES: tuple[tuple[str, Decimal, int, int], ...] = (
     ("JUILLET", Decimal("0.55"), 7, 31),
     ("DECEMBRE", Decimal("0.45"), 12, 31),
@@ -195,6 +209,8 @@ class VatScenario:
     deductible_immobilisations: Decimal
     non_deductible_tva: Decimal
     charges: Decimal
+    sensitive_tva: Decimal = ZERO
+    deductible_sensitive_tva: Decimal = ZERO
     acomptes: tuple[VatAcompte, ...] = ()
 
     @property
@@ -246,6 +262,7 @@ class Ca12SimulationReport:
     deferred_to_next_year: tuple[VatLine, ...]
     incoming_from_previous_year: tuple[VatLine, ...]
     generated_at: datetime
+    cash_basis: bool = False
 
     @property
     def next_year(self) -> int:
@@ -372,21 +389,68 @@ def _row_identity(row: dict[str, Any]) -> str:
     return ""
 
 
-def _operation_year(row: dict[str, Any]) -> int | None:
-    parsed = _parse_date(row.get("operation_date"))
+def _operation_year(row: dict[str, Any], cash_basis: bool = False) -> int | None:
+    parsed = _cash_date(row) if cash_basis else _parse_date(row.get("operation_date"))
     return parsed.year if parsed is not None else None
 
 
-def _is_deferred_to_next_year(row: dict[str, Any], year: int) -> bool:
+def _cash_date(row: dict[str, Any]) -> date_cls | None:
+    """Payment date used by the P24 encaissement / décaissement rule."""
+    for key in ("reconciliation_date", "payment_date", "fitid_date"):
+        parsed = _parse_date(row.get(key))
+        if parsed is not None:
+            return parsed
+    return _parse_date(row.get("operation_date"))
+
+
+def _is_paid(row: dict[str, Any]) -> bool:
+    status = str(row.get("reconciliation_status") or "").strip().upper()
+    if status in PAID_RECONCILIATION_STATUSES:
+        return True
+    balance = _decimal(row.get("balance_due"))
+    if balance is not None and balance == ZERO:
+        return True
+    return str(row.get("already_paid_on_invoice") or "").strip() in {"1", "true", "oui"}
+
+
+def _is_sensitive_row(row: dict[str, Any]) -> bool:
+    subcategory = _infer_expense_subcategory(row)
+    if subcategory is not None and subcategory.value in SENSITIVE_SUBCATEGORIES:
+        return True
+    folded = re.sub(
+        r"[^a-z0-9]+",
+        " ",
+        str(
+            " ".join(
+                str(row.get(key) or "")
+                for key in ("counterparty", "supplier", "label", "invoice_url")
+            )
+        ).casefold(),
+    )
+    return any(keyword in folded for keyword in SENSITIVE_COUNTERPARTY_KEYWORDS)
+
+
+def _is_sensitive_line(line: "VatLine") -> bool:
+    if line.subcategory in SENSITIVE_SUBCATEGORIES:
+        return True
+    folded = (line.counterparty or "").casefold()
+    return any(keyword in folded for keyword in SENSITIVE_COUNTERPARTY_KEYWORDS)
+
+
+def _is_deferred_to_next_year(
+    row: dict[str, Any], year: int, *, cash_basis: bool = False
+) -> bool:
     return (
-        _operation_year(row) == year
+        _operation_year(row, cash_basis) == year
         and _declared_target_year(row) == year + 1
         and _month(row.get("deferred_month_override")) is not None
     )
 
 
-def _is_incoming_from_previous_year(row: dict[str, Any], year: int) -> bool:
-    operation_year = _operation_year(row)
+def _is_incoming_from_previous_year(
+    row: dict[str, Any], year: int, *, cash_basis: bool = False
+) -> bool:
+    operation_year = _operation_year(row, cash_basis)
     return (
         operation_year is not None
         and operation_year == year - 1
@@ -396,7 +460,7 @@ def _is_incoming_from_previous_year(row: dict[str, Any], year: int) -> bool:
 
 
 def _selected_rows(
-    store: SqliteAccountingStore, tenant_id: str
+    store: SqliteAccountingStore, tenant_id: str, *, cash_basis: bool = False
 ) -> list[dict[str, Any]]:
     """Validated lines in the CA12 scope, with duplicate VAT pieces removed."""
     selected: list[dict[str, Any]] = []
@@ -415,6 +479,8 @@ def _selected_rows(
             continue
         if _row_category(row) not in SIMULATED_CATEGORIES:
             continue
+        if cash_basis and not _is_paid(row):
+            continue
         selected.append(row)
     statuses, _duplicates = compute_tva_dedup(selected)
     return [
@@ -424,13 +490,23 @@ def _selected_rows(
     ]
 
 
-def _deductible_tva(row: dict[str, Any], record: dict[str, Any]) -> Decimal:
+def _deductible_tva(
+    row: dict[str, Any], record: dict[str, Any], *, optimized: bool = False
+) -> Decimal:
     """Return the deductible VAT of one expense line.
 
-    Explicit hotel split fields win. A ``Soiree Etape`` (or an explicit
-    ``HOTELLERIE`` sub-category) keeps only the meals / breakfast VAT. Every
-    other expense keeps its full VAT, including manager-funded pieces.
+    ``optimized=False`` is the director's **prudent** scenario: representation
+    expenses and restaurant VAT are excluded, hotel VAT keeps only the legally
+    deductible meals / breakfast part. ``optimized=True`` includes 100 % of the
+    VAT of representation, hotel and restaurant expenses (decision scenario B).
     """
+    subcategory = _infer_expense_subcategory(row)
+    if optimized:
+        return (record["tva"] or ZERO).quantize(CENT)
+    if subcategory is ExpenseSubCategory.FRAIS_REPRESENTATION_PRESIDENT:
+        return ZERO
+    if subcategory is ExpenseSubCategory.RESTAURATION:
+        return ZERO
     explicit_deductible = _decimal(row.get("tva_deductible"))
     explicit_non_deductible = _decimal(row.get("tva_non_deductible"))
     if explicit_deductible is not None or explicit_non_deductible is not None:
@@ -438,11 +514,16 @@ def _deductible_tva(row: dict[str, Any], record: dict[str, Any]) -> Decimal:
             row, record
         )
         return deductible.quantize(CENT)
-    if _infer_expense_subcategory(row) is ExpenseSubCategory.HOTELLERIE:
+    if subcategory is ExpenseSubCategory.HOTELLERIE:
         deductible, _non, _accommodation, _meals = _hotel_vat_from_row(
             row, record
         )
         return deductible.quantize(CENT)
+    if _is_sensitive_row(row) and any(
+        keyword in str(row.get("counterparty") or "").casefold()
+        for keyword in SENSITIVE_COUNTERPARTY_KEYWORDS
+    ):
+        return ZERO
     return (record["tva"] or ZERO).quantize(CENT)
 
 
@@ -451,6 +532,8 @@ def _build_line(
     *,
     deferred_to_next_year: bool = False,
     incoming_from_previous_year: bool = False,
+    cash_basis: bool = False,
+    optimized: bool = False,
 ) -> VatLine:
     record = _summary_record(row)
     category = _row_category(row)
@@ -461,13 +544,16 @@ def _build_line(
         non_deductible = ZERO
         charges = ZERO
     else:
-        deductible = _deductible_tva(row, record)
+        deductible = _deductible_tva(row, record, optimized=optimized)
         non_deductible = (tva - deductible).quantize(CENT)
         charges = ((record["ht"] or ZERO) + non_deductible).quantize(CENT)
     line_id = _row_identity(row)
+    operation_date = (
+        _cash_date(row) if cash_basis else _parse_date(record["date"])
+    )
     return VatLine(
         line_id=line_id,
-        operation_date=_parse_date(record["date"]),
+        operation_date=operation_date,
         counterparty=str(record["counterparty"] or ""),
         piece=_piece_number_from_row(row)
         or _piece_reference(row, row.get("invoice_id") or row.get("line_id") or ""),
@@ -567,6 +653,17 @@ def _build_scenario(
             (line.non_deductible_tva for line in ordered), ZERO
         ).quantize(CENT),
         charges=sum((line.charges for line in ordered), ZERO).quantize(CENT),
+        sensitive_tva=sum(
+            (line.tva for line in ordered if _is_sensitive_line(line)), ZERO
+        ).quantize(CENT),
+        deductible_sensitive_tva=sum(
+            (
+                line.deductible_tva
+                for line in ordered
+                if _is_sensitive_line(line)
+            ),
+            Decimal("0.00"),
+        ).quantize(CENT),
     )
     return replace(
         scenario, acomptes=_build_acomptes(year + 1, scenario.tva_due)
@@ -581,11 +678,13 @@ class VatSimulationService:
         store: SqliteAccountingStore | None = None,
         *,
         export_dir: str | os.PathLike[str] | None = None,
+        cash_basis: bool = False,
     ) -> None:
         self._store = store
         self._export_dir = (
             Path(export_dir) if export_dir is not None else DEFAULT_EXPORT_DIR
         )
+        self._cash_basis = bool(cash_basis)
 
     @property
     def store(self) -> SqliteAccountingStore:
@@ -608,42 +707,69 @@ class VatSimulationService:
             or not 1900 <= year <= 2200
         ):
             raise VatSimulationError("INVALID_YEAR", repr(year))
-        rows = _selected_rows(self.store, tenant)
+        rows = _selected_rows(
+            self.store, tenant, cash_basis=self._cash_basis
+        )
         scenario_a_rows = [
-            row for row in rows if _operation_year(row) == year
+            row
+            for row in rows
+            if _operation_year(row, self._cash_basis) == year
         ]
         deferred_rows = [
             row
             for row in scenario_a_rows
-            if _is_deferred_to_next_year(row, year)
+            if _is_deferred_to_next_year(row, year, cash_basis=self._cash_basis)
         ]
         incoming_rows = [
             row
             for row in rows
-            if _is_incoming_from_previous_year(row, year)
+            if _is_incoming_from_previous_year(
+                row, year, cash_basis=self._cash_basis
+            )
         ]
         scenario_b_rows = [
             row
             for row in scenario_a_rows
-            if not _is_deferred_to_next_year(row, year)
+            if not _is_deferred_to_next_year(
+                row, year, cash_basis=self._cash_basis
+            )
         ] + incoming_rows
 
         scenario_a_lines = tuple(
             _build_line(
                 row,
-                deferred_to_next_year=_is_deferred_to_next_year(row, year),
+                deferred_to_next_year=_is_deferred_to_next_year(
+                    row, year, cash_basis=self._cash_basis
+                ),
+                cash_basis=self._cash_basis,
+                optimized=False,
             )
             for row in scenario_a_rows
         )
         scenario_b_lines = tuple(
-            _build_line(row) for row in scenario_b_rows
+            _build_line(
+                row,
+                cash_basis=self._cash_basis,
+                optimized=True,
+            )
+            for row in scenario_b_rows
         )
         deferred_lines = tuple(
-            _build_line(row, deferred_to_next_year=True)
+            _build_line(
+                row,
+                deferred_to_next_year=True,
+                cash_basis=self._cash_basis,
+                optimized=False,
+            )
             for row in deferred_rows
         )
         incoming_lines = tuple(
-            _build_line(row, incoming_from_previous_year=True)
+            _build_line(
+                row,
+                incoming_from_previous_year=True,
+                cash_basis=self._cash_basis,
+                optimized=True,
+            )
             for row in incoming_rows
         )
         return Ca12SimulationReport(
@@ -651,13 +777,13 @@ class VatSimulationService:
             year=year,
             scenario_a=_build_scenario(
                 "A",
-                "Pieces rattachees a leur exercice d'origine",
+                "Prudent - exercice d'origine, dépenses sensibles exclues",
                 year,
                 scenario_a_lines,
             ),
             scenario_b=_build_scenario(
                 "B",
-                "Reports Janvier/Fevrier appliques",
+                "Optimisé - reports janvier/février + TVA dépenses sensibles",
                 year,
                 scenario_b_lines,
             ),
@@ -668,6 +794,7 @@ class VatSimulationService:
                 sorted(incoming_lines, key=_line_sort_key)
             ),
             generated_at=datetime.now(timezone.utc),
+            cash_basis=self._cash_basis,
         )
 
     def export(self, tenant_id: str, year: int) -> Path:
@@ -709,11 +836,12 @@ def simulate_ca12(
     *,
     store: SqliteAccountingStore | None = None,
     export_dir: str | os.PathLike[str] | None = None,
+    cash_basis: bool = False,
 ) -> Ca12SimulationReport:
     """Convenience wrapper around :class:`VatSimulationService`."""
-    return VatSimulationService(store, export_dir=export_dir).simulate(
-        tenant_id, year
-    )
+    return VatSimulationService(
+        store, export_dir=export_dir, cash_basis=cash_basis
+    ).simulate(tenant_id, year)
 
 
 def export_ca12_simulation(
@@ -722,11 +850,12 @@ def export_ca12_simulation(
     *,
     store: SqliteAccountingStore | None = None,
     export_dir: str | os.PathLike[str] | None = None,
+    cash_basis: bool = False,
 ) -> Path:
     """Compute the simulation and write its Excel workbook."""
-    return VatSimulationService(store, export_dir=export_dir).export(
-        tenant_id, year
-    )
+    return VatSimulationService(
+        store, export_dir=export_dir, cash_basis=cash_basis
+    ).export(tenant_id, year)
 
 
 def _safe_text(value: Any) -> Any:
@@ -874,6 +1003,16 @@ def _comparison_rows(report: Ca12SimulationReport) -> list[tuple[Any, ...]]:
         b.deductible_immobilisations,
     )
     add(
+        "TVA deductible - Depenses sensibles (representation / hotel / restaurant)",
+        a.deductible_sensitive_tva,
+        b.deductible_sensitive_tva,
+    )
+    add(
+        "TVA totale des depenses sensibles",
+        a.sensitive_tva,
+        b.sensitive_tva,
+    )
+    add(
         "TVA deductible - Total",
         a.deductible_total,
         b.deductible_total,
@@ -926,6 +1065,13 @@ def _summary_rows(report: Ca12SimulationReport) -> list[tuple[Any, ...]]:
         ("Tenant", report.tenant_id, ""),
         ("Exercice", report.year, ""),
         ("Genere le", report.generated_at.isoformat(), ""),
+        (
+            "Regime TVA",
+            "ENCAISSEMENTS / DECAISSEMENTS REELS"
+            if report.cash_basis
+            else "FACTURATION",
+            "",
+        ),
         ("Scenario A", a.label, ""),
         ("Scenario B", b.label, ""),
         ("TVA nette A", a.net_tva, ""),
@@ -934,6 +1080,16 @@ def _summary_rows(report: Ca12SimulationReport) -> list[tuple[Any, ...]]:
         ("TVA due B", b.tva_due, ""),
         ("Credit TVA A", a.credit_tva, ""),
         ("Credit TVA B", b.credit_tva, ""),
+        (
+            "TVA deductible depenses sensibles (A prudent)",
+            a.deductible_sensitive_tva,
+            "",
+        ),
+        (
+            "TVA deductible depenses sensibles (B optimise)",
+            b.deductible_sensitive_tva,
+            "",
+        ),
         ("Impact resultat imposable A - B", report.taxable_result_impact, ""),
         ("Total acomptes A", a.total_acomptes, ""),
         ("Total acomptes B", b.total_acomptes, ""),
@@ -1039,6 +1195,7 @@ def report_payload(report: Ca12SimulationReport) -> dict[str, Any]:
     return {
         "tenant": report.tenant_id,
         "year": report.year,
+        "cash_basis": report.cash_basis,
         "scenario_a": scenario_payload(report.scenario_a),
         "scenario_b": scenario_payload(report.scenario_b),
         "vat_due_delta": str(report.vat_due_delta),
