@@ -372,6 +372,20 @@ class AccountingMemoryLearningService:
                 if str(alias).strip():
                     rules["aliases"][str(alias).strip()] = canonical
             rules["aliases"].setdefault(name, canonical)
+        decision_key = (
+            self.canonical_name(name) if name else "",
+            str(document_number or ""),
+            str(decision or ""),
+        )
+        for existing in rules["decisions"]:
+            existing_key = (
+                str(existing.get("canonical") or existing.get("counterparty") or ""),
+                str(existing.get("document_number") or ""),
+                str(existing.get("decision") or ""),
+            )
+            if existing_key == decision_key:
+                self.save()
+                return
         rules["decisions"].append(
             {
                 "counterparty": name,

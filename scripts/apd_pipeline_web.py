@@ -148,9 +148,26 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/decide":
                 length = int(self.headers.get("Content-Length") or 0)
                 payload = json.loads(self.rfile.read(length) or b"{}")
+                arbitration = {
+                    "category": payload.get("category"),
+                    "fiscal_year_target": payload.get(
+                        "fiscal_year_target"
+                    ),
+                    "payment_source": payload.get("payment_source"),
+                    "counterparty_account": payload.get(
+                        "counterparty_account"
+                    ),
+                    "month": payload.get("month"),
+                    "report": payload.get("report"),
+                    "expense_subcategory": payload.get(
+                        "expense_subcategory"
+                    ),
+                }
                 self._json(
                     self.bridge.decide_document(
-                        payload.get("doc_id", ""), payload.get("decision", "")
+                        payload.get("doc_id", ""),
+                        payload.get("decision", ""),
+                        arbitration=arbitration,
                     )
                 )
                 return

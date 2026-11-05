@@ -11,8 +11,11 @@ Every computed path is checked against traversal outside ``<root>``.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
+import shutil
+import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
@@ -24,13 +27,201 @@ from schemas.folder_state_schema import (
 )
 
 FLOW_ROOT_ENV = "DSH_DOCUMENT_FLOW_ROOT"
+ACTIVE_TENANT_ENV = "DSH_ACTIVE_TENANT"
 DEFAULT_FLOW_ROOT = Path("workspace") / "document_flow"
+DEFAULT_ACTIVE_TENANT = "APD"
+LEGACY_TENANT = "default"
+LEGACY_MARKER = "MIGRE_VERS_APD.md"
+LEGACY_DUPLICATES_DIR = "_DOUBLONS_IDENTIQUES"
 REJET_MANUEL_DIR = "REJET_MANUEL"
 CATEGORISED_STATES = frozenset(
     {FolderState.VALIDE_PRET_FEC, FolderState.EXPORT_COMPTA}
 )
 
 _TENANT_ID = re.compile(r"[A-Za-z0-9._:-]{1,64}")
+_CHUNK = 1 << 16
+
+
+@dataclass(frozen=True)
+class LegacyMigrationReport:
+    """Observable result of the one-way ``default`` -> ``APD`` migration."""
+
+    source: Path
+    target: Path
+    moved: tuple[Path, ...] = ()
+    skipped: tuple[Path, ...] = ()
+    failed: tuple[str, ...] = ()
+    db_rows: int = 0
+
+    @property
+    def changed(self) -> bool:
+        return bool(self.moved or self.db_rows)
+
+
+def resolve_active_tenant() -> str:
+    """Return the production tenant (``ONEDRIVE``-safe, never ``default``)."""
+    raw = os.environ.get(ACTIVE_TENANT_ENV, "").strip()
+    if raw:
+        return validate_tenant_id(raw)
+    return DEFAULT_ACTIVE_TENANT
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        while chunk := stream.read(_CHUNK):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _unique_destination(path: Path) -> Path:
+    if not path.exists():
+        return path
+    index = 1
+    while True:
+        candidate = path.with_name(f"{path.stem}__{index}{path.suffix}")
+        if not candidate.exists():
+            return candidate
+        index += 1
+
+
+def _migrate_store_tenant(db_path: str | os.PathLike[str] | None) -> int:
+    """Move ``default`` SQLite rows to ``APD`` without losing conflicts."""
+    if db_path is None:
+        return 0
+    path = Path(db_path)
+    if not path.is_file():
+        return 0
+    backup = path.with_name(path.name + ".bak_p24")
+    if not backup.exists():
+        try:
+            shutil.copy2(path, backup)
+        except OSError:
+            pass
+    changed = 0
+    with sqlite3.connect(path, timeout=30) as connection:
+        for table in (
+            "reconciliation_lines",
+            "arbitration_decisions",
+            "counterparty_payment_rules",
+            "candidate_rules",
+        ):
+            try:
+                cursor = connection.execute(
+                    f"UPDATE OR IGNORE {table} SET tenant_id = ?"
+                    " WHERE tenant_id = ?",
+                    (DEFAULT_ACTIVE_TENANT, LEGACY_TENANT),
+                )
+                changed += max(cursor.rowcount, 0)
+            except sqlite3.Error:
+                continue
+        try:
+            cursor = connection.execute(
+                "UPDATE accounting_entries SET tenant_id = ?"
+                " WHERE tenant_id = ?",
+                (DEFAULT_ACTIVE_TENANT, LEGACY_TENANT),
+            )
+            changed += max(cursor.rowcount, 0)
+        except sqlite3.Error:
+            pass
+    return changed
+
+
+def migrate_default_to_apd(
+    root: str | os.PathLike[str] | None = None,
+    *,
+    store: object | None = None,
+    enabled: bool | None = None,
+) -> LegacyMigrationReport:
+    """Merge every file of ``workspace/document_flow/default`` into ``APD``.
+
+    The migration is idempotent, non-destructive (``_unique_destination`` when a
+    target name already exists) and only active for the real production root
+    unless explicitly forced. The legacy folder is kept for audit and marked.
+    """
+    base = resolve_flow_root(root).resolve()
+    source = base / LEGACY_TENANT
+    if enabled is None:
+        enabled = root is None
+    if not enabled or not source.is_dir():
+        return LegacyMigrationReport(
+            source=source, target=base / DEFAULT_ACTIVE_TENANT
+        )
+    tree = ensure_tree(DEFAULT_ACTIVE_TENANT, root)
+    target = tree.root / DEFAULT_ACTIVE_TENANT
+    moved: list[Path] = []
+    skipped: list[Path] = []
+    failed: list[str] = []
+    for path in sorted(source.rglob("*")):
+        if not path.is_file() or path.name == LEGACY_MARKER:
+            continue
+        if LEGACY_DUPLICATES_DIR in path.relative_to(source).parts:
+            continue
+        relative = path.relative_to(source)
+        parts = list(relative.parts)
+        if (
+            len(parts) > 1
+            and parts[0]
+            in {"03_VALIDE_PRET_FEC", "04_EXPORT_COMPTA"}
+            and parts[1] == LEGACY_TENANT
+        ):
+            parts[1] = DEFAULT_ACTIVE_TENANT
+            relative = Path(*parts)
+        destination = target / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if destination.exists():
+            try:
+                if _file_sha256(path) == _file_sha256(destination):
+                    duplicate = (
+                        source
+                        / LEGACY_DUPLICATES_DIR
+                        / relative
+                    )
+                    duplicate.parent.mkdir(parents=True, exist_ok=True)
+                    try:
+                        shutil.move(str(path), str(duplicate))
+                    except OSError:
+                        pass
+                    skipped.append(path)
+                    continue
+            except OSError:
+                pass
+            destination = _unique_destination(destination)
+        try:
+            shutil.move(str(path), str(destination))
+        except PermissionError:
+            try:
+                shutil.copy2(path, destination)
+            except OSError as exc:
+                failed.append(f"{path.name}:{exc}")
+                continue
+            moved.append(destination)
+        except OSError as exc:
+            failed.append(f"{path.name}:{exc}")
+            continue
+        else:
+            moved.append(destination)
+    db_rows = 0
+    if store is not None:
+        db_rows = _migrate_store_tenant(getattr(store, "db_path", None))
+    try:
+        (source / LEGACY_MARKER).write_text(
+            "Migration P24 effectuée vers workspace/document_flow/APD.\n"
+            f"Fichiers déplacés : {len(moved)} ; ignorés : {len(skipped)} ; "
+            f"échecs : {len(failed)} ; lignes SQLite migrées : {db_rows}.\n",
+            encoding="utf-8",
+        )
+    except OSError:
+        pass
+    return LegacyMigrationReport(
+        source=source,
+        target=target,
+        moved=tuple(moved),
+        skipped=tuple(skipped),
+        failed=tuple(failed),
+        db_rows=db_rows,
+    )
+
 
 
 class FolderTreeError(ValueError):

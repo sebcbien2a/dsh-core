@@ -50,7 +50,7 @@ from services.inbox_ingestion_service import (
 )
 from services.sqlite_accounting_store import SqliteAccountingStore
 
-DEFAULT_TENANT = "default"
+DEFAULT_TENANT = "APD"
 DEFAULT_ROOT = REPO_ROOT / "workspace" / "document_flow"
 DEFAULT_DB = REPO_ROOT / "data" / "accounting" / "accounting.sqlite3"
 DEFAULT_EXPORT_DIR = REPO_ROOT / "workspace" / "exports" / "accounting"

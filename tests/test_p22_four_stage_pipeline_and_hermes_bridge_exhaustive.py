@@ -464,11 +464,19 @@ def test_stage1_validates_evidence_moves_files_and_updates_readable_workbook(tmp
     assert readable.is_file()
     workbook = load_workbook(readable)
     sheet = workbook.active
-    assert tuple(cell.value for cell in sheet[1]) == READABLE_HEADERS
+    assert tuple(cell.value for cell in sheet[1])[: len(READABLE_HEADERS)] == READABLE_HEADERS
     rows = [row for row in sheet.iter_rows(min_row=2, values_only=True)]
-    assert any(row[2] == "Invoice-GENMCYCQ-0001.pdf" for row in rows)
-    assert not any(row[2] == "facture creation holding.pdf" for row in rows)
-    link_cells = [row[-1] for row in rows if row[-1]]
+    assert any(
+        "Invoice-GENMCYCQ-0001.pdf" in str(value)
+        for row in rows
+        for value in row
+    )
+    assert not any(
+        "facture creation holding.pdf" in str(value)
+        for row in rows
+        for value in row
+    )
+    link_cells = [row[len(READABLE_HEADERS) - 1] for row in rows if row[len(READABLE_HEADERS) - 1]]
     assert link_cells
     for link in link_cells:
         assert ":" not in link
@@ -497,7 +505,7 @@ def test_stage1_writes_real_business_reason_for_openrouter_pending(tmp_path):
     pipeline.run_stage(1)
     readable = tree.state_dir(FolderState.A_COMPLETER) / "_A_COMPLETER.xlsx"
     sheet = load_workbook(readable).active
-    reasons = [row[8] for row in sheet.iter_rows(min_row=2, values_only=True)]
+    reasons = [row[5] for row in sheet.iter_rows(min_row=2, values_only=True)]
     assert any("anglais" in str(reason) for reason in reasons)
     assert any("SaaS" in str(reason) for reason in reasons)
     assert all(reason != "numero_piece, categorie" for reason in reasons)

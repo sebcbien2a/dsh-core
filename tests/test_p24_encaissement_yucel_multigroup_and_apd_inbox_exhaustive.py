@@ -27,7 +27,21 @@ from services.accounting_spreadsheet_export_service import (
     MASTER_BANQUE_TVA_HEADERS,
     MasterTableExporter,
 )
+from services.acompleter_readable_service import (
+    READABLE_HEADERS,
+    ReadableRow,
+    read_readable_decisions,
+    write_readable_workbook,
+)
 from services.acompleter_workbook_service import AcompleterWorkbook, derive_document_id
+from schemas.accounting_choices import (
+    CATEGORY_CHOICES,
+    DEFERRED_MONTH_CHOICES,
+    EXERCISE_CHOICES,
+    PAYMENT_SOURCE_CHOICES,
+    REPORT_CHOICES,
+    excel_list,
+)
 from services.apd_control_panel import (
     dashboard_html,
     render_pending_table,
@@ -385,3 +399,135 @@ def test_control_panel_renders_french_html_tables_and_stage_buttons():
     )
     assert "<table" in status_html and "Questions en attente" in status_html
     assert "Aucune question" in render_pending_table([])
+
+
+# -- P24 readable dropdowns, priority decisions and fallback saves ----------
+
+
+def test_readable_workbook_has_official_dropdowns_and_hidden_trace(tmp_path):
+    path = write_readable_workbook(
+        tmp_path / "02_A_COMPLETER" / "_A_COMPLETER.xlsx",
+        [
+            ReadableRow(
+                sha256="a" * 64,
+                filename="SAAS.pdf",
+                supplier="OPENROUTER",
+                document_number="SAAS-1",
+                document_date=date(2026, 4, 2),
+                amount_ht=Decimal("100.00"),
+                amount_tva=Decimal("20.00"),
+                amount_ttc=Decimal("120.00"),
+                category=DocumentCategory.FRAIS_GENERAUX,
+                reason="SaaS en attente",
+                action="Compl?ter la ventilation",
+                extra={
+                    "payment_source": "BANQUE_PRO",
+                    "counterparty_account": "622600",
+                    "fiscal_year_target": "2026",
+                    "deferred_month": "NON",
+                    "report": "NON",
+                },
+            )
+        ],
+    )
+    workbook = load_workbook(path)
+    sheet = workbook.active
+    assert tuple(cell.value for cell in sheet[1])[: len(READABLE_HEADERS)] == READABLE_HEADERS
+    assert sheet.column_dimensions["N"].hidden is True
+    formulas = {
+        str(validation.sqref): validation.formula1
+        for validation in sheet.data_validations.dataValidation
+    }
+    assert excel_list(CATEGORY_CHOICES) in formulas.values()
+    assert excel_list(PAYMENT_SOURCE_CHOICES) in formulas.values()
+    assert excel_list(EXERCISE_CHOICES) in formulas.values()
+    assert excel_list(DEFERRED_MONTH_CHOICES) in formulas.values()
+    assert excel_list(REPORT_CHOICES) in formulas.values()
+    decisions = read_readable_decisions(path)
+    assert decisions and decisions[0].sha256 == "a" * 64
+    assert decisions[0].status == DocumentStatus.EN_ATTENTE.value
+    workbook.close()
+
+
+def test_readable_human_edit_is_applied_and_removed_from_pending(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv(
+        "DSH_ACCOUNTING_MEMORY_PATH", str(tmp_path / "memory.json")
+    )
+    store = make_store(tmp_path)
+    tree = ensure_tree(TENANT, tmp_path)
+    tenant_dir = tree.root / TENANT
+    pending_dir = tree.state_dir(FolderState.A_COMPLETER)
+    pdf = make_text_pdf(pending_dir / "A_VALIDER.pdf", "piece a valider")
+    digest = hashlib.sha256(pdf.read_bytes()).hexdigest()
+    store.upsert_document_line(
+        TENANT,
+        derive_document_id(digest),
+        {
+            "operation_date": "2026-04-02",
+            "label": "A_VALIDER.pdf",
+            "counterparty": "FOURNISSEUR TEST",
+            "invoice_id": "VAL-1",
+            "invoice_url": "02_A_COMPLETER/A_VALIDER.pdf",
+            "category": DocumentCategory.DIVERS_A_CLASSER.value,
+            "amount_ht": "100.00",
+            "amount_tva": "20.00",
+            "amount_ttc": "120.00",
+            "status": DocumentStatus.EN_ATTENTE.value,
+            "document_type": "FACTURE",
+        },
+    )
+    readable = pending_dir / "_A_COMPLETER.xlsx"
+    write_readable_workbook(
+        readable,
+        [
+            ReadableRow(
+                sha256=digest,
+                filename=pdf.name,
+                supplier="FOURNISSEUR TEST",
+                document_number="VAL-1",
+                document_date=date(2026, 4, 2),
+                amount_ht=Decimal("100.00"),
+                amount_tva=Decimal("20.00"),
+                amount_ttc=Decimal("120.00"),
+                category=DocumentCategory.DIVERS_A_CLASSER,
+                reason="Cat?gorie ? confirmer",
+                action="Choisir une cat?gorie",
+                extra={
+                    "payment_source": "BANQUE_PRO",
+                    "counterparty_account": "622600",
+                    "fiscal_year_target": "2026",
+                    "deferred_month": "NON",
+                    "report": "NON",
+                },
+                piece_pdf=pdf.name,
+            )
+        ],
+    )
+    workbook = load_workbook(readable)
+    sheet = workbook.active
+    sheet["E2"] = "TRANSPORTS_LOGISTIQUE"
+    sheet["G2"] = "VALIDER"
+    sheet["H2"] = "CCA_455_DIRIGEANT"
+    workbook.save(readable)
+    workbook.close()
+    pipeline = ApdFourStagePipeline(
+        TENANT,
+        store=store,
+        root=tmp_path,
+        export_dir=tmp_path / "exports",
+        year=YEAR,
+    )
+    assert pipeline.apply_human_decisions() >= 1
+    line = store.get_line(TENANT, derive_document_id(digest))
+    assert line is not None
+    assert line["status"] == "VALIDE"
+    assert line["reconciliation_status"] == "VALIDE"
+    assert line["category"] == "TRANSPORTS_LOGISTIQUE"
+    assert line["payment_source"] == "COMPTE_PERSO_DIRIGEANT"
+    assert line["counterparty_account"] == "455000_DIRIGEANT"
+    assert not (pending_dir / pdf.name).exists()
+    pipeline._write_readable_views()
+    remaining = read_readable_decisions(readable)
+    assert not any(item.sha256 == digest for item in remaining)

@@ -1084,7 +1084,7 @@ def test_acompleter_workbook_rejects_bad_p17_values(tmp_path):
         workbook.update_p17_metadata(sha, expense_subcategory="AUTRE")
     assert getattr(exc.value, "code", None) == "INVALID_P17_VALUE"
     with pytest.raises(Exception) as exc:
-        workbook.update_p17_metadata(sha, deferred_month_override="03")
+        workbook.update_p17_metadata(sha, deferred_month_override="13")
     assert getattr(exc.value, "code", None) == "INVALID_P17_VALUE"
 
 

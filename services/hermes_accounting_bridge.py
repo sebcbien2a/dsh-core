@@ -28,6 +28,12 @@ from services.acompleter_workbook_service import (
     WorkbookLockedError,
     derive_document_id,
 )
+from schemas.accounting_choices import (
+    normalize_category,
+    normalize_exercise,
+    normalize_month,
+    normalize_payment_source,
+)
 from services.apd_evidence_rules import build_business_explanation, evaluate_evidence
 from services.apd_four_stage_pipeline import (
     ApdFourStagePipeline,
@@ -279,8 +285,14 @@ class HermesAccountingBridge:
             )
         return questions
 
-    def decide_document(self, doc_id: str, decision: Any) -> dict[str, Any]:
+    def decide_document(
+        self,
+        doc_id: str,
+        decision: Any,
+        arbitration: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         target = _normalise_decision(decision)
+        arbitration = dict(arbitration or {})
         row = self._find_row(doc_id)
         if row is None:
             line = self._find_store_line(doc_id)
@@ -305,7 +317,13 @@ class HermesAccountingBridge:
             if source is not None:
                 destination = _move(source, destination)
             self._update_store_status(
-                line, target, destination, category, sha, filename
+                line,
+                target,
+                destination,
+                category,
+                sha,
+                filename,
+                arbitration=arbitration,
             )
             if row is not None:
                 self._align(row.sha256, target)
@@ -344,8 +362,41 @@ class HermesAccountingBridge:
                 "status": target.value,
                 "destination": str(destination) if destination else None,
             }
-        if row is not None:
-            self._align(row.sha256, target)
+            if row is not None:
+                self._align(row.sha256, target)
+                try:
+                    self._workbook.update_p17_metadata(
+                        row.sha256,
+                        expense_subcategory=arbitration.get(
+                            "expense_subcategory"
+                        )
+                        or None,
+                        payment_source=normalize_payment_source(
+                            arbitration.get("payment_source")
+                        )
+                        or None,
+                        counterparty_account=arbitration.get(
+                            "counterparty_account"
+                        )
+                        or None,
+                        fiscal_year_target=arbitration.get("exercice")
+                        or arbitration.get("fiscal_year_target")
+                        or None,
+                        deferred_month_override=normalize_month(
+                            arbitration.get("month")
+                        )
+                        or "NON",
+                        report=str(
+                            arbitration.get("report") or "NON"
+                        ).upper(),
+                    )
+                except (
+                    WorkbookLockedError,
+                    AcompleterWorkbookError,
+                    PermissionError,
+                    OSError,
+                ):
+                    pass
         return {
             "doc_id": _text(doc_id),
             "decision": target.value,
@@ -443,7 +494,9 @@ class HermesAccountingBridge:
         category: str,
         sha: str,
         filename: str = "",
+        arbitration: dict[str, Any] | None = None,
     ) -> None:
+        arb = arbitration or {}
         if line is not None:
             line_id = _text(line.get("line_id"))
             if not line_id:
@@ -451,6 +504,33 @@ class HermesAccountingBridge:
             updated = dict(line)
             updated.pop("line_id", None)
             updated["status"] = target.value
+            if target is DocumentStatus.VALIDE:
+                updated["reconciliation_status"] = "VALIDE"
+            updated_category = normalize_category(arb.get("category"))
+            if updated_category:
+                updated["category"] = updated_category
+            payment_source = normalize_payment_source(
+                arb.get("payment_source")
+            )
+            if payment_source:
+                updated["payment_source"] = payment_source
+                if payment_source == "COMPTE_PERSO_DIRIGEANT":
+                    updated["counterparty_account"] = "455000_DIRIGEANT"
+            account = _text(arb.get("counterparty_account"))
+            if account:
+                updated["counterparty_account"] = account
+            fiscal_year = arb.get("fiscal_year_target")
+            if fiscal_year is not None and str(fiscal_year).strip():
+                updated["fiscal_year_target"] = str(fiscal_year)
+            month = arb.get("month")
+            if month:
+                month_value = normalize_month(month)
+                if month_value:
+                    updated["deferred_month_override"] = (
+                        None if month_value == "NON" else month_value
+                    )
+            if category and not updated_category:
+                updated["category"] = category
             if destination is not None:
                 try:
                     updated["invoice_url"] = destination.resolve().relative_to(
@@ -458,9 +538,9 @@ class HermesAccountingBridge:
                     ).as_posix()
                 except ValueError:
                     updated["invoice_url"] = destination.name
-            if category:
-                updated["category"] = category
-            self._store.upsert_document_line(self._tenant_id, line_id, updated)
+            self._store.upsert_document_line(
+                self._tenant_id, line_id, updated
+            )
             return
         if sha:
             self._store.upsert_document_line(
@@ -472,6 +552,7 @@ class HermesAccountingBridge:
                     "status": target.value,
                 },
             )
+
 
     def _align(self, sha: str, target: DocumentStatus) -> None:
         try:

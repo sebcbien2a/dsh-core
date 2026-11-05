@@ -34,7 +34,7 @@ from services.vat_simulation_service import (  # noqa: E402
     report_payload,
 )
 
-DEFAULT_TENANT = "default"
+DEFAULT_TENANT = "APD"
 DEFAULT_DB = REPO_ROOT / "data" / "accounting" / "accounting.sqlite3"
 DEFAULT_EXPORT_DIR = REPO_ROOT / "workspace" / "exports" / "accounting"
 LINE_WIDTH = 78

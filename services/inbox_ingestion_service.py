@@ -79,6 +79,7 @@ from services.customer_invoice_batch_importer import (
 )
 from services.folder_tree_service import (
     ensure_tree,
+    migrate_default_to_apd,
     resolve_flow_root,
     validate_tenant_id,
 )
@@ -113,12 +114,7 @@ _UNKNOWN_SUPPLIER = "FOURNISSEUR_INCONNU"
 ONEDRIVE_INBOX_ENV = "ONEDRIVE_INBOX_PATH"
 ONEDRIVE_COMPTA_DIR_ENV = "DSH_ONEDRIVE_COMPTA_DIR"
 ONEDRIVE_COMPTA_FOLDER = "Compta_APD"
-UNIFIED_TENANT_IDS: tuple[str, ...] = (
-    "APD",
-    "default",
-    "HOLDING_APD",
-    "SCI_APD",
-)
+UNIFIED_TENANT_IDS: tuple[str, ...] = ("APD",)
 EMAIL_ATTACHMENT_SUFFIXES = frozenset({".pdf", ".xml"})
 EMAIL_ARCHIVE_SUBDIR = "SOURCES_EMAIL"
 
@@ -736,6 +732,7 @@ class InboxIngestionService:
     ) -> None:
         self._tenant_id = validate_tenant_id(tenant_id)
         self._store = store
+        migrate_default_to_apd(root, store=store)
         self._tree = ensure_tree(self._tenant_id, root)
         self._inbox = self._tree.state_dir(FolderState.INBOX)
         self._onedrive_inbox = (

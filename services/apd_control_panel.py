@@ -9,8 +9,17 @@ page consumes them and paints real HTML tables.
 
 from __future__ import annotations
 
+import json
 from html import escape
 from typing import Any, Iterable, Mapping
+
+from schemas.accounting_choices import (
+    CATEGORY_CHOICES,
+    EXERCISE_CHOICES,
+    PAYMENT_SOURCE_CHOICES,
+    as_dict,
+    normalize_category,
+)
 
 STAGE_LABELS: tuple[tuple[int, str, str], ...] = (
     (1, "Étape 1 - Vision & Tableau Mère", "Analyser les pièces et valider les évidences"),
@@ -80,23 +89,78 @@ def render_status_table(status: Mapping[str, Any]) -> str:
     return render_value_table(rows, table_class="data status")
 
 
+def _select(
+    name: str,
+    choices: Iterable[str],
+    selected: Any = None,
+    *,
+    role: str = "",
+) -> str:
+    selected_text = str(selected or "")
+    options: list[str] = []
+    for choice in choices:
+        selected_attr = (
+            " selected" if str(choice) == selected_text else ""
+        )
+        options.append(
+            f'<option value="{escape(str(choice))}"{selected_attr}>'
+            f"{_cell(choice)}</option>"
+        )
+    return (
+        f'<select name="{escape(name)}" data-role="{escape(role)}">'
+        + "".join(options)
+        + "</select>"
+    )
+
+
 def render_pending_table(questions: Iterable[Mapping[str, Any]]) -> str:
     items = list(questions)
     if not items:
         return '<p class="empty">Aucune question en attente. Tout est traité.</p>'
-    headers = "".join(f"<th>{_cell(label)}</th>" for _, label in PENDING_FIELDS)
-    body = "\n".join(
-        "<tr>"
-        + "".join(
+    headers = "".join(
+        f"<th>{_cell(label)}</th>"
+        for _, label in PENDING_FIELDS
+    ) + (
+        "<th>Catégorie</th><th>Exercice</th>"
+        "<th>Source de paiement</th><th>Décision</th>"
+    )
+    body_rows: list[str] = []
+    for index, question in enumerate(items, start=1):
+        doc_id = escape(str(question.get("doc_id") or ""))
+        selected_category = normalize_category(
+            question.get("categorie") or question.get("category")
+        ) or ""
+        category_select = _select(
+            f"categorie-{index}", CATEGORY_CHOICES, selected_category,
+            role="category",
+        )
+        exercise_select = _select(
+            f"exercice-{index}", EXERCISE_CHOICES, "2026", role="exercise"
+        )
+        source_select = _select(
+            f"source-{index}",
+            PAYMENT_SOURCE_CHOICES,
+            "BANQUE_PRO",
+            role="payment_source",
+        )
+        cells = "".join(
             f"<td>{_cell(question.get(key))}</td>"
             for key, _label in PENDING_FIELDS
         )
-        + "</tr>"
-        for question in items
-    )
+        body_rows.append(
+            "<tr>"
+            + cells
+            + f"<td>{category_select}</td>"
+            + f"<td>{exercise_select}</td>"
+            + f"<td>{source_select}</td>"
+            + f'<td><button type="button" '
+            f'onclick="validerPiece(\'{doc_id}\', this)">Valider</button></td>'
+            + "</tr>"
+        )
     return (
         '<table class="data pending">'
-        f"<thead><tr>{headers}</tr></thead><tbody>{body}</tbody></table>"
+        f"<thead><tr>{headers}</tr></thead>"
+        f"<tbody>{''.join(body_rows)}</tbody></table>"
     )
 
 
@@ -191,6 +255,7 @@ p.empty{{margin:0;color:var(--muted);font-style:italic}}
 <section class="card" id="stage-result"><h2>Compte-rendu d'étape</h2><p class="empty">Lancez une étape 1 à 4.</p></section>
 <section class="card" id="questions"><h2>Questions en attente</h2><p class="empty">Cliquez sur « Questions en attente ».</p></section>
 </main>
+<script>window.CHOICES = {json.dumps(as_dict(), ensure_ascii=False)};</script>
 <script>
 const state = document.getElementById('state');
 function esc(value) {{
@@ -227,13 +292,71 @@ async function showStatus() {{
   document.getElementById('summary').innerHTML =
     '<h2>Statut général</h2>' + table(['Indicateur','Valeur'], kvRows(data, STATUS_LABELS));
 }}
+function selectOptions(role, choices, selected) {{
+  const options = choices.map(choice =>
+    '<option value="' + esc(choice) + '"' +
+    (String(choice) === String(selected || '') ? ' selected' : '') +
+    '>' + esc(choice) + '</option>'
+  ).join('');
+  return '<select data-role="' + role + '">' + options + '</select>';
+}}
 async function showPending() {{
   const data = await call('/api/pending');
   if (!data) return;
-  const rows = data.map(item => [item.filename, item.fournisseur, item.numero_piece, item.montant_ttc, item.raison, item.action]);
+  if (!data.length) {{
+    document.getElementById('questions').innerHTML =
+      '<h2>Questions en attente</h2>' +
+      '<p class="empty">Aucune question en attente. Tout est traité.</p>';
+    return;
+  }}
+  const rows = data.map(item => {{
+    const doc = String(item.doc_id || '');
+    const category = selectOptions('category', CHOICES.categorie, item.categorie);
+    const exercise = selectOptions('exercise', CHOICES.exercice_cible, '2026');
+    const source = selectOptions('payment_source', CHOICES.source_paiement, 'BANQUE_PRO');
+    return '<tr>' +
+      '<td>' + esc(item.filename) + '</td>' +
+      '<td>' + esc(item.fournisseur) + '</td>' +
+      '<td>' + esc(item.numero_piece) + '</td>' +
+      '<td>' + esc(item.montant_ttc) + '</td>' +
+      '<td>' + esc(item.raison) + '</td>' +
+      '<td>' + esc(item.action) + '</td>' +
+      '<td>' + category + '</td>' +
+      '<td>' + exercise + '</td>' +
+      '<td>' + source + '</td>' +
+      '<td><button type="button" onclick="validerPiece(\'' + doc + '\', this)">Valider</button></td>' +
+      '</tr>';
+  }}).join('');
   document.getElementById('questions').innerHTML =
     '<h2>Questions en attente</h2>' +
-    (rows.length ? table(['Fichier','Fournisseur','N° pièce','Montant TTC','Pourquoi en attente','Action attendue'], rows) : '<p class="empty">Aucune question en attente. Tout est traité.</p>');
+    '<table class="data pending"><thead><tr>' +
+    '<th>Fichier</th><th>Fournisseur</th><th>N° pièce</th>' +
+    '<th>Montant TTC</th><th>Pourquoi en attente</th><th>Action attendue</th>' +
+    '<th>Catégorie</th><th>Exercice</th><th>Source de paiement</th><th>Décision</th>' +
+    '</tr></thead><tbody>' + rows + '</tbody></table>';
+}}
+async function validerPiece(docId, button) {{
+  const row = button.closest('tr');
+  const category = row.querySelector('select[data-role="category"]').value;
+  const exercise = row.querySelector('select[data-role="exercise"]').value;
+  const source = row.querySelector('select[data-role="payment_source"]').value;
+  const response = await fetch('/api/decide', {{
+    method: 'POST',
+    headers: {{'Content-Type': 'application/json'}},
+    body: JSON.stringify({{
+      doc_id: docId,
+      decision: 'VALIDE',
+      category: category,
+      fiscal_year_target: exercise,
+      payment_source: source
+    }})
+  }});
+  if (response.ok) {{
+    row.remove();
+    state.textContent = 'Pièce validée et enregistrée.';
+  }} else {{
+    state.textContent = 'Erreur lors de la validation.';
+  }}
 }}
 async function runStage(number) {{
   document.querySelectorAll('button.stage').forEach(b => b.disabled = true);

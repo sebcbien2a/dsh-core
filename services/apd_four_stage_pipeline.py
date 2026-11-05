@@ -60,7 +60,11 @@ from services.balance_simulation_service import (
     BALANCE_FILENAME,
     BalanceSimulationService,
 )
-from services.folder_tree_service import ensure_tree, validate_tenant_id
+from services.folder_tree_service import (
+    ensure_tree,
+    migrate_default_to_apd,
+    validate_tenant_id,
+)
 from services.ofx_bank_statement_parser import (
     import_ofx_statement,
     parse_ofx_statement,
@@ -76,7 +80,7 @@ from services.pdf_splitter_and_linker import (
 from services.sqlite_accounting_store import DEFAULT_DB_PATH, SqliteAccountingStore
 from services.vat_simulation_service import CA12_SIMULATION_FILENAME, VatSimulationService
 
-DEFAULT_TENANT = "default"
+DEFAULT_TENANT = "APD"
 DEFAULT_YEAR = 2026
 STAGE_NAMES = {
     1: "Vision & Tableau Mère 1",
@@ -247,6 +251,7 @@ class ApdFourStagePipeline:
         self._tree = ensure_tree(self._tenant_id, root)
         self._tenant_dir = self._tree.root / self._tenant_id
         self._store = store if store is not None else SqliteAccountingStore(db_path or DEFAULT_DB_PATH)
+        migrate_default_to_apd(root, store=self._store)
         self._export_dir = (
             Path(export_dir)
             if export_dir is not None
@@ -505,7 +510,7 @@ class ApdFourStagePipeline:
             PermissionError,
             OSError,
         ):
-            return 0
+            rows = []
         applied = 0
         for row in rows:
             line = self._store.get_line(
@@ -544,6 +549,8 @@ class ApdFourStagePipeline:
             updated = dict(line)
             updated.pop("line_id", None)
             updated["status"] = status
+            if status == DocumentStatus.VALIDE.value:
+                updated["reconciliation_status"] = "VALIDE"
             category = str(
                 row.categorie_suggeree or line.get("category") or ""
             ).strip()
@@ -580,6 +587,9 @@ class ApdFourStagePipeline:
             marker = str(metadata.get("Repère Classement") or "").strip()
             if marker:
                 updated["is_classified_marker"] = marker
+            report_value = str(metadata.get("Report") or "").strip().upper()
+            if report_value:
+                updated["report"] = report_value
             if status == DocumentStatus.VALIDE.value:
                 self._move_human_validated(row, updated)
             self._store.upsert_document_line(
@@ -597,6 +607,154 @@ class ApdFourStagePipeline:
                     fiscal_year_target=target,
                     deferred_month=month if month in DEFERRED_MONTHS else "",
                     report=metadata.get("Report") or "NON",
+                    decision=DocumentStatus.VALIDE.value,
+                )
+            applied += 1
+        applied += self._apply_readable_decisions()
+        return applied
+
+    def _apply_readable_decisions(self) -> int:
+        """Apply the director's edits made in ``02_A_COMPLETER`` directly."""
+        from types import SimpleNamespace
+
+        from services.acompleter_readable_service import (
+            read_readable_decisions,
+        )
+
+        decisions = read_readable_decisions(self.readable_path)
+        applied = 0
+        for decision in decisions:
+            line = None
+            if decision.sha256:
+                line = self._store.get_line(
+                    self._tenant_id, derive_document_id(decision.sha256)
+                )
+            if line is None and decision.filename:
+                for candidate in self._store.list_master_lines(self._tenant_id):
+                    invoice_name = Path(
+                        str(candidate.get("invoice_url") or "")
+                    ).name
+                    if (
+                        invoice_name == decision.filename
+                        or str(candidate.get("label") or "")
+                        == decision.filename
+                    ):
+                        line = candidate
+                        break
+            if line is None:
+                continue
+            line_id = str(line.get("line_id") or "")
+            if not line_id:
+                continue
+            status = decision.status or DocumentStatus.EN_ATTENTE.value
+            updated = dict(line)
+            updated.pop("line_id", None)
+            updated["status"] = status
+            if status == DocumentStatus.VALIDE.value:
+                updated["reconciliation_status"] = "VALIDE"
+            if decision.category:
+                try:
+                    updated["category"] = DocumentCategory(
+                        decision.category
+                    ).value
+                except ValueError:
+                    pass
+            if decision.payment_source:
+                updated["payment_source"] = decision.payment_source
+                if (
+                    decision.payment_source
+                    == PaymentSource.COMPTE_PERSO_DIRIGEANT.value
+                ):
+                    updated["counterparty_account"] = (
+                        DIRIGEANT_COUNTERPART_ACCOUNT
+                    )
+                elif decision.counterparty_account:
+                    updated["counterparty_account"] = (
+                        decision.counterparty_account
+                    )
+            elif decision.counterparty_account:
+                updated["counterparty_account"] = (
+                    decision.counterparty_account
+                )
+            if decision.fiscal_year_target:
+                updated["fiscal_year_target"] = decision.fiscal_year_target
+            if decision.deferred_month:
+                updated["deferred_month_override"] = (
+                    None
+                    if decision.deferred_month == "NON"
+                    else decision.deferred_month
+                )
+            if decision.report:
+                updated["report"] = decision.report
+            changed = status != str(line.get("status") or "").strip().upper()
+            for key in (
+                "category",
+                "payment_source",
+                "counterparty_account",
+                "fiscal_year_target",
+                "deferred_month_override",
+                "report",
+            ):
+                if str(updated.get(key) or "") != str(line.get(key) or ""):
+                    changed = True
+            if not changed and status == DocumentStatus.EN_ATTENTE.value:
+                continue
+            if status == DocumentStatus.REJETE.value:
+                self._store.deactivate_rejected_document(
+                    self._tenant_id, decision.sha256
+                )
+                self._archive_human_rejected(decision.filename)
+            elif status == DocumentStatus.VALIDE.value:
+                stub = SimpleNamespace(
+                    nom_fichier=decision.filename,
+                    categorie_suggeree=str(
+                        updated.get("category") or ""
+                    ),
+                )
+                self._move_human_validated(stub, updated)
+            self._store.upsert_document_line(
+                self._tenant_id, line_id, updated
+            )
+            try:
+                if decision.sha256:
+                    self._workbook.align_statut(decision.sha256, status)
+                    self._workbook.update_p17_metadata(
+                        decision.sha256,
+                    expense_subcategory=updated.get("expense_subcategory")
+                    or None,
+                    payment_source=updated.get("payment_source") or None,
+                    counterparty_account=updated.get("counterparty_account")
+                    or None,
+                    fiscal_year_target=updated.get("fiscal_year_target")
+                    or None,
+                    deferred_month_override=updated.get(
+                        "deferred_month_override"
+                    )
+                    or "NON",
+                    report=updated.get("report") or "NON",
+                )
+            except (
+                WorkbookLockedError,
+                AcompleterWorkbookError,
+                PermissionError,
+                OSError,
+            ):
+                pass
+            if status == DocumentStatus.VALIDE.value:
+                self._memory.remember_decision(
+                    counterparty=updated.get("counterparty"),
+                    document_number=updated.get("invoice_id"),
+                    category=updated.get("category"),
+                    payment_source=updated.get("payment_source") or "",
+                    counterparty_account=updated.get(
+                        "counterparty_account"
+                    )
+                    or "",
+                    fiscal_year_target=updated.get("fiscal_year_target")
+                    or "",
+                    deferred_month=updated.get("deferred_month_override")
+                    or "",
+                    report=updated.get("report") or "NON",
                     decision=DocumentStatus.VALIDE.value,
                 )
             applied += 1
@@ -794,9 +952,15 @@ class ApdFourStagePipeline:
         self._write_readable_views()
         sales = self._export_sales_workbook()
         master = self._export_master_tables()
+        ledgers = self._export_auxiliary_ledgers()
         workbooks = tuple(
             path
-            for path in (sales, master.achats_path, master.banque_tva_path)
+            for path in (
+                sales,
+                master.achats_path,
+                master.banque_tva_path,
+                *ledgers,
+            )
             if path is not None
         )
         self._sync_mirror(workbooks)
@@ -1315,7 +1479,11 @@ class ApdFourStagePipeline:
         except Exception as exc:  # noqa: BLE001 - customer lettering never blocks
             messages.append(f"LETTRAGE_CLIENTS_IGNORE:{exc}")
         master = self._export_master_tables()
-        workbooks = (master.banque_tva_path, master.achats_path)
+        workbooks = (
+            master.banque_tva_path,
+            master.achats_path,
+            *self._export_auxiliary_ledgers(),
+        )
         self._sync_mirror(workbooks)
         messages.append(f"Lignes OFX importées : {imported}")
         messages.append(f"Débits fournisseurs rapprochés : {reconciled}")
@@ -1848,6 +2016,31 @@ class ApdFourStagePipeline:
         return MasterTableExporter(
             self._store, root=self._tree.root, export_dir=self._export_dir
         ).export(self._tenant_id)
+
+    def _export_auxiliary_ledgers(self) -> tuple[Path, ...]:
+        from services.accounting_spreadsheet_export_service import (
+            ClientLedgerExporter,
+            SupplierLedgerExporter,
+        )
+
+        paths: list[Path] = []
+        try:
+            paths.append(
+                SupplierLedgerExporter(
+                    self._store, export_dir=self._export_dir.parent
+                ).export_supplier_ledger(self._tenant_id)
+            )
+        except Exception:  # noqa: BLE001 - one ledger never blocks the stage
+            pass
+        try:
+            paths.append(
+                ClientLedgerExporter(
+                    self._store, export_dir=self._export_dir.parent
+                ).export(self._tenant_id)
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        return tuple(paths)
 
     def _repair_stale_lock(self) -> None:
         lock = self._workbook.find_lock_file()

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -43,6 +44,18 @@ from services.folder_tree_service import (
 )
 from services.pdf_splitter_and_linker import PIECE_LINK_HEADER
 from services.acompleter_readable_service import READABLE_HEADERS, ReadableRow
+from schemas.accounting_choices import (
+    CATEGORY_CHOICES,
+    COUNTERPARTY_ACCOUNT_CHOICES,
+    DEFERRED_MONTH_CHOICES,
+    EXERCISE_CHOICES,
+    PAYMENT_SOURCE_CHOICES,
+    REPORT_CHOICES,
+    STATUS_CHOICES,
+    SUBCATEGORY_CHOICES,
+    excel_list,
+    normalize_payment_source as normalize_official_payment_source,
+)
 
 WORKBOOK_NAME = "_A_COMPLETER.xlsx"
 SHEET_NAME = "A_COMPLETER"
@@ -87,6 +100,49 @@ OUTCOME_UNCHANGED = "unchanged"
 OUTCOME_PRESERVED = "preserved"
 
 _SHA256 = re.compile(r"[0-9a-f]{64}")
+
+_VALIDATION_LISTS: dict[str, tuple[str, ...]] = {
+    "catégorie suggérée": CATEGORY_CHOICES,
+    "catégorie proposée": CATEGORY_CHOICES,
+    "statut": STATUS_CHOICES,
+    "sous-catégorie frais": SUBCATEGORY_CHOICES,
+    "mode exercice fiscal": ("ACTUEL", "SUIVANT", "PRECEDENT"),
+    "exercice cible": EXERCISE_CHOICES,
+    "mois décalé": DEFERRED_MONTH_CHOICES,
+    "source de paiement": PAYMENT_SOURCE_CHOICES,
+    "compte de contrepartie": COUNTERPARTY_ACCOUNT_CHOICES,
+    "report": REPORT_CHOICES,
+}
+
+
+def _normalized_header(value: object) -> str:
+    return " ".join(_cell_text(value).strip().casefold().split())
+
+
+def install_data_validations(sheet: Any, last_row: int) -> None:
+    """Add the official dropdowns to every matching P17/P24 column."""
+    from openpyxl.worksheet.datavalidation import DataValidation
+
+    try:
+        sheet.data_validations.dataValidation.clear()
+    except AttributeError:
+        pass
+    for cell in sheet[1]:
+        choices = _VALIDATION_LISTS.get(_normalized_header(cell.value))
+        if choices is None:
+            continue
+        validation = DataValidation(
+            type="list",
+            formula1=excel_list(choices),
+            allow_blank=True,
+            showDropDown=False,
+        )
+        validation.error = "Choisissez une valeur proposée dans la liste."
+        validation.errorTitle = "Choix invalide"
+        sheet.add_data_validation(validation)
+        validation.add(
+            f"{cell.column_letter}2:{cell.column_letter}{max(last_row, 2)}"
+        )
 
 
 class AcompleterWorkbookError(ValueError):
@@ -359,23 +415,21 @@ class AcompleterWorkbook:
                 "R": 13,
                 "S": 13,
                 "T": 26,
-                "U": 32,
-                "V": 18,
-                "W": 12,
-                "X": 12,
-                "Y": 12,
-                "Z": 24,
-                "AA": 62,
-                "AB": 42,
-                "AC": 22,
-                "AD": 22,
-                "AE": 14,
-                "AF": 14,
-                "AG": 10,
-                "AH": 32,
+                "U": 18,
+                "V": 12,
+                "W": 24,
+                "X": 62,
+                "Y": 42,
+                "Z": 22,
+                "AA": 22,
+                "AB": 14,
+                "AC": 14,
+                "AD": 10,
+                "AE": 32,
             }
             for letter, width in widths.items():
                 ws.column_dimensions[letter].width = width
+            install_data_validations(ws, ws.max_row)
 
             for row in rows:
                 key = normalize_sha256(row.sha256)
@@ -406,14 +460,7 @@ class AcompleterWorkbook:
                 values = (
                     row.document_date,
                     row.supplier,
-                    row.filename,
                     row.document_number,
-                    float(row.amount_ht)
-                    if row.amount_ht is not None
-                    else None,
-                    float(row.amount_tva)
-                    if row.amount_tva is not None
-                    else None,
                     float(row.amount_ttc)
                     if row.amount_ttc is not None
                     else None,
@@ -635,7 +682,7 @@ class AcompleterWorkbook:
                 return "NON"
             if candidate.isdigit():
                 candidate = candidate.zfill(2)
-            if candidate not in DEFERRED_MONTHS:
+            if candidate not in DEFERRED_MONTH_CHOICES:
                 raise AcompleterWorkbookError(
                     "INVALID_P17_VALUE", f"deferred_month_override={value!r}"
                 )
@@ -649,7 +696,13 @@ class AcompleterWorkbook:
                         DIRIGEANT_COUNTERPART_ACCOUNT,
                     )
                 return "", ""
-            source = normalize_payment_source(value)
+            official = normalize_official_payment_source(value)
+            if official == "COMPTE_PERSO_DIRIGEANT":
+                source = PaymentSource.COMPTE_PERSO_DIRIGEANT
+            elif official == "BANQUE_PRO":
+                source = PaymentSource.BANQUE_PRO
+            else:
+                source = normalize_payment_source(value)
             if source is None:
                 raise AcompleterWorkbookError(
                     "INVALID_P17_VALUE", f"payment_source={value!r}"
@@ -774,7 +827,24 @@ class AcompleterWorkbook:
         try:
             wb.save(temp)
             _close(wb)
-            os.replace(temp, self.workbook_path)
+            try:
+                os.replace(temp, self.workbook_path)
+            except OSError:
+                try:
+                    shutil.copy2(temp, self.workbook_path)
+                except OSError:
+                    fallback = self._directory / (
+                        f"{self.workbook_path.stem}_MIS_A_JOUR"
+                        f"{self.workbook_path.suffix}"
+                    )
+                    index = 1
+                    while fallback.exists():
+                        fallback = self._directory / (
+                            f"{self.workbook_path.stem}_MIS_A_JOUR_{index}"
+                            f"{self.workbook_path.suffix}"
+                        )
+                        index += 1
+                    shutil.copy2(temp, fallback)
         except OSError as exc:
             raise AcompleterWorkbookError(
                 "WRITE_FAILED", str(self.workbook_path)

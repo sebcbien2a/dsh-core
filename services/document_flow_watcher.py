@@ -62,7 +62,7 @@ from services.sqlite_accounting_store import get_shared_sqlite_store
 LOGGER = logging.getLogger(__name__)
 
 LOCK_NAME = ".watcher.lock"
-DEFAULT_TENANT = "default"
+DEFAULT_TENANT = "APD"
 DEFAULT_POLL_INTERVAL = 5.0
 DEFAULT_SETTLE_DELAY = 2.0
 COCKPIT_NOTE_NAME = "cockpit_compta"

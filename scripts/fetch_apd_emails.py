@@ -42,7 +42,7 @@ from services.email_inbox_bridge import (  # noqa: E402
 
 GMAIL_HOST = "imap.gmail.com"
 GMAIL_PORT = 993
-DEFAULT_TENANT = "default"
+DEFAULT_TENANT = "APD"
 MIN_ATTACHMENT_BYTES = 5 * 1024
 DEFAULT_ENV_FILE = REPO_ROOT / ".env"
 
