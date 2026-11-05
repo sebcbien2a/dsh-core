@@ -281,6 +281,9 @@ def _extract_ht_tva_ttc(text: str) -> tuple[Decimal | None, Decimal | None, Deci
 def _pdf_text(source: str | Path | bytes | bytearray) -> str:
     try:
         import fitz
+
+        if hasattr(fitz, "TOOLS"):
+            fitz.TOOLS.mupdf_display_errors(False)
     except ImportError as exc:  # pragma: no cover - dependency is installed
         raise EvidenceRuleError("PDF_SUPPORT_UNAVAILABLE") from exc
     try:

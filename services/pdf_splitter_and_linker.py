@@ -212,6 +212,9 @@ def normalized_purchase_filename(
 def _pdf_pages(source: str | Path | bytes | bytearray) -> list[str]:
     try:
         import fitz
+
+        if hasattr(fitz, "TOOLS"):
+            fitz.TOOLS.mupdf_display_errors(False)
     except ImportError as exc:  # pragma: no cover - dependency is installed
         raise PdfSplitError("PDF_SUPPORT_UNAVAILABLE") from exc
     try:
@@ -317,6 +320,9 @@ def _write_pages(
 ) -> Path:
     try:
         import fitz
+
+        if hasattr(fitz, "TOOLS"):
+            fitz.TOOLS.mupdf_display_errors(False)
     except ImportError as exc:  # pragma: no cover
         raise PdfSplitError("PDF_SUPPORT_UNAVAILABLE") from exc
     target.parent.mkdir(parents=True, exist_ok=True)

@@ -1592,6 +1592,9 @@ def _inbox_sort_key(path: Path) -> tuple[int, str]:
 def _pdf_page_texts(source: Path) -> list[str]:
     try:
         import fitz
+
+        if hasattr(fitz, "TOOLS"):
+            fitz.TOOLS.mupdf_display_errors(False)
     except ImportError:  # pragma: no cover - dependency is installed
         return []
     try:

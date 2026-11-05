@@ -10,6 +10,7 @@ explicit action, and a clickable relative link to the PDF from day one
 from __future__ import annotations
 
 import os
+import shutil
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
@@ -228,11 +229,15 @@ def write_readable_workbook(
     try:
         workbook.save(temporary)
         workbook.close()
-        os.replace(temporary, path)
+        try:
+            os.replace(temporary, path)
+        except OSError:
+            shutil.copy2(temporary, path)
     except OSError as exc:
         workbook.close()
-        temporary.unlink(missing_ok=True)
         raise ReadableWorkbookError("WRITE_FAILED", str(path)) from exc
+    finally:
+        temporary.unlink(missing_ok=True)
     return path
 
 

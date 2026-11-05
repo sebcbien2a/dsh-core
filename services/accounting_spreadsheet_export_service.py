@@ -15,6 +15,7 @@ from __future__ import annotations
 import csv
 import os
 import re
+import shutil
 import tempfile
 import unicodedata
 from bisect import bisect_left
@@ -430,6 +431,14 @@ def _validate_output_path(path: Path) -> None:
 
 
 def _atomic_save_workbook(workbook: Workbook, output_path: Path) -> None:
+    """Save a workbook without letting Windows rename locks kill the export.
+
+    The workbook is first written to a sibling temporary file. ``os.replace``
+    stays the fast path; when OneDrive/Excel refuses the rename the bytes are
+    copied over the target with :func:`shutil.copy2` before the temporary file
+    is always removed. This keeps the ``04_EXPORT_COMPTA`` folder free of stale
+    ``.tmp`` files and prevents empty master tables after a failed rename.
+    """
     output_path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary_name = tempfile.mkstemp(
         prefix=f".{output_path.stem}_", suffix=".tmp", dir=output_path.parent
@@ -438,10 +447,12 @@ def _atomic_save_workbook(workbook: Workbook, output_path: Path) -> None:
     temporary = Path(temporary_name)
     try:
         workbook.save(temporary)
-        os.replace(temporary, output_path)
-    except BaseException:
+        try:
+            os.replace(temporary, output_path)
+        except OSError:
+            shutil.copy2(temporary, output_path)
+    finally:
         temporary.unlink(missing_ok=True)
-        raise
 
 
 def _display_length(value: Any) -> int:
@@ -1726,46 +1737,33 @@ EXPENSE_SYNTHESIS_HEADERS: tuple[str, ...] = (
 )
 EXPENSE_SYNTHESIS_FILENAME = "SYNTHESE_FRAIS_GENERAUX.xlsx"
 EXPENSE_SUBTABLE_FILENAME = "TABLEAU_{subcategory}.xlsx"
-MASTER_ACHATS_FILENAME = "TABLEAU_MERE_ACHATS_CHARGES.xlsx"
+MASTER_PIECES_FILENAME = "TABLEAU_MERE_PIECES_COMPTABLES.xlsx"
+MASTER_ACHATS_FILENAME = MASTER_PIECES_FILENAME
+LEGACY_MASTER_ACHATS_FILENAME = "TABLEAU_MERE_ACHATS_CHARGES.xlsx"
 MASTER_BANQUE_TVA_FILENAME = "TABLEAU_MERE_BANQUE_TVA.xlsx"
-MASTER_ACHATS_HEADERS: tuple[str, ...] = (
+MASTER_PIECES_HEADERS: tuple[str, ...] = (
     "Date Pièce",
-    "Fournisseur",
+    "Flux (VENTE_CLIENT / ACHAT_FOURNISSEUR)",
+    "Tiers (Client ou Fournisseur)",
     "N° Pièce",
-    "Catégorie",
-    "Sous-catégorie",
-    "Repère Classement",
-    "Statut Anti-Doublon TVA",
-    "Mode Exercice Fiscal",
-    "Exercice Cible",
-    "Mois Décalé",
-    "Date Comptable",
-    "HT",
-    "TVA",
-    "TTC",
-    "Lien Justificatif",
-    "Source de Paiement",
-    "Compte de Contrepartie",
-    PIECE_LINK_HEADER,
+    "Montant HT",
+    "Montant TVA",
+    "Montant TTC",
+    "Statut",
+    "Lien PDF Pièce (Cliquable)",
+    "Rapprochement Banque / LCR",
+    "Écart / Solde Dû",
 )
+MASTER_ACHATS_HEADERS = MASTER_PIECES_HEADERS
 MASTER_BANQUE_TVA_HEADERS: tuple[str, ...] = (
-    "Date Pièce",
-    "Fournisseur",
-    "N° Pièce",
-    "TVA",
-    "TVA Comptée",
-    "Repère Classement",
-    "Statut Anti-Doublon TVA",
-    "Mode Exercice Fiscal",
-    "Exercice Cible",
-    "Mois Décalé",
-    "Date Comptable",
-    "HT",
-    "TTC",
-    "Lien Justificatif",
-    "Source de Paiement",
-    "Compte de Contrepartie",
-    PIECE_LINK_HEADER,
+    "Date Opération",
+    "Type",
+    "Libellé Opération",
+    "Débit",
+    "Crédit",
+    "Pièces Rapprochées (N° & Liens PDF cliquables)",
+    "TVA Déduite/Collectée",
+    "Solde Lettrage",
 )
 MASTER_TVA_RECAP_HEADERS: tuple[str, ...] = (
     "Exercice",
@@ -2079,6 +2077,7 @@ def _write_p17_workbook(
     headers: tuple[str, ...],
     rows: list[tuple[Any, ...]],
     total_row: tuple[Any, ...] | None = None,
+    hyperlinks: dict[tuple[int, int], str] | None = None,
 ) -> None:
     workbook = Workbook()
     sheet = workbook.active
@@ -2109,6 +2108,14 @@ def _write_p17_workbook(
             cell = sheet.cell(row=offset, column=column)
             if _write_piece_link(cell, value):
                 cell.border = border
+                continue
+            hyperlink = (hyperlinks or {}).get((offset, column))
+            if hyperlink:
+                cell.value = value
+                cell.hyperlink = hyperlink
+                cell.font = Font(color="0563C1", underline="single")
+                cell.border = border
+                cell.alignment = Alignment(vertical="center", wrap_text=True)
                 continue
             cell.value = (
                 float(value) if isinstance(value, Decimal) else value
@@ -2396,6 +2403,11 @@ class MasterTableExportReport:
     duplicates: tuple[TvaDuplicate, ...]
     fiscal_totals: dict[int, FiscalTotals]
 
+    @property
+    def pieces_path(self) -> Path:
+        """P23 unified pieces workbook (legacy ``achats_path`` alias)."""
+        return self.achats_path
+
 
 def _line_identifier(row: dict[str, Any], index: int) -> str:
     for key in ("line_id", "invoice_id", "id"):
@@ -2566,28 +2578,28 @@ def compute_fiscal_totals(
     }
 
 
-def _master_rows(store: Any, tenant_id: str) -> list[dict[str, Any]]:
+_PAID_RECONCILIATION_STATUSES = frozenset(
+    {"PAYEE_RAPPROCHEE", "PAYE", "SOLDEE"}
+)
+
+
+def _all_master_rows(store: Any, tenant_id: str) -> list[dict[str, Any]]:
+    """Every non-rejected line available to the P23 master workbooks."""
     list_master = getattr(store, "list_master_lines", None)
     if callable(list_master):
-        rows = list_master(tenant_id)
-        return [
-            row
-            for row in rows
-            if str(row.get("category") or "") != DocumentCategory.VENTES_CLIENTS.value
-            and str(row.get("document_type") or "").strip().upper()
-            not in NON_ACCOUNTABLE_DOCUMENT_TYPES
-        ]
+        return list(list_master(tenant_id))
+    list_lines = getattr(store, "list_lines", None)
+    if callable(list_lines):
+        try:
+            rows, _ = list_lines(tenant_id, status="ALL", limit=-1)
+        except TypeError:
+            rows = None
+        if rows is not None:
+            return list(rows)
     rows: list[dict[str, Any]] = []
     seen: set[str] = set()
     for category in DocumentCategory:
-        if category is DocumentCategory.VENTES_CLIENTS:
-            continue
         for row in store.list_category_lines(tenant_id, category):
-            if (
-                str(row.get("document_type") or "").strip().upper()
-                in NON_ACCOUNTABLE_DOCUMENT_TYPES
-            ):
-                continue
             identifier = _line_identifier(row, len(rows))
             if identifier in seen:
                 continue
@@ -2596,8 +2608,339 @@ def _master_rows(store: Any, tenant_id: str) -> list[dict[str, Any]]:
     return rows
 
 
+def _is_bank_operation(row: dict[str, Any]) -> bool:
+    document_type = str(row.get("document_type") or "").strip().upper()
+    line_id = str(row.get("line_id") or "").strip().upper()
+    debit = _decimal(row.get("debit_amount"))
+    credit = _decimal(row.get("credit_amount"))
+    return (
+        document_type in {"OFX", "QFX"}
+        or line_id.startswith("OFX-")
+        or bool(debit)
+        or bool(credit)
+    )
+
+
+def _is_sales_row(row: dict[str, Any]) -> bool:
+    return str(row.get("category") or "") == DocumentCategory.VENTES_CLIENTS.value
+
+
+def _master_rows(store: Any, tenant_id: str) -> list[dict[str, Any]]:
+    """Purchase/fee rows used for the VAT anti-duplicate and fiscal recap."""
+    return [
+        row
+        for row in _all_master_rows(store, tenant_id)
+        if not _is_sales_row(row)
+        and not _is_bank_operation(row)
+        and str(row.get("document_type") or "").strip().upper()
+        not in NON_ACCOUNTABLE_DOCUMENT_TYPES
+    ]
+
+
+def _piece_sort_key(row: dict[str, Any]) -> tuple[Any, int, str, str]:
+    piece_date = _parse_iso_date(row.get("operation_date")) or date_cls.max
+    flux_priority = 0 if _is_sales_row(row) else 1
+    number = _piece_number_from_row(row) or _summary_record(row)["invoice_id"]
+    return (
+        piece_date,
+        flux_priority,
+        str(number or "").casefold(),
+        _fold(_summary_record(row)["counterparty"]),
+    )
+
+
+def _piece_rows(store: Any, tenant_id: str) -> list[dict[str, Any]]:
+    """All document pieces (customer sales + supplier purchases/fees)."""
+    pieces: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in _all_master_rows(store, tenant_id):
+        if _is_bank_operation(row):
+            continue
+        if (
+            str(row.get("document_type") or "").strip().upper()
+            in NON_ACCOUNTABLE_DOCUMENT_TYPES
+        ):
+            continue
+        if not any(
+            row.get(key) not in (None, "")
+            for key in (
+                "amount_ht",
+                "amount_tva",
+                "amount_ttc",
+                "invoice_id",
+                "piece_pdf",
+                "invoice_url",
+            )
+        ):
+            continue
+        identifier = _line_identifier(row, len(pieces))
+        if identifier in seen:
+            continue
+        seen.add(identifier)
+        pieces.append(row)
+    return sorted(pieces, key=_piece_sort_key)
+
+
+def _bank_operations(store: Any, tenant_id: str) -> list[dict[str, Any]]:
+    return sorted(
+        [
+            row
+            for row in _all_master_rows(store, tenant_id)
+            if _is_bank_operation(row)
+        ],
+        key=lambda row: (
+            _parse_iso_date(row.get("operation_date")) or date_cls.max,
+            str(row.get("line_id") or ""),
+        ),
+    )
+
+
+def _movement_amount(row: dict[str, Any]) -> Decimal:
+    debit = _decimal(row.get("debit_amount")) or Decimal("0.00")
+    credit = _decimal(row.get("credit_amount")) or Decimal("0.00")
+    return (credit if credit else debit).quantize(_CENT)
+
+
+def _reference_keys(*values: Any) -> set[str]:
+    keys: set[str] = set()
+    for value in values:
+        text = re.sub(r"\s+", " ", _fold(value)).strip()
+        if not text:
+            continue
+        keys.add(text)
+        for pattern in (
+            r"remise(?:\s+encaissement)?\s*(?:n[°o]?\s*)?([a-z0-9]+)",
+            r"virement\s*(?:n[°o]?\s*)?([a-z0-9]+)",
+            r"\bvir\b\s*(?:n[°o]?\s*)?([a-z0-9]+)",
+        ):
+            for match in re.finditer(pattern, text):
+                token = match.group(1)
+                if token in {"de", "des", "du", "encaissement"}:
+                    continue
+                keys.add(token)
+                keys.add(f"remise {token}")
+                keys.add(f"virement {token}")
+    return keys
+
+
+_GENERIC_REFERENCE_KEYS = frozenset(
+    {"virement", "remise", "vir", "reglement_valide", "reglement"}
+)
+
+
+def _is_specific_reference(key: str) -> bool:
+    return len(key) >= 4 and key not in _GENERIC_REFERENCE_KEYS
+
+
+def _subset_for_amount(
+    documents: list[dict[str, Any]], target: Decimal
+) -> list[dict[str, Any]] | None:
+    """Find an exact TTC subset matching one bank movement (bounded DFS)."""
+    if target <= Decimal("0.00") or not documents:
+        return None
+    items = sorted(
+        (
+            (document, (_summary_record(document)["ttc"] or Decimal("0.00")))
+            for document in documents
+        ),
+        key=lambda item: item[1],
+        reverse=True,
+    )
+    visited: set[tuple[int, str]] = set()
+
+    def search(
+        index: int, remaining: Decimal
+    ) -> list[dict[str, Any]] | None:
+        if abs(remaining) < _CENT:
+            return []
+        if index >= len(items) or remaining < Decimal("0.00"):
+            return None
+        if len(visited) > 50_000:
+            return None
+        marker = (index, str(remaining))
+        if marker in visited:
+            return None
+        visited.add(marker)
+        document, amount = items[index]
+        if amount <= remaining:
+            tail = search(index + 1, (remaining - amount).quantize(_CENT))
+            if tail is not None:
+                return [document, *tail]
+        return search(index + 1, remaining)
+
+    return search(0, target.quantize(_CENT))
+
+
+def _match_bank_documents(
+    bank_row: dict[str, Any], documents: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Return document pieces lettered against one Caisse d'Épargne line."""
+    if str(bank_row.get("payment_method") or "").strip().upper() in {
+        "FRAIS_BANCAIRES",
+    }:
+        return []
+    bank_invoice = _fold(_text_field(bank_row, "invoice_id"))
+    bank_keys = _reference_keys(
+        _text_field(bank_row, "fitid"),
+        _text_field(bank_row, "payment_reference"),
+        _text_field(bank_row, "remittance_reference"),
+        _text_field(bank_row, "label"),
+    )
+    bank_label = re.sub(
+        r"\s+", " ", _fold(_text_field(bank_row, "label"))
+    ).strip()
+    matched: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for document in documents:
+        identifier = _line_identifier(document, len(seen))
+        document_invoice = _fold(
+            _text_field(document, "invoice_id", "origin_document_number")
+        )
+        document_keys = _reference_keys(
+            _text_field(
+                document,
+                "reconciliation_reference",
+                "fitid",
+                "payment_reference",
+                "remittance_reference",
+            )
+        )
+        hit = bool(bank_invoice and document_invoice == bank_invoice)
+        hit = hit or bool(bank_keys & document_keys)
+        if not hit and document_keys:
+            hit = any(
+                _is_specific_reference(key) and key in bank_label
+                for key in document_keys
+            )
+        if not hit:
+            number = _fold(_piece_number_from_row(document))
+            hit = bool(number and len(number) >= 4 and number in bank_label)
+        if hit and identifier not in seen:
+            seen.add(identifier)
+            matched.append(document)
+    return matched
+
+
+def _reconciliation_label(row: dict[str, Any]) -> str:
+    status = str(row.get("reconciliation_status") or "").strip().upper()
+    reference = _text_field(row, "reconciliation_reference")
+    method = _text_field(row, "payment_method")
+    parts: list[str] = []
+    if status:
+        parts.append(status)
+    if reference and reference.upper() != status:
+        parts.append(reference)
+    if not parts and method:
+        parts.append(method)
+    return " — ".join(dict.fromkeys(parts)) or "NON RAPPROCHE"
+
+
+def _solde_du(row: dict[str, Any], record: dict[str, Any]) -> Decimal:
+    ttc = record["ttc"] or Decimal("0.00")
+    explicit = _decimal_field(row, "balance_due")
+    if explicit is not None:
+        return explicit
+    status = str(row.get("reconciliation_status") or "").strip().upper()
+    if status in _PAID_RECONCILIATION_STATUSES:
+        return Decimal("0.00")
+    reconciled = _decimal_field(row, "reconciliation_amount")
+    if reconciled is not None:
+        return (ttc - reconciled).quantize(_CENT)
+    return ttc.quantize(_CENT)
+
+
+def _pieces_table_rows(
+    store: Any, tenant_id: str, workbook_path: Path
+) -> list[tuple[Any, ...]]:
+    rows: list[tuple[Any, ...]] = []
+    for row in _piece_rows(store, tenant_id):
+        record = _summary_record(row)
+        rows.append(
+            (
+                _date_cell(record["date"]),
+                (
+                    "VENTE_CLIENT"
+                    if _is_sales_row(row)
+                    else "ACHAT_FOURNISSEUR"
+                ),
+                record["counterparty"],
+                record["invoice_id"],
+                record["ht"] or Decimal("0.00"),
+                record["tva"] or Decimal("0.00"),
+                record["ttc"] or Decimal("0.00"),
+                str(row.get("raw_status") or row.get("status") or ""),
+                _piece_link_for_row(workbook_path, row),
+                _reconciliation_label(row),
+                _solde_du(row, record),
+            )
+        )
+    return rows
+
+
+def _bank_mirror_rows(
+    store: Any, tenant_id: str, workbook_path: Path
+) -> tuple[list[tuple[Any, ...]], dict[tuple[int, int], str]]:
+    documents = _piece_rows(store, tenant_id)
+    rows: list[tuple[Any, ...]] = []
+    hyperlinks: dict[tuple[int, int], str] = {}
+    for offset, row in enumerate(_bank_operations(store, tenant_id), start=2):
+        movement = _movement_amount(row)
+        matched = _match_bank_documents(row, documents)
+        if matched:
+            candidate_total = sum(
+                (
+                    _summary_record(document)["ttc"] or Decimal("0.00")
+                    for document in matched
+                ),
+                Decimal("0.00"),
+            )
+            if candidate_total != movement:
+                subset = _subset_for_amount(matched, movement)
+                if subset is not None:
+                    matched = subset
+        numbers: list[str] = []
+        links: list[str] = []
+        matched_total = Decimal("0.00")
+        matched_tva = Decimal("0.00")
+        for document in matched:
+            record = _summary_record(document)
+            number = _piece_number_from_row(document) or record["invoice_id"]
+            if number:
+                numbers.append(str(number))
+            matched_total += record["ttc"] or Decimal("0.00")
+            matched_tva += record["tva"] or Decimal("0.00")
+            link = _piece_link_for_row(workbook_path, document)
+            if link:
+                links.append(link)
+        display = " + ".join(dict.fromkeys(numbers)) or "NON RAPPROCHEE"
+        debit = _decimal(row.get("debit_amount")) or Decimal("0.00")
+        credit = _decimal(row.get("credit_amount")) or Decimal("0.00")
+        tva = (
+            matched_tva
+            if matched
+            else _decimal_field(row, "amount_tva", "vat_amount")
+            or Decimal("0.00")
+        )
+        rows.append(
+            (
+                _date_cell(row.get("operation_date")),
+                _text_field(row, "payment_method", "document_type", "category")
+                or ("DEBIT" if debit else "CREDIT"),
+                _text_field(row, "label"),
+                debit,
+                credit,
+                display,
+                tva.quantize(_CENT),
+                (movement - matched_total).quantize(_CENT),
+            )
+        )
+        if links:
+            hyperlinks[(offset, 6)] = links[0]
+    return rows, hyperlinks
+
+
 class MasterTableExporter:
-    """Build the two P17 master workbooks under ``04_EXPORT_COMPTA``."""
+    """Build the unified P23 pieces table and the bank/TVA mirror."""
 
     def __init__(
         self,
@@ -2624,87 +2967,38 @@ class MasterTableExporter:
             else tree.state_dir(FolderState.EXPORT_COMPTA) / tenant
         )
         output_dir.mkdir(parents=True, exist_ok=True)
-        achats_path = output_dir / MASTER_ACHATS_FILENAME
+        pieces_path = output_dir / MASTER_PIECES_FILENAME
         banque_path = output_dir / MASTER_BANQUE_TVA_FILENAME
         rows = _master_rows(self._store, tenant)
         statuses, duplicates = compute_tva_dedup(rows)
         fiscal_totals = compute_fiscal_totals(rows, statuses)
 
-        achats_rows: list[tuple[Any, ...]] = []
-        banque_rows: list[tuple[Any, ...]] = []
-        for row, status in zip(rows, statuses):
-            record = _summary_record(row)
-            subcategory = _infer_expense_subcategory(row)
-            marker = classify_marker(subcategory)
-            decision = resolve_fiscal_year(row)
-            piece = _piece_number_from_row(row) or _piece_reference(
-                row, row.get("invoice_id") or row.get("line_id") or ""
-            )
-            date_value = _date_cell(record["date"])
-            effective = decision.effective_date or date_value
-            ht = record["ht"] or Decimal("0.00")
-            tva = record["tva"] or Decimal("0.00")
-            ttc = record["ttc"] or Decimal("0.00")
-            common_tail = (
-                marker,
-                _status_value(status),
-                decision.mode.value,
-                decision.target_year if decision.target_year is not None else "",
-                decision.deferred_month or "",
-                effective,
-            )
-            achats_rows.append(
-                (
-                    date_value,
-                    record["counterparty"],
-                    piece,
-                    str(row.get("category") or ""),
-                    subcategory.value if subcategory is not None else NON_CLASSIFIED_MARKER,
-                    *common_tail,
-                    ht,
-                    tva,
-                    ttc,
-                    record["reference"],
-                    payment_source_of(row),
-                    counterparty_account_of(row),
-                    _piece_link_for_row(achats_path, row),
-                )
-            )
-            if tva != 0 or str(row.get("category") or "") in {
-                DocumentCategory.BANQUE_FINANCE.value,
-                DocumentCategory.FISCAL_SOCIAL.value,
-            }:
-                banque_rows.append(
-                    (
-                        date_value,
-                        record["counterparty"],
-                        piece,
-                        tva,
-                        Decimal("0.00")
-                        if _is_duplicate_status(status)
-                        else tva,
-                        *common_tail,
-                        ht,
-                        ttc,
-                        record["reference"],
-                        payment_source_of(row),
-                        counterparty_account_of(row),
-                        _piece_link_for_row(banque_path, row),
-                    )
-                )
+        pieces_rows = _pieces_table_rows(
+            self._store, tenant, pieces_path
+        )
+        banque_rows, bank_hyperlinks = _bank_mirror_rows(
+            self._store, tenant, banque_path
+        )
 
         _write_p17_workbook(
-            achats_path,
-            title="TABLEAU_MERE_ACHATS_CHARGES",
-            headers=MASTER_ACHATS_HEADERS,
-            rows=achats_rows,
+            pieces_path,
+            title="TABLEAU_MERE_PIECES_COMPTABLES",
+            headers=MASTER_PIECES_HEADERS,
+            rows=pieces_rows,
         )
         _write_p17_workbook(
             banque_path,
             title="TABLEAU_MERE_BANQUE_TVA",
             headers=MASTER_BANQUE_TVA_HEADERS,
             rows=banque_rows,
+            hyperlinks=bank_hyperlinks,
         )
+        legacy_path = output_dir / LEGACY_MASTER_ACHATS_FILENAME
+        if legacy_path.exists():
+            try:
+                legacy_path.unlink()
+            except OSError:
+                pass
         workbook = load_workbook(banque_path)
         recap = workbook.create_sheet("RECAP_TVA")
         recap.sheet_view.showGridLines = False
@@ -2737,9 +3031,9 @@ class MasterTableExporter:
         _atomic_save_workbook(workbook, banque_path)
 
         return MasterTableExportReport(
-            achats_path=achats_path,
+            achats_path=pieces_path,
             banque_tva_path=banque_path,
-            row_count=len(rows),
+            row_count=len(pieces_rows),
             duplicates=duplicates,
             fiscal_totals=fiscal_totals,
         )

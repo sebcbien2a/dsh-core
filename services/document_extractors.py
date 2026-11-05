@@ -17,6 +17,9 @@ from typing import Any, Callable, Iterable, Protocol, runtime_checkable
 
 import pymupdf
 
+if hasattr(pymupdf, "TOOLS"):
+    pymupdf.TOOLS.mupdf_display_errors(False)
+
 from schemas.document_perception import BBox, Block, ExtractionPlan
 from services.document_router import ALLOWED_TOOLS
 

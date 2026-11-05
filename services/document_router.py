@@ -19,6 +19,9 @@ from typing import Any, Callable
 
 import pymupdf
 
+if hasattr(pymupdf, "TOOLS"):
+    pymupdf.TOOLS.mupdf_display_errors(False)
+
 from schemas.document_perception import (
     ExtractionPlan,
     RoutingDecision,

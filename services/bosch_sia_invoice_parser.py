@@ -181,6 +181,9 @@ def _fold(value: Any) -> str:
 def _pdf_text(source: str | Path | bytes | bytearray) -> str:
     try:
         import fitz
+
+        if hasattr(fitz, "TOOLS"):
+            fitz.TOOLS.mupdf_display_errors(False)
     except ImportError as exc:  # pragma: no cover
         raise BoschSiaInvoiceError("PDF_SUPPORT_UNAVAILABLE") from exc
     try:

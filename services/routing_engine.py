@@ -1,6 +1,9 @@
 # services/routing_engine.py
 import pandas as pd
 import pymupdf
+
+if hasattr(pymupdf, "TOOLS"):
+    pymupdf.TOOLS.mupdf_display_errors(False)
 import ollama
 from pathlib import Path
 from model_router import ExecutionMode, ModelRole, resolve_model, validate_vision_model

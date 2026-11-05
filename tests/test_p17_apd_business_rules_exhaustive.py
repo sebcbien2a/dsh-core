@@ -596,31 +596,50 @@ def export_master(store: SqliteAccountingStore, tmp_path: Path):
 def test_master_tables_are_written_under_04_export_compta_tenant(tmp_path):
     store = make_store(tmp_path)
     add_expense(store, "DOC-1", subcategory=ExpenseSubCategory.RESTAURATION)
-    report = export_master(store, tmp_path)
     expected_root = (
         tmp_path / TENANT / "04_EXPORT_COMPTA" / TENANT
     )
-    assert report.achats_path == expected_root / MASTER_ACHATS_FILENAME
+    expected_root.mkdir(parents=True, exist_ok=True)
+    legacy = expected_root / "TABLEAU_MERE_ACHATS_CHARGES.xlsx"
+    legacy.write_bytes(b"legacy")
+    report = export_master(store, tmp_path)
+    assert report.pieces_path == expected_root / MASTER_ACHATS_FILENAME
+    assert report.achats_path == report.pieces_path
     assert report.banque_tva_path == expected_root / MASTER_BANQUE_TVA_FILENAME
-    assert report.achats_path.is_file()
+    assert report.pieces_path.is_file()
     assert report.banque_tva_path.is_file()
+    assert legacy.exists() is False
 
 
-def test_master_tables_expose_p17_control_columns(tmp_path):
+def test_master_tables_expose_p23_piece_and_bank_columns(tmp_path):
     store = make_store(tmp_path)
     add_expense(store, "DOC-1", subcategory=ExpenseSubCategory.RESTAURATION)
     report = export_master(store, tmp_path)
-    assert header_of(report.achats_path) == MASTER_ACHATS_HEADERS
+    assert header_of(report.pieces_path) == MASTER_ACHATS_HEADERS
     assert header_of(report.banque_tva_path) == MASTER_BANQUE_TVA_HEADERS
-    for required in (
-        "Repère Classement",
-        "Statut Anti-Doublon TVA",
-        "Mode Exercice Fiscal",
-        "Exercice Cible",
-        "Mois Décalé",
-    ):
-        assert required in MASTER_ACHATS_HEADERS
-        assert required in MASTER_BANQUE_TVA_HEADERS
+    assert MASTER_ACHATS_HEADERS == (
+        "Date Pièce",
+        "Flux (VENTE_CLIENT / ACHAT_FOURNISSEUR)",
+        "Tiers (Client ou Fournisseur)",
+        "N° Pièce",
+        "Montant HT",
+        "Montant TVA",
+        "Montant TTC",
+        "Statut",
+        "Lien PDF Pièce (Cliquable)",
+        "Rapprochement Banque / LCR",
+        "Écart / Solde Dû",
+    )
+    assert MASTER_BANQUE_TVA_HEADERS == (
+        "Date Opération",
+        "Type",
+        "Libellé Opération",
+        "Débit",
+        "Crédit",
+        "Pièces Rapprochées (N° & Liens PDF cliquables)",
+        "TVA Déduite/Collectée",
+        "Solde Lettrage",
+    )
     assert header_of(report.banque_tva_path, "RECAP_TVA") == MASTER_TVA_RECAP_HEADERS
 
 
@@ -640,11 +659,9 @@ def test_classification_marker_classified_vs_unclassified(tmp_path):
         supplier="INCONNU",
     )
     report = export_master(store, tmp_path)
-    markers = {
-        row[2]: row[5] for row in rows_of(report.achats_path)
-    }
-    assert markers["REST-001"] == "IDENTIFIEE_CLASSEE:RESTAURATION"
-    assert markers["DIVERS-001"] == "NON_CLASSEE"
+    rows = {row[3]: row for row in rows_of(report.pieces_path)}
+    assert rows["REST-001"][1] == "ACHAT_FOURNISSEUR"
+    assert rows["DIVERS-001"][1] == "ACHAT_FOURNISSEUR"
     assert classify_marker(ExpenseSubCategory.CARBURANT) == (
         "IDENTIFIEE_CLASSEE:CARBURANT"
     )
@@ -679,9 +696,7 @@ def test_vat_anti_duplicate_counts_piece_once(tmp_path):
     assert duplicate.piece_number.casefold() == "rest-001"
     assert duplicate.supplier == "bistro lyon"
     assert duplicate.amount == Decimal("120.00")
-    statuses = [row[6] for row in rows_of(report.banque_tva_path)]
-    assert statuses.count(TvaDedupStatus.UNIQUE.value) == 1
-    assert statuses.count(TvaDedupStatus.DUPLICATE_EXCLUDED.value) == 1
+    assert report.fiscal_totals[2026].tva == Decimal("20.00")
     recap = rows_of(report.banque_tva_path, "RECAP_TVA")
     assert len(recap) == 1
     assert recap[0][3] == 20.0
@@ -733,13 +748,9 @@ def test_fiscal_year_switch_to_next_january_isolates_tva(tmp_path):
     assert report.fiscal_totals[2026].tva == Decimal("10.00")
     assert report.fiscal_totals[2027].tva == Decimal("20.00")
     rows = {
-        row[2]: row for row in rows_of(report.achats_path)
+        row[3]: row for row in rows_of(report.pieces_path)
     }
-    deferred = rows["DEC-2026"]
-    assert deferred[7] == "SUIVANT"
-    assert deferred[8] == 2027
-    assert deferred[9] == "01"
-    assert deferred[10] == "31/01/2027" or deferred[10].strftime("%d/%m/%Y") == "31/01/2027"
+    assert set(rows) == {"DEC-2026", "JUN-2026"}
     recap = rows_of(report.banque_tva_path, "RECAP_TVA")
     assert [(row[0], row[3]) for row in recap] == [(2026, 10.0), (2027, 20.0)]
 
@@ -819,7 +830,145 @@ def test_master_export_convenience_wrapper(tmp_path):
     add_expense(store, "DOC-1", subcategory=ExpenseSubCategory.CARBURANT)
     report = export_master_tables(TENANT, root=tmp_path, store=store)
     assert report.row_count == 1
-    assert report.achats_path.is_file()
+    assert report.pieces_path.is_file()
+
+
+# -- P23 unified pieces table & Caisse d'Épargne mirror ----------------------
+
+
+def test_p23_unified_pieces_table_contains_sales_and_purchases(tmp_path):
+    store = make_store(tmp_path)
+    add_expense(
+        store,
+        "ACHAT-BOSCH",
+        subcategory=ExpenseSubCategory.CARBURANT,
+        supplier="ROBERT BOSCH",
+        ht="100.00",
+        tva="20.00",
+        ttc="120.00",
+    )
+    store.upsert_document_line(
+        TENANT,
+        "SALE-FA2001",
+        {
+            "operation_date": "2026-05-20",
+            "label": "FA2001",
+            "counterparty": "CLIENT SARL",
+            "invoice_id": "FA2001",
+            "invoice_url": "03_VALIDE_PRET_FEC/VENTES_CLIENTS/FA2001.pdf",
+            "category": DocumentCategory.VENTES_CLIENTS.value,
+            "amount_ht": "1000.00",
+            "amount_tva": "200.00",
+            "amount_ttc": "1200.00",
+            "document_type": "CUSTOMER_INVOICE",
+            "status": "VALIDE",
+        },
+    )
+
+    report = export_master(store, tmp_path)
+    rows = rows_of(report.pieces_path)
+
+    assert len(rows) == 2
+    by_flux = {row[1]: row for row in rows}
+    assert set(by_flux) == {"VENTE_CLIENT", "ACHAT_FOURNISSEUR"}
+    sale = by_flux["VENTE_CLIENT"]
+    assert sale[2] == "CLIENT SARL"
+    assert sale[3] == "FA2001"
+    assert sale[4] == 1000.0
+    assert sale[5] == 200.0
+    assert sale[6] == 1200.0
+    purchase = by_flux["ACHAT_FOURNISSEUR"]
+    assert purchase[2] == "ROBERT BOSCH"
+    assert purchase[3] == "ACHAT-BOSCH"
+    for row in rows:
+        for column in (4, 5, 6, 10):
+            assert isinstance(row[column], (int, float))
+    assert report.row_count == 2
+
+
+def test_p23_bank_mirror_letters_sales_piece_and_links_pdf(tmp_path):
+    store = make_store(tmp_path)
+    output_root = tmp_path / TENANT / "04_EXPORT_COMPTA" / TENANT
+    piece = (
+        output_root
+        / "PIECES_JOINTES"
+        / "VENTES"
+        / "FA2001.pdf"
+    )
+    piece.parent.mkdir(parents=True, exist_ok=True)
+    piece.write_bytes(b"%PDF-1.4 facture client")
+    store.upsert_document_line(
+        TENANT,
+        "SALE-FA2001",
+        {
+            "operation_date": "2026-05-20",
+            "label": "FA2001",
+            "counterparty": "CLIENT SARL",
+            "invoice_id": "FA2001",
+            "category": DocumentCategory.VENTES_CLIENTS.value,
+            "amount_ht": "1000.00",
+            "amount_tva": "200.00",
+            "amount_ttc": "1200.00",
+            "document_type": "CUSTOMER_INVOICE",
+            "piece_pdf": "PIECES_JOINTES/VENTES/FA2001.pdf",
+            "reconciliation_status": "PAYEE_RAPPROCHEE",
+            "reconciliation_reference": "REMISE 94694",
+            "reconciliation_amount": "1200.00",
+            "status": "VALIDE",
+        },
+    )
+    store.add_line(
+        TENANT,
+        "OFX-94694",
+        {
+            "operation_date": "2026-06-30",
+            "label": "REMISE ENCAISSEMENT N 94694",
+            "credit_amount": "1200.00",
+            "category": DocumentCategory.BANQUE_FINANCE.value,
+            "payment_method": "LCR_ENCAISSEMENT_LOT",
+            "fitid": "FIT-94694",
+            "document_type": "OFX",
+            "status": "PENDING",
+        },
+    )
+
+    report = export_master(store, tmp_path)
+    rows = rows_of(report.banque_tva_path)
+
+    assert len(rows) == 1
+    assert rows[0][1] == "LCR_ENCAISSEMENT_LOT"
+    assert rows[0][2] == "REMISE ENCAISSEMENT N 94694"
+    assert rows[0][3] == 0.0
+    assert rows[0][4] == 1200.0
+    assert "FA2001" in rows[0][5]
+    assert rows[0][6] == 200.0
+    assert rows[0][7] == 0.0
+    link_cell = sheet(report.banque_tva_path).cell(row=2, column=6)
+    assert link_cell.hyperlink is not None
+    assert "FA2001.pdf" in str(link_cell.hyperlink.target)
+
+
+def test_p23_atomic_save_falls_back_to_copy_on_rename_lock(
+    tmp_path, monkeypatch
+):
+    from openpyxl import Workbook
+
+    from services import accounting_spreadsheet_export_service as accounting
+
+    target = tmp_path / "locked.xlsx"
+
+    def locked_replace(source, destination):
+        raise PermissionError("fichier ouvert dans Excel")
+
+    monkeypatch.setattr(accounting.os, "replace", locked_replace)
+    workbook = Workbook()
+    workbook.active["A1"] = "contenu"
+    accounting._atomic_save_workbook(workbook, target)
+
+    assert target.is_file()
+    assert [path.name for path in tmp_path.iterdir()] == [target.name]
+    reloaded = load_workbook(target)
+    assert reloaded.active["A1"].value == "contenu"
 
 
 # -- store migration & _A_COMPLETER columns ----------------------------------
@@ -1206,12 +1355,10 @@ def test_master_table_marks_personal_counterparty_account(tmp_path):
     report = export_master_tables(
         TENANT, root=tmp_path, store=store
     )
-    headers = header_of(report.achats_path)
-    source_index = headers.index("Source de Paiement")
-    account_index = headers.index("Compte de Contrepartie")
-    row = rows_of(report.achats_path)[0]
-    assert row[source_index] == "COMPTE_PERSO_DIRIGEANT"
-    assert row[account_index] == "455000_DIRIGEANT"
+    assert report.pieces_path.is_file()
+    line = store.get_line(TENANT, "PERSO-455")
+    assert line is not None and is_personal_expense(line)
+    assert line["counterparty_account"] == "455000_DIRIGEANT"
 
 
 # -- P17.1 hotel "Soirée Étape" & CGI Art. 206 -------------------------------

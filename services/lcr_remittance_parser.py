@@ -112,6 +112,9 @@ def _coerce_text(value: str | bytes | Path) -> str:
         if payload.startswith(b"%PDF"):
             try:
                 import fitz
+
+                if hasattr(fitz, "TOOLS"):
+                    fitz.TOOLS.mupdf_display_errors(False)
             except ImportError as exc:
                 raise LcrRemittanceError("PDF_SUPPORT_UNAVAILABLE") from exc
             try:

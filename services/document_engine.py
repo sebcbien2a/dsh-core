@@ -18,6 +18,9 @@ from typing import Any, Callable, Mapping, Protocol, Sequence, runtime_checkable
 
 import pymupdf
 
+if hasattr(pymupdf, "TOOLS"):
+    pymupdf.TOOLS.mupdf_display_errors(False)
+
 from model_router import resolve_multimodal_fallback_model
 from schemas.document_perception import (
     BBox,

@@ -2,6 +2,9 @@ import os
 import re
 from pathlib import Path
 import pymupdf  # PyMuPDF
+
+if hasattr(pymupdf, "TOOLS"):
+    pymupdf.TOOLS.mupdf_display_errors(False)
 from schemas.profile_schema import DocumentProfile
 
 

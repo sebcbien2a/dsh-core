@@ -17,6 +17,7 @@ from __future__ import annotations
 import csv
 import io
 import re
+import shutil
 import unicodedata
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, replace
@@ -470,6 +471,9 @@ def _parse_sage_xml(payload: bytes) -> list[CustomerInvoice]:
 def _pdf_pages(source: str | Path | bytes | bytearray) -> list[str]:
     try:
         import fitz
+
+        if hasattr(fitz, "TOOLS"):
+            fitz.TOOLS.mupdf_display_errors(False)
     except ImportError as exc:  # pragma: no cover - dependency is installed
         raise CustomerBatchImportError("PDF_SUPPORT_UNAVAILABLE") from exc
     try:
@@ -916,8 +920,14 @@ def _display(value: Any) -> str:
 def _atomic_save_workbook(workbook: Workbook, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(path.name + ".tmp-sales")
-    workbook.save(temporary)
-    temporary.replace(path)
+    try:
+        workbook.save(temporary)
+        try:
+            temporary.replace(path)
+        except OSError:
+            shutil.copy2(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def _write_sales_workbook(

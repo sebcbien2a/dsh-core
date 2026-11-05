@@ -10,6 +10,7 @@ same validated SQLite ledger, without ever posting a real accounting entry.
 from __future__ import annotations
 
 import os
+import shutil
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
@@ -506,11 +507,15 @@ def _write_balance_workbook(report: BalanceSimulationReport, output_path: Path) 
     try:
         workbook.save(temporary)
         workbook.close()
-        os.replace(temporary, output_path)
+        try:
+            os.replace(temporary, output_path)
+        except OSError:
+            shutil.copy2(temporary, output_path)
     except OSError as exc:
         workbook.close()
-        temporary.unlink(missing_ok=True)
         raise BalanceSimulationError("WRITE_FAILED", str(output_path)) from exc
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def simulate_balance(

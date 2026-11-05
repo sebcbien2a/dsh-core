@@ -328,6 +328,9 @@ def load_pymupdf() -> Any:
         raise InvoiceExtractionError(
             "PyMuPDF indisponible pour la couche texte PDF"
         )
+    tools = getattr(pymupdf, "TOOLS", None)
+    if tools is not None and hasattr(tools, "mupdf_display_errors"):
+        tools.mupdf_display_errors(False)
     return pymupdf
 
 
