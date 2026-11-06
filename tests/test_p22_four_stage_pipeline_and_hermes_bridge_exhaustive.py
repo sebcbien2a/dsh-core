@@ -487,7 +487,7 @@ def test_stage1_validates_evidence_moves_files_and_updates_readable_workbook(tmp
     legacy_sheet = legacy.active
     assert legacy_sheet.column_dimensions["A"].hidden is True
     assert legacy_sheet.column_dimensions["B"].hidden is True
-    assert legacy_sheet.cell(row=1, column=19).value == "Date Pièce"
+    assert legacy_sheet.cell(row=1, column=20).value == "Date Pièce"
     legacy.close()
     assert pending_pdf.exists()
 

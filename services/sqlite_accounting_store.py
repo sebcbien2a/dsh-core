@@ -416,6 +416,22 @@ CREATE TABLE IF NOT EXISTS counterparty_payment_rules (
 );
 CREATE INDEX IF NOT EXISTS idx_counterparty_payment_rules_tenant
     ON counterparty_payment_rules (tenant_id, expected_payment_method);
+
+CREATE TABLE IF NOT EXISTS tier_reference (
+    tenant_id TEXT NOT NULL,
+    canonical TEXT NOT NULL,
+    role TEXT NOT NULL,
+    category TEXT NOT NULL DEFAULT '',
+    subcategory TEXT NOT NULL DEFAULT '',
+    aliases TEXT NOT NULL DEFAULT '',
+    prefixes TEXT NOT NULL DEFAULT '',
+    payment_method TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'AUTORISE',
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (tenant_id, canonical)
+);
+CREATE INDEX IF NOT EXISTS idx_tier_reference_tenant
+    ON tier_reference (tenant_id, role, status);
 """
 
 
@@ -548,6 +564,17 @@ class SqliteAccountingStore:
                 (tenant_id, line_id, *values, status, _now()),
             )
             return cursor.rowcount == 1
+
+    def delete_line(self, tenant_id: str, line_id: str) -> bool:
+        validate_tenant_id(tenant_id)
+        _validate_line_id(line_id)
+        with closing(self._connect()) as conn, conn:
+            cursor = conn.execute(
+                "DELETE FROM reconciliation_lines"
+                " WHERE tenant_id = ? AND line_id = ?",
+                (tenant_id, line_id),
+            )
+            return cursor.rowcount > 0
 
     def get_line(self, tenant_id: str, line_id: str) -> dict[str, Any] | None:
         validate_tenant_id(tenant_id)
@@ -813,6 +840,57 @@ class SqliteAccountingStore:
         with closing(self._connect()) as conn:
             rows = conn.execute(sql, params).fetchall()
         return [dict(row) for row in rows]
+
+    def upsert_tier_reference(
+        self, tenant_id: str, canonical: str, fields: dict[str, Any]
+    ) -> None:
+        validate_tenant_id(tenant_id)
+        values = (
+            tenant_id,
+            str(canonical),
+            str(fields.get("role") or "A_AUTORISER"),
+            str(fields.get("category") or ""),
+            str(fields.get("subcategory") or ""),
+            str(fields.get("aliases") or ""),
+            str(fields.get("prefixes") or ""),
+            str(fields.get("payment_method") or ""),
+            str(fields.get("status") or "AUTORISE"),
+            _now(),
+        )
+        with closing(self._connect()) as conn, conn:
+            conn.execute(
+                "INSERT INTO tier_reference"
+                " (tenant_id, canonical, role, category, subcategory, aliases,"
+                " prefixes, payment_method, status, updated_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                " ON CONFLICT(tenant_id, canonical) DO UPDATE SET"
+                " role=excluded.role, category=excluded.category,"
+                " subcategory=excluded.subcategory, aliases=excluded.aliases,"
+                " prefixes=excluded.prefixes, payment_method=excluded.payment_method,"
+                " status=excluded.status, updated_at=excluded.updated_at",
+                values,
+            )
+
+    def list_tier_references(self, tenant_id: str) -> list[dict[str, Any]]:
+        validate_tenant_id(tenant_id)
+        with closing(self._connect()) as conn:
+            rows = conn.execute(
+                "SELECT * FROM tier_reference WHERE tenant_id = ?"
+                " ORDER BY casefold(canonical)",
+                (tenant_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_tier_reference(
+        self, tenant_id: str, canonical: str
+    ) -> dict[str, Any] | None:
+        validate_tenant_id(tenant_id)
+        with closing(self._connect()) as conn:
+            row = conn.execute(
+                "SELECT * FROM tier_reference WHERE tenant_id = ? AND canonical = ?",
+                (tenant_id, str(canonical)),
+            ).fetchone()
+        return dict(row) if row is not None else None
 
     def arbitrate(self, tenant_id: str, line_id: str, decision: dict[str, Any]) -> None:
         """Persist the HITL decision for a line, atomically and only once."""

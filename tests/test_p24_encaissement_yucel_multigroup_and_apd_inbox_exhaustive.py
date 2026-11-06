@@ -433,7 +433,7 @@ def test_readable_workbook_has_official_dropdowns_and_hidden_trace(tmp_path):
     workbook = load_workbook(path)
     sheet = workbook.active
     assert tuple(cell.value for cell in sheet[1])[: len(READABLE_HEADERS)] == READABLE_HEADERS
-    assert sheet.column_dimensions["N"].hidden is True
+    assert sheet.column_dimensions["O"].hidden is True
     formulas = {
         str(validation.sqref): validation.formula1
         for validation in sheet.data_validations.dataValidation

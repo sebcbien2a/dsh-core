@@ -199,13 +199,19 @@ def refresh_workbooks(
         export_dir=Path(export_dir) / tenant_id,
     )
     exported.append(sales.path)
-    ledger = SupplierLedgerExporter(store, export_dir=export_dir).export_supplier_ledger(
-        tenant_id
-    )
+    ledger = SupplierLedgerExporter(
+        store,
+        export_dir=export_dir,
+        strict_tiers=True,
+        include_matched_pieces=True,
+    ).export_supplier_ledger(tenant_id)
     exported.append(ledger)
-    client_ledger = ClientLedgerExporter(store, export_dir=export_dir).export(
-        tenant_id
-    )
+    client_ledger = ClientLedgerExporter(
+        store,
+        export_dir=export_dir,
+        strict_tiers=True,
+        include_matched_pieces=True,
+    ).export(tenant_id)
     exported.append(client_ledger)
     overview = CategoryOverviewExporter(
         store, root=root, export_dir=export_dir
@@ -228,7 +234,7 @@ def refresh_workbooks(
         if not store.list_category_lines(tenant_id, category):
             continue
         path = CategorySummaryExporter(
-            store, export_dir=export_dir
+            store, export_dir=export_dir, include_payment_date=True
         ).export_category_summary(tenant_id, category)
         exported.append(path)
     paths = tuple(dict.fromkeys(exported))

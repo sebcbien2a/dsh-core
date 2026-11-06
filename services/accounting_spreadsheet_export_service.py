@@ -52,6 +52,7 @@ from services.accounting_memory_learning_service import (
     AccountingMemoryLearningService,
     normalize_counterparty_name,
 )
+from services.tier_reference_service import TierReferenceService
 from services.pdf_splitter_and_linker import (
     PIECE_LINK_HEADER,
     PURCHASES_SUBDIR,
@@ -72,6 +73,7 @@ from services.sqlite_accounting_store import (
 
 UTF8_BOM = "\ufeff"
 _LEARNED_MEMORY: AccountingMemoryLearningService | None = None
+_TIER_REFERENCE: TierReferenceService | None = None
 
 
 def _learned_memory() -> AccountingMemoryLearningService:
@@ -80,6 +82,15 @@ def _learned_memory() -> AccountingMemoryLearningService:
     if _LEARNED_MEMORY is None:
         _LEARNED_MEMORY = AccountingMemoryLearningService()
     return _LEARNED_MEMORY
+
+
+def _tier_reference() -> TierReferenceService:
+    """Lazy locked tier reference (P25)."""
+    global _TIER_REFERENCE
+    if _TIER_REFERENCE is None:
+        _TIER_REFERENCE = TierReferenceService(memory=_learned_memory())
+        _TIER_REFERENCE.bootstrap(write_missing=False)
+    return _TIER_REFERENCE
 
 RECONCILIATION_COLUMNS = (
     "Date",
@@ -96,7 +107,7 @@ RECONCILIATION_COLUMNS = (
     "Motif Arbitrage",
 )
 
-CATEGORY_SUMMARY_COLUMNS = (
+CATEGORY_SUMMARY_COLUMNS_LEGACY = (
     "Date pièce",
     "Tiers / Fournisseur",
     "N° Pièce",
@@ -107,6 +118,19 @@ CATEGORY_SUMMARY_COLUMNS = (
     "Statut lettrage / rapprochement",
     PIECE_LINK_HEADER,
 )
+CATEGORY_SUMMARY_COLUMNS_P25 = (
+    "Date pièce",
+    "Date de Paiement",
+    "Tiers / Fournisseur",
+    "N° Pièce",
+    "Réf externe",
+    "Montant HT",
+    "Montant TVA",
+    "Montant TTC",
+    "Statut lettrage / rapprochement",
+    PIECE_LINK_HEADER,
+)
+CATEGORY_SUMMARY_COLUMNS = CATEGORY_SUMMARY_COLUMNS_LEGACY
 CATEGORY_SUMMARY_TOTAL_LABEL = "TOTAL"
 EXPORT_DIR_ENV = "DSH_ACCOUNTING_EXPORT_DIR"
 DEFAULT_EXPORT_DIR = Path("workspace") / "exports" / "accounting"
@@ -161,6 +185,7 @@ _BAND_FILL = "F2F7FB"
 _TOTAL_FILL = "DDEBF7"
 _BORDER_COLOR = "B7C4D4"
 _MIN_WIDTHS = (12, 24, 18, 32, 14, 14, 14, 32, 32)
+_MIN_WIDTHS_P25 = (12, 16, 24, 18, 32, 14, 14, 14, 32, 32)
 
 
 class CategorySummaryExportError(ValueError):
@@ -519,8 +544,27 @@ def _write_piece_link(cell: Any, value: Any) -> bool:
     return True
 
 
+def _payment_date_cell(row: dict[str, Any]) -> Any:
+    status = str(row.get("reconciliation_status") or "").upper()
+    paid = status in {"PAYEE_RAPPROCHEE", "PAYE", "SOLDEE"} or str(
+        row.get("already_paid_on_invoice") or ""
+    ).strip() in {"1", "true", "oui"}
+    if not paid:
+        return "EN ATTENTE"
+    raw = (
+        row.get("reconciliation_date")
+        or row.get("payment_date")
+        or row.get("operation_date")
+    )
+    return _date_cell(raw) if str(raw or "").strip() else "EN ATTENTE"
+
+
 def _write_category_workbook(
-    category: DocumentCategory, records: list[dict[str, Any]], output_path: Path
+    category: DocumentCategory,
+    records: list[dict[str, Any]],
+    output_path: Path,
+    *,
+    include_payment_date: bool = False,
 ) -> None:
     workbook = Workbook()
     sheet = workbook.active
@@ -534,7 +578,12 @@ def _write_category_workbook(
     header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
     band_fill = PatternFill("solid", fgColor=_BAND_FILL)
 
-    for column, name in enumerate(CATEGORY_SUMMARY_COLUMNS, start=1):
+    columns = (
+        CATEGORY_SUMMARY_COLUMNS_P25
+        if include_payment_date
+        else CATEGORY_SUMMARY_COLUMNS
+    )
+    for column, name in enumerate(columns, start=1):
         cell = sheet.cell(row=1, column=column, value=name)
         cell.font = header_font
         cell.fill = header_fill
@@ -545,6 +594,11 @@ def _write_category_workbook(
     for offset, record in enumerate(records, start=2):
         values = (
             _date_cell(record["date"]),
+            *(
+                (_payment_date_cell(record),)
+                if include_payment_date
+                else ()
+            ),
             _text(record["counterparty"]),
             _text(record["invoice_id"]),
             _text(record["reference"]),
@@ -591,7 +645,7 @@ def _write_category_workbook(
         cell.font = total_font
         cell.fill = total_fill
         cell.border = total_border
-        if column in (5, 6, 7):
+        if column in ((6, 7, 8) if include_payment_date else (5, 6, 7)):
             letter = get_column_letter(column)
             cell.value = (
                 f"=SUM({letter}2:{letter}{last_data_row})" if records else 0
@@ -601,11 +655,14 @@ def _write_category_workbook(
         elif column == 1:
             cell.alignment = Alignment(horizontal="left", vertical="center")
 
-    for column in range(1, len(CATEGORY_SUMMARY_COLUMNS) + 1):
-        longest = len(CATEGORY_SUMMARY_COLUMNS[column - 1])
+    widths_scheme = (
+        _MIN_WIDTHS if not include_payment_date else _MIN_WIDTHS_P25
+    )
+    for column in range(1, len(columns) + 1):
+        longest = len(columns[column - 1])
         for row in range(2, last_data_row + 1):
             longest = max(longest, _display_length(sheet.cell(row=row, column=column).value))
-        width = max(_MIN_WIDTHS[column - 1], min(longest + 2, 60))
+        width = max(widths_scheme[column - 1], min(longest + 2, 60))
         sheet.column_dimensions[get_column_letter(column)].width = width
 
     workbook.properties.creator = "DSH-Core"
@@ -621,9 +678,11 @@ class CategorySummaryExporter:
         store: CategoryLineStore,
         *,
         export_dir: str | os.PathLike[str] | None = None,
+        include_payment_date: bool = False,
     ) -> None:
         self._store = store
         self._export_dir = _resolve_export_dir(export_dir)
+        self._include_payment_date = bool(include_payment_date)
 
     @property
     def export_dir(self) -> Path:
@@ -660,7 +719,12 @@ class CategorySummaryExporter:
         for record, row in zip(records, rows):
             record["piece_link"] = _piece_link_for_row(target, row)
         _validate_output_path(target)
-        _write_category_workbook(selected, records, target)
+        _write_category_workbook(
+            selected,
+            records,
+            target,
+            include_payment_date=self._include_payment_date,
+        )
         return target
 
 
@@ -768,7 +832,7 @@ def export_category_overview(
     ).export(tenant_id)
 
 
-SUPPLIER_LEDGER_COLUMNS = (
+SUPPLIER_LEDGER_COLUMNS_LEGACY = (
     "Date",
     "Type",
     "N° Pièce / Réf",
@@ -779,6 +843,19 @@ SUPPLIER_LEDGER_COLUMNS = (
     "Code Lettrage / Statut",
     PIECE_LINK_HEADER,
 )
+SUPPLIER_LEDGER_COLUMNS_P25 = (
+    "Date",
+    "Type",
+    "N° Pièce / Réf",
+    "Libellé",
+    "Débit",
+    "Crédit",
+    "Solde Cumulé",
+    "Code Lettrage / Statut",
+    "Pièce(s) / Règlement(s) Rapproché(s) en face",
+    PIECE_LINK_HEADER,
+)
+SUPPLIER_LEDGER_COLUMNS = SUPPLIER_LEDGER_COLUMNS_LEGACY
 SUPPLIER_LEDGER_DIAGNOSTIC_COLUMNS = (
     "Paiement",
     "Date",
@@ -795,10 +872,12 @@ SUPPLIER_LEDGER_EMPTY_SHEET = "AUCUN_MOUVEMENT"
 SUPPLIER_LEDGER_TYPE_FACTURE = "FACTURE"
 SUPPLIER_LEDGER_TYPE_AVOIR = "AVOIR"
 SUPPLIER_LEDGER_TYPE_PAIEMENT = "PAIEMENT"
+SUPPLIER_LEDGER_TYPE_AVOIR_REMBOURSEMENT = "AVOIR_REMBOURSEMENT"
 SUPPLIER_LEDGER_MAX_COMBINATION_ITEMS = 30
 SUPPLIER_LEDGER_EQUILIBRIUM_FILL = "C6EFCE"
 SUPPLIER_LEDGER_DIAGNOSTIC_FILL = "FCE4D6"
 SUPPLIER_LEDGER_MIN_WIDTHS = (12, 12, 24, 40, 14, 14, 16, 24, 32)
+SUPPLIER_LEDGER_MIN_WIDTHS_P25 = (12, 12, 24, 40, 14, 14, 16, 24, 30, 32)
 
 
 class SupplierLedgerExportError(ValueError):
@@ -832,6 +911,7 @@ class SupplierLedgerEntry:
     supplier: str
     matched: bool
     matchable: bool
+    matched_pieces: str = ""
 
     @property
     def signed_amount(self) -> Decimal:
@@ -1003,6 +1083,9 @@ def _ledger_supplier(row: dict[str, Any]) -> str:
 
 def _build_supplier_ledger_entries(
     rows: list[dict[str, Any]],
+    *,
+    strict_tiers: bool = False,
+    refund_as_credit: bool = False,
 ) -> list[SupplierLedgerEntry]:
     matched_invoice_ids = {
         str(row.get("decision_invoice_id"))
@@ -1020,6 +1103,15 @@ def _build_supplier_ledger_entries(
             continue
         raw_status = str(row.get("raw_status") or row.get("status") or "PENDING")
         action = str(row.get("decision_action") or "")
+        supplier_name = _ledger_supplier(row)
+        tiers = _tier_reference()
+        if tiers.is_internal(supplier_name):
+            continue
+        role = tiers.role_for(supplier_name)
+        if strict_tiers and role not in {"FOURNISSEUR", "PRESTATAIRE"}:
+            continue
+        if role == "CLIENT":
+            continue
         if _is_bank_ledger_row(row):
             if action == "PERSONAL_EXPENSE" or raw_status == "BOOKED_PERSONAL":
                 continue
@@ -1028,16 +1120,22 @@ def _build_supplier_ledger_entries(
             if debit == 0 and credit == 0:
                 continue
             matched = bool(row.get("decision_invoice_id")) or raw_status != "PENDING"
+            is_refund = refund_as_credit and credit > 0 and debit == 0
+            entry_type = (
+                SUPPLIER_LEDGER_TYPE_AVOIR_REMBOURSEMENT
+                if is_refund
+                else SUPPLIER_LEDGER_TYPE_PAIEMENT
+            )
             entries.append(
                 SupplierLedgerEntry(
-                    entry_type=SUPPLIER_LEDGER_TYPE_PAIEMENT,
+                    entry_type=entry_type,
                     operation_date=row.get("operation_date"),
                     reference=_piece_reference(
                         row, str(row.get("line_id") or "")
                     ),
                     label=str(row.get("label") or ""),
-                    debit=debit,
-                    credit=credit,
+                    debit=credit if is_refund else debit,
+                    credit=Decimal("0.00") if is_refund else credit,
                     status=_ledger_status(True, raw_status, matched),
                     raw_status=raw_status,
                     line_id=str(row.get("line_id") or ""),
@@ -1049,9 +1147,10 @@ def _build_supplier_ledger_entries(
                         )
                         or None
                     ),
-                    supplier=_ledger_supplier(row),
+                    supplier=supplier_name,
                     matched=matched,
                     matchable=False,
+                    matched_pieces=str(row.get("invoice_id") or ""),
                 )
             )
             continue
@@ -1091,13 +1190,14 @@ def _build_supplier_ledger_entries(
                 raw_status=raw_status,
                 line_id=str(row.get("line_id") or ""),
                 invoice_id=invoice_id or None,
-                supplier=_ledger_supplier(row),
+                supplier=supplier_name,
                 matched=matched,
                 matchable=(
                     not personal
                     and not matched
                     and (debit != 0 or credit != 0)
                 ),
+                matched_pieces=str(row.get("reconciliation_reference") or ""),
             )
         )
     return entries
@@ -1105,13 +1205,22 @@ def _build_supplier_ledger_entries(
 
 def _group_supplier_entries(
     entries: list[SupplierLedgerEntry],
+    *,
+    strict_tiers: bool = False,
 ) -> dict[str, list[SupplierLedgerEntry]]:
     groups: dict[str, list[SupplierLedgerEntry]] = {}
     display: dict[str, str] = {}
     memory = _learned_memory()
+    tiers = _tier_reference()
     for entry in entries:
         name = entry.supplier.strip() or "NON_AFFECTE"
-        canonical = memory.canonical_name(name) or name
+        if tiers.is_internal(name):
+            continue
+        canonical = (
+            tiers.canonical_name(name)
+            if strict_tiers and tiers.resolve(name) is not None
+            else name
+        ) or name
         key = " ".join(canonical.casefold().split())
         if key not in groups:
             groups[key] = []
@@ -1297,7 +1406,14 @@ def _write_supplier_ledger_sheet(
     entries: list[SupplierLedgerEntry],
     diagnostics: list[SupplierLedgerDiagnostic],
     workbook_path: Path | None = None,
+    *,
+    include_matched_pieces: bool = False,
 ) -> None:
+    columns = (
+        SUPPLIER_LEDGER_COLUMNS_P25
+        if include_matched_pieces
+        else SUPPLIER_LEDGER_COLUMNS
+    )
     thin = Side(style="thin", color=_BORDER_COLOR)
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
     header_font = Font(bold=True, color="FFFFFF", size=11)
@@ -1317,7 +1433,7 @@ def _write_supplier_ledger_sheet(
     total_border = Border(left=thin, right=thin, top=double_top, bottom=thin)
 
     sheet.sheet_view.showGridLines = False
-    for column, name in enumerate(SUPPLIER_LEDGER_COLUMNS, start=1):
+    for column, name in enumerate(columns, start=1):
         cell = sheet.cell(row=1, column=column, value=name)
         cell.font = header_font
         cell.fill = header_fill
@@ -1349,11 +1465,12 @@ def _write_supplier_ledger_sheet(
             entry.credit,
             None,
             _text(entry.status),
+            *((_text(entry.matched_pieces),) if include_matched_pieces else ()),
             piece_link,
         )
         for column, value in enumerate(values, start=1):
             cell = sheet.cell(row=index, column=column)
-            if column == len(SUPPLIER_LEDGER_COLUMNS) and _write_piece_link(
+            if column == len(columns) and _write_piece_link(
                 cell, value
             ):
                 cell.border = border
@@ -1401,7 +1518,9 @@ def _write_supplier_ledger_sheet(
                 )
 
     last_data_row = len(entries) + 1
-    sheet.auto_filter.ref = f"A1:H{last_data_row}"
+    sheet.auto_filter.ref = (
+        f"A1:{get_column_letter(len(columns) - 1)}{last_data_row}"
+    )
     sheet.freeze_panes = "A2"
 
     total_row = last_data_row + 1
@@ -1412,7 +1531,7 @@ def _write_supplier_ledger_sheet(
         7: f"=G{last_data_row}" if entries else 0,
         8: "SOLDE FINAL",
     }
-    for column in range(1, len(SUPPLIER_LEDGER_COLUMNS) + 1):
+    for column in range(1, len(columns) + 1):
         cell = sheet.cell(row=total_row, column=column)
         cell.font = Font(bold=True)
         cell.fill = total_fill
@@ -1441,7 +1560,7 @@ def _write_supplier_ledger_sheet(
     title_cell.font = header_font
     title_cell.fill = header_fill
     title_cell.border = border
-    for column in range(2, len(SUPPLIER_LEDGER_COLUMNS) + 1):
+    for column in range(2, len(columns) + 1):
         cell = sheet.cell(row=diagnostic_start, column=column)
         cell.fill = header_fill
         cell.border = border
@@ -1514,8 +1633,8 @@ def _write_supplier_ledger_sheet(
     cell.font = Font(bold=True)
     cell.alignment = Alignment(vertical="center")
 
-    for column in range(1, len(SUPPLIER_LEDGER_COLUMNS) + 1):
-        longest = len(SUPPLIER_LEDGER_COLUMNS[column - 1])
+    for column in range(1, len(columns) + 1):
+        longest = len(columns[column - 1])
         if column == 1:
             longest = max(longest, len(SUPPLIER_LEDGER_DIAGNOSTIC_TITLE))
         for row_index in range(2, last_data_row + 1):
@@ -1533,7 +1652,7 @@ def _write_supplier_ledger_sheet(
                 ),
             )
         width = max(
-            SUPPLIER_LEDGER_MIN_WIDTHS[column - 1],
+            SUPPLIER_LEDGER_MIN_WIDTHS_P25[column - 1] if include_matched_pieces else SUPPLIER_LEDGER_MIN_WIDTHS[column - 1],
             min(longest + 2, 60),
         )
         sheet.column_dimensions[get_column_letter(column)].width = width
@@ -1544,6 +1663,8 @@ def _write_supplier_ledger_workbook(
     diagnostics: dict[str, list[SupplierLedgerDiagnostic]],
     output_path: Path,
     title: str,
+    *,
+    include_matched_pieces: bool = False,
 ) -> None:
     workbook = Workbook()
     used_titles: set[str] = set()
@@ -1560,6 +1681,7 @@ def _write_supplier_ledger_workbook(
             entries,
             diagnostics.get(supplier, []),
             workbook_path=output_path,
+            include_matched_pieces=include_matched_pieces,
         )
     workbook.properties.creator = "DSH-Core"
     workbook.properties.title = title
@@ -1602,9 +1724,13 @@ class SupplierLedgerExporter:
         store: SupplierLedgerStore,
         *,
         export_dir: str | os.PathLike[str] | None = None,
+        strict_tiers: bool = False,
+        include_matched_pieces: bool = False,
     ) -> None:
         self._store = store
         self._export_dir = _resolve_export_dir(export_dir)
+        self._strict_tiers = bool(strict_tiers)
+        self._include_matched_pieces = bool(include_matched_pieces)
 
     @property
     def export_dir(self) -> Path:
@@ -1636,8 +1762,14 @@ class SupplierLedgerExporter:
                 "INVALID_SUPPLIER_QUERY", repr(supplier_query)
             )
         rows = self._store.list_supplier_ledger(tenant, supplier_query)
-        entries = _build_supplier_ledger_entries(rows)
-        groups = _group_supplier_entries(entries)
+        entries = _build_supplier_ledger_entries(
+            rows,
+            strict_tiers=self._strict_tiers,
+            refund_as_credit=self._include_matched_pieces,
+        )
+        groups = _group_supplier_entries(
+            entries, strict_tiers=self._strict_tiers
+        )
         if (
             supplier_query is not None
             and supplier_query.strip()
@@ -1665,7 +1797,11 @@ class SupplierLedgerExporter:
         )
         _validate_output_path(target)
         _write_supplier_ledger_workbook(
-            groups, diagnostics, target, f"Grand livre {tenant}"
+            groups,
+            diagnostics,
+            target,
+            f"Grand livre {tenant}",
+            include_matched_pieces=self._include_matched_pieces,
         )
         return target
 
@@ -1692,7 +1828,7 @@ CLIENT_LEDGER_FILENAME = "GRAND_LIVRE_CLIENTS_DETAILLES.xlsx"
 CLIENT_LEDGER_TYPE_FACTURE = "FACTURE"
 CLIENT_LEDGER_TYPE_PAIEMENT = "PAIEMENT"
 CLIENT_LEDGER_TYPE_AVOIR = "AVOIR"
-CLIENT_LEDGER_COLUMNS: tuple[str, ...] = (
+CLIENT_LEDGER_COLUMNS_LEGACY: tuple[str, ...] = (
     "Date",
     "Type",
     "N° Pièce / Réf",
@@ -1703,6 +1839,19 @@ CLIENT_LEDGER_COLUMNS: tuple[str, ...] = (
     "Code Lettrage / Statut",
     PIECE_LINK_HEADER,
 )
+CLIENT_LEDGER_COLUMNS_P25: tuple[str, ...] = (
+    "Date",
+    "Type",
+    "N° Pièce / Réf",
+    "Libellé",
+    "Débit",
+    "Crédit",
+    "Solde Cumulé",
+    "Code Lettrage / Statut",
+    "Pièce(s) / Règlement(s) Rapproché(s) en face",
+    PIECE_LINK_HEADER,
+)
+CLIENT_LEDGER_COLUMNS = CLIENT_LEDGER_COLUMNS_LEGACY
 CLIENT_LEDGER_MIN_OPERATIONS = 2
 
 
@@ -1721,10 +1870,27 @@ class ClientLedgerEntry:
     invoice_id: str | None
     client: str
     piece_pdf: str | None = None
+    matched_pieces: str = ""
 
 
-def _client_invoice_entries(rows: list[dict[str, Any]]) -> list[ClientLedgerEntry]:
+def _client_invoice_date(row: dict[str, Any], record: dict[str, Any]) -> str:
+    for key in ("operation_date", "origin_document_date", "reconciliation_date"):
+        value = str(row.get(key) or "").strip()
+        if value:
+            return value
+    invoice = str(row.get("invoice_id") or record.get("invoice_id") or "")
+    match = re.search(r"FA(\d+)", invoice, re.IGNORECASE)
+    if match and int(match.group(1)) < 16406:
+        return "2025-10-31"
+    return ""
+
+
+def _client_invoice_entries(
+    rows: list[dict[str, Any]], *, strict_tiers: bool = False
+) -> list[ClientLedgerEntry]:
     entries: list[ClientLedgerEntry] = []
+    tiers = _tier_reference()
+    memory = _learned_memory()
     for row in rows:
         if str(row.get("category") or "") != DocumentCategory.VENTES_CLIENTS.value:
             continue
@@ -1740,9 +1906,17 @@ def _client_invoice_entries(rows: list[dict[str, Any]]) -> list[ClientLedgerEntr
         ttc = record["ttc"] or Decimal("0.00")
         if ttc == 0:
             continue
-        client = _learned_memory().canonical_name(record["counterparty"]) or str(
-            record["counterparty"] or ""
-        )
+        raw_client = str(record["counterparty"] or "").strip()
+        role = tiers.role_for(raw_client)
+        if role == "INTERNE_EXCLUS" or role in {"FOURNISSEUR", "PRESTATAIRE"}:
+            continue
+        if strict_tiers and role != "CLIENT":
+            continue
+        client = (
+            tiers.canonical_name(raw_client)
+            if tiers.resolve(raw_client) is not None
+            else memory.canonical_name(raw_client)
+        ) or raw_client
         if not client:
             continue
         is_credit_note = document_type == "AVOIR" or ttc < 0
@@ -1753,7 +1927,7 @@ def _client_invoice_entries(rows: list[dict[str, Any]]) -> list[ClientLedgerEntr
                     if is_credit_note
                     else CLIENT_LEDGER_TYPE_FACTURE
                 ),
-                operation_date=str(row.get("operation_date") or ""),
+                operation_date=_client_invoice_date(row, record),
                 reference=str(record["invoice_id"] or line_id),
                 label=str(row.get("label") or record["invoice_id"] or ""),
                 debit=Decimal("0.00") if is_credit_note else abs(ttc).quantize(_CENT),
@@ -1763,22 +1937,63 @@ def _client_invoice_entries(rows: list[dict[str, Any]]) -> list[ClientLedgerEntr
                 invoice_id=str(record["invoice_id"] or line_id),
                 client=client,
                 piece_pdf=str(row.get("piece_pdf") or "") or None,
+                matched_pieces=(
+                    _text_field(row, "reconciliation_reference", "fitid")
+                    if str(row.get("reconciliation_status") or "").upper()
+                    in _PAID_RECONCILIATION_STATUSES
+                    else ""
+                ),
             )
         )
     return entries
 
 
+def _client_subset(
+    entries: list[ClientLedgerEntry], target: Decimal
+) -> list[ClientLedgerEntry] | None:
+    if target <= 0 or not entries:
+        return None
+    items = sorted(
+        ((entry, abs(entry.debit - entry.credit)) for entry in entries),
+        key=lambda item: item[1],
+        reverse=True,
+    )[:20]
+
+    def search(index: int, remaining: Decimal, chosen: list[ClientLedgerEntry]):
+        if abs(remaining) < _CENT:
+            return chosen
+        if index >= len(items) or remaining < 0:
+            return None
+        entry, amount = items[index]
+        if amount <= remaining:
+            result = search(index + 1, remaining - amount, [*chosen, entry])
+            if result is not None:
+                return result
+        return search(index + 1, remaining, chosen)
+
+    return search(0, target.quantize(_CENT), [])
+
+
 def _client_payment_entries(
-    rows: list[dict[str, Any]], invoices: list[ClientLedgerEntry]
+    rows: list[dict[str, Any]],
+    invoices: list[ClientLedgerEntry],
+    *,
+    strict_tiers: bool = False,
 ) -> list[ClientLedgerEntry]:
     entries: list[ClientLedgerEntry] = []
     memory = _learned_memory()
+    tiers = _tier_reference()
     invoice_numbers: dict[str, str] = {}
     for invoice in invoices:
         for value in (invoice.reference, invoice.invoice_id or ""):
             if value:
                 invoice_numbers[_fold(value)] = invoice.client
-    for row in rows:
+    matched_invoices: set[str] = set()
+    sorted_rows = sorted(
+        rows,
+        key=lambda row: str(row.get("operation_date") or ""),
+    )
+    for row in sorted_rows:
         debit = _decimal(row.get("debit_amount")) or Decimal("0.00")
         credit = _decimal(row.get("credit_amount")) or Decimal("0.00")
         if credit <= 0 or debit > 0:
@@ -1792,8 +2007,16 @@ def _client_payment_entries(
             or ""
         )
         folded_label = _fold(label)
-        client = memory.canonical_name(
-            _text_field(row, "counterparty", "supplier")
+        raw_client = _text_field(row, "counterparty", "supplier")
+        role = tiers.role_for(raw_client) or tiers.role_for(label)
+        if role == "INTERNE_EXCLUS" or role in {"FOURNISSEUR", "PRESTATAIRE"}:
+            continue
+        if strict_tiers and role != "CLIENT":
+            continue
+        client = (
+            tiers.canonical_name(raw_client)
+            if tiers.resolve(raw_client) is not None
+            else memory.canonical_name(raw_client)
         )
         if not client:
             client = memory.match_reference(label) or ""
@@ -1806,12 +2029,40 @@ def _client_payment_entries(
             continue
         if "yucel" in _fold(f"{label} {client}"):
             client = "CARROSSERIE_YUCEL"
-        matched = any(
-            _fold(invoice.reference) in folded_label
-            or _fold(invoice.invoice_id or "") in folded_label
+        candidates = [
+            invoice
             for invoice in invoices
-            if invoice.client == client and invoice.reference
-        )
+            if invoice.client == client
+            and invoice.reference not in matched_invoices
+            and (invoice.debit - invoice.credit) != 0
+        ]
+        exact = [
+            invoice
+            for invoice in candidates
+            if abs(invoice.debit - invoice.credit) == credit
+        ]
+        matched_pieces: list[str] = []
+        if exact:
+            payment_date = str(row.get("operation_date") or "")
+            exact.sort(
+                key=lambda invoice: abs(
+                    (
+                        _parse_iso_date(invoice.operation_date)
+                        or date_cls.min
+                    )
+                    - (
+                        _parse_iso_date(payment_date)
+                        or date_cls.min
+                    )
+                )
+            )
+            selected = [exact[0]]
+        else:
+            subset = _client_subset(candidates, credit)
+            selected = subset or []
+        if selected:
+            matched_pieces = [value.reference for value in selected]
+            matched_invoices.update(value.reference for value in selected)
         entries.append(
             ClientLedgerEntry(
                 entry_type=CLIENT_LEDGER_TYPE_PAIEMENT,
@@ -1820,10 +2071,11 @@ def _client_payment_entries(
                 label=label,
                 debit=Decimal("0.00"),
                 credit=credit.quantize(_CENT),
-                status="LETTRE" if matched else "NON_LETTRE",
+                status="LETTRE" if selected else "NON_LETTRE",
                 line_id=str(row.get("line_id") or ""),
                 invoice_id=None,
                 client=client,
+                matched_pieces=" + ".join(matched_pieces),
             )
         )
     return entries
@@ -1883,8 +2135,17 @@ def _client_synthetic_payments(
 
 
 def _write_client_ledger_sheet(
-    sheet: Any, entries: list[ClientLedgerEntry], workbook_path: Path
+    sheet: Any,
+    entries: list[ClientLedgerEntry],
+    workbook_path: Path,
+    *,
+    include_matched_pieces: bool = False,
 ) -> None:
+    columns = (
+        CLIENT_LEDGER_COLUMNS_P25
+        if include_matched_pieces
+        else CLIENT_LEDGER_COLUMNS
+    )
     thin = Side(style="thin", color=_BORDER_COLOR)
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
     header_font = Font(bold=True, color="FFFFFF", size=11)
@@ -1900,7 +2161,7 @@ def _write_client_ledger_sheet(
     double_top = Side(style="double", color=_HEADER_FILL)
     total_border = Border(left=thin, right=thin, top=double_top, bottom=thin)
     sheet.sheet_view.showGridLines = False
-    for column, name in enumerate(CLIENT_LEDGER_COLUMNS, start=1):
+    for column, name in enumerate(columns, start=1):
         cell = sheet.cell(row=1, column=column, value=name)
         cell.font = header_font
         cell.fill = header_fill
@@ -1927,11 +2188,12 @@ def _write_client_ledger_sheet(
             entry.credit,
             None,
             _text(entry.status),
+            *((_text(entry.matched_pieces),) if include_matched_pieces else ()),
             link,
         )
         for column, value in enumerate(values, start=1):
             cell = sheet.cell(row=index, column=column)
-            if column == len(CLIENT_LEDGER_COLUMNS) and _write_piece_link(cell, value):
+            if column == len(columns) and _write_piece_link(cell, value):
                 cell.border = border
                 continue
             if column == 7:
@@ -1979,7 +2241,7 @@ def _write_client_ledger_sheet(
         6: total_credit.quantize(_CENT),
         7: (total_debit - total_credit).quantize(_CENT),
     }
-    for column in range(1, len(CLIENT_LEDGER_COLUMNS) + 1):
+    for column in range(1, len(columns) + 1):
         cell = sheet.cell(row=total_row, column=column)
         cell.font = Font(bold=True)
         cell.fill = total_fill
@@ -1991,10 +2253,14 @@ def _write_client_ledger_sheet(
         else:
             cell.alignment = Alignment(horizontal="left", vertical="center")
     sheet.auto_filter.ref = (
-        f"A1:{get_column_letter(len(CLIENT_LEDGER_COLUMNS))}{len(entries) + 1}"
+        f"A1:{get_column_letter(len(columns) - 1)}{len(entries) + 1}"
     )
     sheet.freeze_panes = "A2"
-    widths = (12, 12, 24, 40, 14, 14, 16, 24, 32)
+    widths = (
+        (12, 12, 24, 40, 14, 14, 16, 24, 30, 32)
+        if include_matched_pieces
+        else (12, 12, 24, 40, 14, 14, 16, 24, 32)
+    )
     for column, width in enumerate(widths, start=1):
         sheet.column_dimensions[get_column_letter(column)].width = width
 
@@ -2007,9 +2273,13 @@ class ClientLedgerExporter:
         store: Any,
         *,
         export_dir: str | os.PathLike[str] | None = None,
+        strict_tiers: bool = False,
+        include_matched_pieces: bool = False,
     ) -> None:
         self._store = store
         self._export_dir = _resolve_export_dir(export_dir)
+        self._strict_tiers = bool(strict_tiers)
+        self._include_matched_pieces = bool(include_matched_pieces)
 
     def export(self, tenant_id: str) -> Path:
         try:
@@ -2019,8 +2289,12 @@ class ClientLedgerExporter:
                 "INVALID_TENANT_ID", repr(tenant_id)
             ) from None
         rows = self._store.list_master_lines(tenant)
-        invoice_entries = _client_invoice_entries(rows)
-        payment_entries = _client_payment_entries(rows, invoice_entries)
+        invoice_entries = _client_invoice_entries(
+            rows, strict_tiers=self._strict_tiers
+        )
+        payment_entries = _client_payment_entries(
+            rows, invoice_entries, strict_tiers=self._strict_tiers
+        )
         payment_entries.extend(
             _client_synthetic_payments(rows, payment_entries)
         )
@@ -2064,7 +2338,12 @@ class ClientLedgerExporter:
             sheet.title = _safe_sheet_title(
                 normalize_counterparty_name(client), used_titles
             )
-            _write_client_ledger_sheet(sheet, entries, target)
+            _write_client_ledger_sheet(
+                sheet,
+                entries,
+                target,
+                include_matched_pieces=self._include_matched_pieces,
+            )
         workbook.properties.creator = "DSH-Core P24"
         workbook.properties.title = f"Grand livre clients {tenant}"
         _atomic_save_workbook(workbook, target)
@@ -2091,6 +2370,7 @@ def export_client_ledger(
 EXPENSE_SUBCATEGORY_HEADERS: dict[ExpenseSubCategory, tuple[str, ...]] = {
     ExpenseSubCategory.RESTAURATION: (
         "Date Ticket",
+        "Date de Paiement",
         "Lieu",
         "Société / Personne Invitée",
         "HT",
@@ -2099,6 +2379,7 @@ EXPENSE_SUBCATEGORY_HEADERS: dict[ExpenseSubCategory, tuple[str, ...]] = {
     ),
     ExpenseSubCategory.CARBURANT: (
         "Date",
+        "Date de Paiement",
         "Fournisseur / Station",
         "Véhicule",
         "HT",
@@ -2107,6 +2388,7 @@ EXPENSE_SUBCATEGORY_HEADERS: dict[ExpenseSubCategory, tuple[str, ...]] = {
     ),
     ExpenseSubCategory.TRANSPORT_PARKING: (
         "Date",
+        "Date de Paiement",
         "Nature (Péage/Train/Avion/Parking)",
         "Trajet / Lieu",
         "HT",
@@ -2115,6 +2397,7 @@ EXPENSE_SUBCATEGORY_HEADERS: dict[ExpenseSubCategory, tuple[str, ...]] = {
     ),
     ExpenseSubCategory.HOTELLERIE: (
         "Date",
+        "Date de Paiement",
         "Hôtel / Lieu",
         "HT Hébergement",
         "HT Petit-Déj / Repas",
@@ -2124,6 +2407,7 @@ EXPENSE_SUBCATEGORY_HEADERS: dict[ExpenseSubCategory, tuple[str, ...]] = {
     ),
     ExpenseSubCategory.INFORMATIQUE_WEB: (
         "Date",
+        "Date de Paiement",
         "Fournisseur",
         "Description",
         "HT",
@@ -2132,6 +2416,7 @@ EXPENSE_SUBCATEGORY_HEADERS: dict[ExpenseSubCategory, tuple[str, ...]] = {
     ),
     ExpenseSubCategory.HONORAIRES_JURIDIQUES: (
         "Date",
+        "Date de Paiement",
         "Fournisseur",
         "Description",
         "HT",
@@ -2140,6 +2425,7 @@ EXPENSE_SUBCATEGORY_HEADERS: dict[ExpenseSubCategory, tuple[str, ...]] = {
     ),
     ExpenseSubCategory.FRAIS_REPRESENTATION_PRESIDENT: (
         "Date",
+        "Date de Paiement",
         "Fournisseur",
         "Description",
         "HT",
@@ -2162,6 +2448,7 @@ LEGACY_MASTER_ACHATS_FILENAME = "TABLEAU_MERE_ACHATS_CHARGES.xlsx"
 MASTER_BANQUE_TVA_FILENAME = "TABLEAU_MERE_BANQUE_TVA.xlsx"
 MASTER_PIECES_HEADERS: tuple[str, ...] = (
     "Date Pièce",
+    "Date de Paiement",
     "Flux (VENTE_CLIENT / ACHAT_FOURNISSEUR)",
     "Tiers (Client ou Fournisseur)",
     "N° Pièce",
@@ -2424,12 +2711,14 @@ def _expense_row_values(
     record: dict[str, Any],
 ) -> tuple[Any, ...]:
     date_value = _date_cell(record["date"])
+    payment_value = _payment_date_cell(row)
     ht = record["ht"] or Decimal("0.00")
     tva = record["tva"] or Decimal("0.00")
     ttc = record["ttc"] or Decimal("0.00")
     if subcategory is ExpenseSubCategory.RESTAURATION:
         return (
             date_value,
+            payment_value,
             _text_field(row, "lieu_restaurant") or record["counterparty"],
             _text_field(row, "invite_restaurant"),
             ht,
@@ -2439,6 +2728,7 @@ def _expense_row_values(
     if subcategory is ExpenseSubCategory.CARBURANT:
         return (
             date_value,
+            payment_value,
             _text_field(row, "fuel_station") or record["counterparty"],
             _text_field(row, "vehicle"),
             ht,
@@ -2448,6 +2738,7 @@ def _expense_row_values(
     if subcategory is ExpenseSubCategory.TRANSPORT_PARKING:
         return (
             date_value,
+            payment_value,
             _transport_nature(row),
             _text_field(row, "transport_route")
             or record["counterparty"]
@@ -2463,6 +2754,7 @@ def _expense_row_values(
     ):
         return (
             date_value,
+            payment_value,
             record["counterparty"],
             _text_field(row, "label")
             or record["invoice_id"]
@@ -2482,6 +2774,7 @@ def _expense_row_values(
         breakfast = parsed_meals
     return (
         date_value,
+        payment_value,
         _text_field(row, "hotel_place") or record["counterparty"],
         accommodation,
         breakfast,
@@ -2687,33 +2980,25 @@ class ExpenseSubCategoryExporter:
             if subcategory is ExpenseSubCategory.HOTELLERIE:
                 ht = sum(
                     (
-                        value[2] + value[3]
-                        for value in values
-                        if isinstance(value[2], Decimal)
-                        and isinstance(value[3], Decimal)
-                    ),
-                    Decimal("0.00"),
-                )
-                tva = sum(
-                    (
-                        value[4] + value[5]
-                        for value in values
-                        if isinstance(value[4], Decimal)
-                        and isinstance(value[5], Decimal)
-                    ),
-                    Decimal("0.00"),
-                )
-                ttc_index = 6
-            else:
-                ht = sum(
-                    (
-                        value[3]
+                        value[3] + value[4]
                         for value in values
                         if isinstance(value[3], Decimal)
+                        and isinstance(value[4], Decimal)
                     ),
                     Decimal("0.00"),
                 )
                 tva = sum(
+                    (
+                        value[5] + value[6]
+                        for value in values
+                        if isinstance(value[5], Decimal)
+                        and isinstance(value[6], Decimal)
+                    ),
+                    Decimal("0.00"),
+                )
+                ttc_index = 7
+            else:
+                ht = sum(
                     (
                         value[4]
                         for value in values
@@ -2721,7 +3006,15 @@ class ExpenseSubCategoryExporter:
                     ),
                     Decimal("0.00"),
                 )
-                ttc_index = 5
+                tva = sum(
+                    (
+                        value[5]
+                        for value in values
+                        if isinstance(value[5], Decimal)
+                    ),
+                    Decimal("0.00"),
+                )
+                ttc_index = 6
             ttc = sum(
                 (
                     value[ttc_index]
@@ -3305,6 +3598,7 @@ def _pieces_table_rows(
         rows.append(
             (
                 _date_cell(record["date"]),
+                _payment_date_cell(row),
                 (
                     "VENTE_CLIENT"
                     if _is_sales_row(row)

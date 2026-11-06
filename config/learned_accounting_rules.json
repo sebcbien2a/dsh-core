@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-11-05T22:42:43.266542+00:00",
+  "updated_at": "2026-11-06T00:43:27.923055+00:00",
   "groups": {
     "PAINTCAR": {
       "canonical": "PAINTCAR",
@@ -25,18 +25,124 @@
       "reference_prefixes": [
         "QREF"
       ]
+    },
+    "CARROSSERIE_YUCEL": {
+      "canonical": "CARROSSERIE_YUCEL",
+      "members": [],
+      "reference_prefixes": [
+        "FA16"
+      ]
     }
   },
   "aliases": {
-    "HABITAT AUTOMATISME": "SAS DIFFAM",
-    "SAS DIFFAM": "SAS DIFFAM",
+    "HABITAT AUTOMATISME": "SAS_DIFFAM",
+    "SAS DIFFAM": "SAS_DIFFAM",
     "SMTRT": "SMTRT",
     "LIDL": "LIDL",
-    "LE TEMPS DES CERISES": "LE TEMPS DES CERISES",
-    "SASU INDIGO GALLERY": "LE TEMPS DES CERISES",
+    "LE TEMPS DES CERISES": "LE_TEMPS_DES_CERISES",
+    "SASU INDIGO GALLERY": "LE_TEMPS_DES_CERISES",
     "TRADEINN": "TRADEINN",
     "CARROSSERIE YUCELL": "CARROSSERIE_YUCEL",
-    "CARROSSERIE YUCEL": "CARROSSERIE_YUCEL"
+    "CARROSSERIE YUCEL": "CARROSSERIE_YUCEL",
+    "APD": "APD_INTERNE",
+    "A.P.D": "APD_INTERNE",
+    "ASSISTANCE PEINTURES DIFFUSION": "APD_INTERNE",
+    "SAS ASSISTANCE PEINTURES DIFFUSION": "APD_INTERNE",
+    "ASSISTANCE PEINTURE DIFFUSION": "APD_INTERNE",
+    "ASSISTANCE PEINTURES DIFFUSION S": "APD_INTERNE",
+    "SARL CARROSSERIE YUCE": "CARROSSERIE_YUCEL",
+    "YUCEL": "CARROSSERIE_YUCEL",
+    "CRISOL COLOR": "PAINTCAR",
+    "CRISOL COLOR S L": "PAINTCAR",
+    "TOTCOLOR": "PAINTCAR",
+    "GROUPE TOTCOLOR": "PAINTCAR",
+    "Q REFINISH": "QREFINISH",
+    "QREFINISH FRANCE": "QREFINISH",
+    "QREF": "QREFINISH",
+    "ROBERT BOSCH": "BOSCH_SIA",
+    "ROBERT BOSCH FRANCE": "BOSCH_SIA",
+    "SIA ABRASIVES": "BOSCH_SIA",
+    "BOSCH": "BOSCH_SIA",
+    "AMAZON PAYMENTS": "AMAZON",
+    "CB AMAZON PAYMENTS": "AMAZON",
+    "AMZ": "AMAZON",
+    "AMAZON EU": "AMAZON",
+    "AMAZON FR": "AMAZON",
+    "AMAZON BUSINESS": "AMAZON",
+    "ACTION": "ACTION",
+    "CB ACTION": "ACTION",
+    "CB LIDL": "LIDL",
+    "VINCI": "PEAGES_AUTOROUTES",
+    "AUTOROUTE": "PEAGES_AUTOROUTES",
+    "EPR": "PEAGES_AUTOROUTES",
+    "ASF": "PEAGES_AUTOROUTES",
+    "ESCOTA": "PEAGES_AUTOROUTES",
+    "APRR": "PEAGES_AUTOROUTES",
+    "AREA": "PEAGES_AUTOROUTES",
+    "SANEF": "PEAGES_AUTOROUTES",
+    "SAPN": "PEAGES_AUTOROUTES",
+    "COFIROUTE": "PEAGES_AUTOROUTES",
+    "ULYS": "PEAGES_AUTOROUTES",
+    "BIP AND GO": "PEAGES_AUTOROUTES",
+    "PEAGE": "PEAGES_AUTOROUTES",
+    "RESTAURANT": "RESTAURANTS_REPAS",
+    "RESTO": "RESTAURANTS_REPAS",
+    "BRASSERIE": "RESTAURANTS_REPAS",
+    "BISTROT": "RESTAURANTS_REPAS",
+    "PIZZERIA": "RESTAURANTS_REPAS",
+    "AUBERGE": "RESTAURANTS_REPAS",
+    "TRAITEUR": "RESTAURANTS_REPAS",
+    "BOULANGERIE": "RESTAURANTS_REPAS",
+    "MC DONALD": "RESTAURANTS_REPAS",
+    "MCDONALDS": "RESTAURANTS_REPAS",
+    "BURGER KING": "RESTAURANTS_REPAS",
+    "KFC": "RESTAURANTS_REPAS",
+    "SUSHI": "RESTAURANTS_REPAS",
+    "UBER EATS": "RESTAURANTS_REPAS",
+    "DELIVEROO": "RESTAURANTS_REPAS",
+    "CAFE": "RESTAURANTS_REPAS",
+    "GRILL": "RESTAURANTS_REPAS",
+    "PAILLOTE": "RESTAURANTS_REPAS",
+    "TOTAL": "STATIONS_CARBURANT",
+    "TOTALENERGIES": "STATIONS_CARBURANT",
+    "ESSO": "STATIONS_CARBURANT",
+    "SHELL": "STATIONS_CARBURANT",
+    "BP": "STATIONS_CARBURANT",
+    "AVIA": "STATIONS_CARBURANT",
+    "VITO": "STATIONS_CARBURANT",
+    "RUBIS": "STATIONS_CARBURANT",
+    "STATION SERVICE": "STATIONS_CARBURANT",
+    "DAC": "STATIONS_CARBURANT",
+    "INDIGO PARK": "PARKINGS_TRANSPORTS",
+    "EFFIA": "PARKINGS_TRANSPORTS",
+    "Q-PARK": "PARKINGS_TRANSPORTS",
+    "PAYBYPHONE": "PARKINGS_TRANSPORTS",
+    "EASYPARK": "PARKINGS_TRANSPORTS",
+    "PARKING": "PARKINGS_TRANSPORTS",
+    "SNCF": "PARKINGS_TRANSPORTS",
+    "AIR CORSICA": "PARKINGS_TRANSPORTS",
+    "AIR FRANCE": "PARKINGS_TRANSPORTS",
+    "CORSICA LINEA": "PARKINGS_TRANSPORTS",
+    "CORSICA FERRIES": "PARKINGS_TRANSPORTS",
+    "BOXTAL": "BOXTAL",
+    "CHRONOPOST": "CHRONOPOST",
+    "TRANSPORTS CATROUX": "TRANSPORTS_CATROUX",
+    "CATROUX": "TRANSPORTS_CATROUX",
+    "DIFFAM": "SAS_DIFFAM",
+    "INDIGO GALLERY": "LE_TEMPS_DES_CERISES",
+    "DIVEINN": "TRADEINN",
+    "TREKKINN": "TRADEINN",
+    "MOTARDINN": "TRADEINN",
+    "FREE TELECOM / FREE MOBILE": "FREE TELECOM / FREE MOBILE",
+    "NOUVEAU MAGASIN": "AMAZON",
+    "sia Abrasives France": "BOSCH_SIA",
+    "PAINTCAR": "PAINTCAR",
+    "CHOLLET": "CHOLLET",
+    "MISE SUR ORBITE": "MISE SUR ORBITE",
+    "HABITAT AUTOMATISME / SAS DIFFAM": "SAS_DIFFAM",
+    "YASMIN CONSULTING": "YASMIN CONSULTING",
+    "EM'A Les Emaux de l'Atlantique": "EM'A Les Emaux de l'Atlantique",
+    "ROBERT BOSCH - SIA ABRASIVES": "BOSCH_SIA"
   },
   "suppliers": {
     "LIDL": {
@@ -74,5 +180,320 @@
       "group": "QREFINISH"
     }
   },
-  "decisions": []
+  "tiers": {
+    "APD_INTERNE": {
+      "canonical": "APD_INTERNE",
+      "role": "INTERNE_EXCLUS",
+      "category": "",
+      "subcategory": "",
+      "aliases": [
+        "APD",
+        "A.P.D",
+        "ASSISTANCE PEINTURES DIFFUSION",
+        "SAS ASSISTANCE PEINTURES DIFFUSION",
+        "ASSISTANCE PEINTURE DIFFUSION",
+        "ASSISTANCE PEINTURES DIFFUSION S"
+      ],
+      "prefixes": [],
+      "payment_method": "",
+      "status": "AUTORISE"
+    },
+    "CARROSSERIE_YUCEL": {
+      "canonical": "CARROSSERIE_YUCEL",
+      "role": "CLIENT",
+      "category": "VENTES_CLIENTS",
+      "subcategory": "",
+      "aliases": [
+        "CARROSSERIE YUCELL",
+        "SARL CARROSSERIE YUCE",
+        "YUCEL"
+      ],
+      "prefixes": [
+        "FA16"
+      ],
+      "payment_method": "VIREMENT",
+      "status": "AUTORISE"
+    },
+    "PAINTCAR": {
+      "canonical": "PAINTCAR",
+      "role": "FOURNISSEUR",
+      "category": "ACHATS_MARCHANDISES",
+      "subcategory": "",
+      "aliases": [
+        "CRISOL COLOR",
+        "CRISOL COLOR S L",
+        "TOTCOLOR",
+        "GROUPE TOTCOLOR"
+      ],
+      "prefixes": [
+        "ILA"
+      ],
+      "payment_method": "LCR",
+      "status": "AUTORISE"
+    },
+    "QREFINISH": {
+      "canonical": "QREFINISH",
+      "role": "FOURNISSEUR",
+      "category": "ACHATS_MARCHANDISES",
+      "subcategory": "",
+      "aliases": [
+        "Q REFINISH",
+        "QREFINISH FRANCE",
+        "QREF"
+      ],
+      "prefixes": [],
+      "payment_method": "VIREMENT",
+      "status": "AUTORISE"
+    },
+    "BOSCH_SIA": {
+      "canonical": "BOSCH_SIA",
+      "role": "FOURNISSEUR",
+      "category": "ACHATS_MARCHANDISES",
+      "subcategory": "",
+      "aliases": [
+        "ROBERT BOSCH",
+        "ROBERT BOSCH FRANCE",
+        "SIA ABRASIVES",
+        "BOSCH"
+      ],
+      "prefixes": [],
+      "payment_method": "PRELEVEMENT",
+      "status": "AUTORISE"
+    },
+    "AMAZON": {
+      "canonical": "AMAZON",
+      "role": "FOURNISSEUR",
+      "category": "FRAIS_GENERAUX",
+      "subcategory": "",
+      "aliases": [
+        "AMAZON PAYMENTS",
+        "CB AMAZON PAYMENTS",
+        "AMZ",
+        "AMAZON EU",
+        "AMAZON FR",
+        "AMAZON BUSINESS",
+        "NOUVEAU MAGASIN"
+      ],
+      "prefixes": [],
+      "payment_method": "CARTE_BANCAIRE",
+      "status": "AUTORISE"
+    },
+    "ACTION": {
+      "canonical": "ACTION",
+      "role": "FOURNISSEUR",
+      "category": "FRAIS_GENERAUX",
+      "subcategory": "",
+      "aliases": [
+        "ACTION",
+        "CB ACTION"
+      ],
+      "prefixes": [],
+      "payment_method": "CARTE_BANCAIRE",
+      "status": "AUTORISE"
+    },
+    "LIDL": {
+      "canonical": "LIDL",
+      "role": "FOURNISSEUR",
+      "category": "FRAIS_GENERAUX",
+      "subcategory": "",
+      "aliases": [
+        "LIDL",
+        "CB LIDL"
+      ],
+      "prefixes": [],
+      "payment_method": "CARTE_BANCAIRE",
+      "status": "AUTORISE"
+    },
+    "PEAGES_AUTOROUTES": {
+      "canonical": "PEAGES_AUTOROUTES",
+      "role": "FOURNISSEUR",
+      "category": "FRAIS_GENERAUX",
+      "subcategory": "TRANSPORT_PARKING",
+      "aliases": [
+        "VINCI",
+        "AUTOROUTE",
+        "EPR",
+        "ASF",
+        "ESCOTA",
+        "APRR",
+        "AREA",
+        "SANEF",
+        "SAPN",
+        "COFIROUTE",
+        "ULYS",
+        "BIP AND GO",
+        "PEAGE"
+      ],
+      "prefixes": [],
+      "payment_method": "CARTE_BANCAIRE",
+      "status": "AUTORISE"
+    },
+    "RESTAURANTS_REPAS": {
+      "canonical": "RESTAURANTS_REPAS",
+      "role": "FOURNISSEUR",
+      "category": "FRAIS_GENERAUX",
+      "subcategory": "RESTAURATION",
+      "aliases": [
+        "RESTAURANT",
+        "RESTO",
+        "BRASSERIE",
+        "BISTROT",
+        "PIZZERIA",
+        "AUBERGE",
+        "TRAITEUR",
+        "BOULANGERIE",
+        "MC DONALD",
+        "MCDONALDS",
+        "BURGER KING",
+        "KFC",
+        "SUSHI",
+        "UBER EATS",
+        "DELIVEROO",
+        "CAFE",
+        "GRILL",
+        "PAILLOTE"
+      ],
+      "prefixes": [],
+      "payment_method": "CARTE_BANCAIRE",
+      "status": "AUTORISE"
+    },
+    "STATIONS_CARBURANT": {
+      "canonical": "STATIONS_CARBURANT",
+      "role": "FOURNISSEUR",
+      "category": "FRAIS_GENERAUX",
+      "subcategory": "CARBURANT",
+      "aliases": [
+        "TOTAL",
+        "TOTALENERGIES",
+        "ESSO",
+        "SHELL",
+        "BP",
+        "AVIA",
+        "VITO",
+        "RUBIS",
+        "STATION SERVICE",
+        "DAC"
+      ],
+      "prefixes": [],
+      "payment_method": "CARTE_BANCAIRE",
+      "status": "AUTORISE"
+    },
+    "PARKINGS_TRANSPORTS": {
+      "canonical": "PARKINGS_TRANSPORTS",
+      "role": "FOURNISSEUR",
+      "category": "FRAIS_GENERAUX",
+      "subcategory": "TRANSPORT_PARKING",
+      "aliases": [
+        "INDIGO PARK",
+        "EFFIA",
+        "Q-PARK",
+        "PAYBYPHONE",
+        "EASYPARK",
+        "PARKING",
+        "SNCF",
+        "AIR CORSICA",
+        "AIR FRANCE",
+        "CORSICA LINEA",
+        "CORSICA FERRIES"
+      ],
+      "prefixes": [],
+      "payment_method": "CARTE_BANCAIRE",
+      "status": "AUTORISE"
+    },
+    "BOXTAL": {
+      "canonical": "BOXTAL",
+      "role": "FOURNISSEUR",
+      "category": "TRANSPORTS_LOGISTIQUE",
+      "subcategory": "",
+      "aliases": [
+        "BOXTAL"
+      ],
+      "prefixes": [],
+      "payment_method": "CARTE_BANCAIRE",
+      "status": "AUTORISE"
+    },
+    "CHRONOPOST": {
+      "canonical": "CHRONOPOST",
+      "role": "FOURNISSEUR",
+      "category": "TRANSPORTS_LOGISTIQUE",
+      "subcategory": "",
+      "aliases": [
+        "CHRONOPOST"
+      ],
+      "prefixes": [],
+      "payment_method": "CARTE_BANCAIRE",
+      "status": "AUTORISE"
+    },
+    "TRANSPORTS_CATROUX": {
+      "canonical": "TRANSPORTS_CATROUX",
+      "role": "FOURNISSEUR",
+      "category": "TRANSPORTS_LOGISTIQUE",
+      "subcategory": "",
+      "aliases": [
+        "TRANSPORTS CATROUX",
+        "CATROUX"
+      ],
+      "prefixes": [],
+      "payment_method": "VIREMENT",
+      "status": "AUTORISE"
+    },
+    "SAS_DIFFAM": {
+      "canonical": "SAS_DIFFAM",
+      "role": "FOURNISSEUR",
+      "category": "FRAIS_GENERAUX",
+      "subcategory": "",
+      "aliases": [
+        "HABITAT AUTOMATISME",
+        "SAS DIFFAM",
+        "DIFFAM"
+      ],
+      "prefixes": [],
+      "payment_method": "CARTE_BANCAIRE",
+      "status": "AUTORISE"
+    },
+    "LE_TEMPS_DES_CERISES": {
+      "canonical": "LE_TEMPS_DES_CERISES",
+      "role": "FOURNISSEUR",
+      "category": "FRAIS_GENERAUX",
+      "subcategory": "FRAIS_REPRESENTATION_PRESIDENT",
+      "aliases": [
+        "LE TEMPS DES CERISES",
+        "SASU INDIGO GALLERY",
+        "INDIGO GALLERY"
+      ],
+      "prefixes": [],
+      "payment_method": "CARTE_BANCAIRE",
+      "status": "AUTORISE"
+    },
+    "TRADEINN": {
+      "canonical": "TRADEINN",
+      "role": "FOURNISSEUR",
+      "category": "FRAIS_GENERAUX",
+      "subcategory": "FRAIS_REPRESENTATION_PRESIDENT",
+      "aliases": [
+        "TRADEINN",
+        "DIVEINN",
+        "TREKKINN",
+        "MOTARDINN"
+      ],
+      "prefixes": [],
+      "payment_method": "CARTE_BANCAIRE",
+      "status": "AUTORISE"
+    }
+  },
+  "decisions": [
+    {
+      "counterparty": "NOUVEAU MAGASIN",
+      "canonical": "AMAZON",
+      "document_number": "",
+      "category": "",
+      "payment_source": "",
+      "counterparty_account": "",
+      "fiscal_year_target": "",
+      "deferred_month": "",
+      "report": "",
+      "decision": "VALIDE",
+      "learned_at": "2026-11-06T00:43:27.923055+00:00"
+    }
+  ]
 }

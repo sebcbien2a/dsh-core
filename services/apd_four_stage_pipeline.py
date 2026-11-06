@@ -50,6 +50,10 @@ from services.acompleter_workbook_service import (
 from services.accounting_memory_learning_service import (
     AccountingMemoryLearningService,
 )
+from services.tier_reference_service import (
+    TIER_REFERENCE_FILENAME,
+    TierReferenceService,
+)
 from services.apd_evidence_rules import (
     EvidenceDecision,
     NON_ACCOUNTABLE_DOCUMENT_TYPES,
@@ -246,8 +250,12 @@ class ApdFourStagePipeline:
         export_dir: str | os.PathLike[str] | None = None,
         db_path: str | os.PathLike[str] | None = None,
         year: int = DEFAULT_YEAR,
+        enable_tier_workflow: bool | None = None,
     ) -> None:
         self._tenant_id = validate_tenant_id(tenant_id)
+        self._enable_tier_workflow = (
+            root is None if enable_tier_workflow is None else enable_tier_workflow
+        )
         self._tree = ensure_tree(self._tenant_id, root)
         self._tenant_dir = self._tree.root / self._tenant_id
         self._store = store if store is not None else SqliteAccountingStore(db_path or DEFAULT_DB_PATH)
@@ -258,11 +266,18 @@ class ApdFourStagePipeline:
             else self._tree.state_dir(FolderState.EXPORT_COMPTA) / self._tenant_id
         )
         self._export_dir.mkdir(parents=True, exist_ok=True)
+        self._memory = AccountingMemoryLearningService()
+        self._tier_reference = TierReferenceService(
+            self._export_dir / TIER_REFERENCE_FILENAME,
+            store=self._store,
+            memory=self._memory,
+            tenant_id=self._tenant_id,
+        )
+        self._tier_reference.bootstrap()
         self._year = int(year)
         self._workbook = AcompleterWorkbook(self._tenant_dir)
         self._a_completer_dir = self._tree.state_dir(FolderState.A_COMPLETER)
         self._last_reports: dict[int, StageReport] = {}
-        self._memory = AccountingMemoryLearningService()
         for sibling in UNIFIED_TENANT_PREPARATION:
             try:
                 ensure_tree(sibling, root)
@@ -414,6 +429,10 @@ class ApdFourStagePipeline:
                 existing.get("Mois Décalé") or defaults["deferred_month"]
             ),
             "report": existing.get("Report") or defaults["report"],
+            "tier_alias_target": (
+                existing.get("Rattacher comme ALIAS de (ou NOUVEAU_TIERS)")
+                or ""
+            ),
         }
 
     def prefill_arbitration_columns(self) -> int:
@@ -513,6 +532,43 @@ class ApdFourStagePipeline:
             rows = []
         applied = 0
         for row in rows:
+            if row.nom_fichier.startswith("TIER__") and row.nom_fichier.endswith(".tier"):
+                try:
+                    metadata = self._workbook.read_p17_metadata(row.sha256) or {}
+                except (
+                    WorkbookLockedError,
+                    AcompleterWorkbookError,
+                    PermissionError,
+                    OSError,
+                ):
+                    metadata = {}
+                target = str(
+                    metadata.get(
+                        "Rattacher comme ALIAS de (ou NOUVEAU_TIERS)"
+                    )
+                    or ""
+                ).strip()
+                if target:
+                    name = row.nom_fichier[len("TIER__") : -len(".tier")]
+                    self._tier_reference.learn_alias(name, target)
+                    self._apply_tier_reference()
+                    try:
+                        self._workbook.align_statut(
+                            row.sha256, DocumentStatus.VALIDE.value
+                        )
+                    except (
+                        WorkbookLockedError,
+                        AcompleterWorkbookError,
+                        PermissionError,
+                        OSError,
+                    ):
+                        pass
+                    self._memory.remember_decision(
+                        counterparty=name,
+                        decision=DocumentStatus.VALIDE.value,
+                    )
+                    applied += 1
+                continue
             line = self._store.get_line(
                 self._tenant_id, derive_document_id(row.sha256)
             )
@@ -624,6 +680,29 @@ class ApdFourStagePipeline:
         decisions = read_readable_decisions(self.readable_path)
         applied = 0
         for decision in decisions:
+            if decision.filename.startswith("TIER__") and decision.filename.endswith(".tier"):
+                target = str(decision.tier_alias_target or "").strip()
+                if target:
+                    name = decision.filename[len("TIER__") : -len(".tier")]
+                    self._tier_reference.learn_alias(name, target)
+                    self._apply_tier_reference()
+                    try:
+                        self._workbook.align_statut(
+                            decision.sha256, DocumentStatus.VALIDE.value
+                        )
+                    except (
+                        WorkbookLockedError,
+                        AcompleterWorkbookError,
+                        PermissionError,
+                        OSError,
+                    ):
+                        pass
+                    self._memory.remember_decision(
+                        counterparty=name,
+                        decision=DocumentStatus.VALIDE.value,
+                    )
+                    applied += 1
+                continue
             line = None
             if decision.sha256:
                 line = self._store.get_line(
@@ -840,6 +919,85 @@ class ApdFourStagePipeline:
         except OSError:
             return
 
+    def _apply_tier_reference(self) -> int:
+        """Apply referential roles/categories/aliases to every store line."""
+        tiers = self._tier_reference
+        changed = 0
+        for row in self._store.list_master_lines(self._tenant_id):
+            line_id = str(row.get("line_id") or "")
+            if not line_id:
+                continue
+            name = str(
+                row.get("counterparty") or row.get("supplier") or ""
+            ).strip()
+            label = str(row.get("label") or "").strip()
+            record = tiers.resolve(name) or tiers.resolve(label)
+            if record is None:
+                continue
+            line = self._store.get_line(self._tenant_id, line_id)
+            if line is None:
+                continue
+            updated = dict(line)
+            updated.pop("line_id", None)
+            if record.role == "INTERNE_EXCLUS":
+                updated["category"] = DocumentCategory.DIVERS_A_CLASSER.value
+                updated["is_classified_marker"] = "INTERNE_EXCLUS"
+            else:
+                if record.category:
+                    updated["category"] = record.category
+                if record.subcategory:
+                    updated["expense_subcategory"] = record.subcategory
+                updated["is_classified_marker"] = (
+                    f"TIER:{record.canonical}:{record.role}"
+                )
+            differs = any(
+                str(updated.get(key) or "") != str(line.get(key) or "")
+                for key in (
+                    "category",
+                    "expense_subcategory",
+                    "is_classified_marker",
+                    "counterparty",
+                )
+            )
+            if differs:
+                self._store.upsert_document_line(
+                    self._tenant_id, line_id, updated
+                )
+                changed += 1
+        return changed
+
+    def _write_unknown_tier_rows(self) -> int:
+        if not self._enable_tier_workflow:
+            return 0
+        tiers = self._tier_reference
+        rows = self._store.list_master_lines(self._tenant_id)
+        unknown = tiers.unknown_tiers(rows)
+        written = 0
+        for name in unknown:
+            safe_name = str(name).replace("/", "_").replace("\\", "_").strip()
+            if not safe_name:
+                continue
+            filename = f"TIER__{safe_name}.tier"
+            digest = hashlib.sha256(
+                f"tier:{name}".encode("utf-8")
+            ).hexdigest()
+            try:
+                self._workbook.upsert(
+                    digest,
+                    filename,
+                    [],
+                    DocumentCategory.DIVERS_A_CLASSER,
+                )
+                written += 1
+            except (
+                WorkbookLockedError,
+                AcompleterWorkbookError,
+                PermissionError,
+                OSError,
+            ):
+                continue
+        return written
+
     def _sync_mirror(self, paths: Iterable[Path]) -> None:
         try:
             from services.inbox_ingestion_service import (
@@ -859,6 +1017,8 @@ class ApdFourStagePipeline:
             3: self.stage3_ventilation_and_coherence,
             4: self.stage4_simulations,
         }
+        self._tier_reference.bootstrap()
+        self._apply_tier_reference()
         report = dispatch[stage]()
         self._last_reports[stage] = report
         return report
@@ -898,6 +1058,14 @@ class ApdFourStagePipeline:
     # -- stage 1 ---------------------------------------------------------
 
     def stage1_vision_and_mother_table(self) -> StageReport:
+        from services.accounting_cleanup_service import run_cleanup
+
+        run_cleanup(
+            self._store,
+            self._tenant_id,
+            self._tenant_dir,
+            self._export_dir,
+        )
         self._repair_stale_lock()
         human_applied = self.apply_human_decisions()
         decisions = self._collect_evidence_decisions()
@@ -948,6 +1116,7 @@ class ApdFourStagePipeline:
                 )
         generic_pending = self._write_generic_pending_rows(seen)
         pending += generic_pending
+        pending += self._write_unknown_tier_rows()
         self.prefill_arbitration_columns()
         self._write_readable_views()
         sales = self._export_sales_workbook()
@@ -1422,6 +1591,50 @@ class ApdFourStagePipeline:
                     ),
                 )
             )
+        known = {row.filename for row in rows}
+        if not self._enable_tier_workflow:
+            return rows
+        for name in self._tier_reference.unknown_tiers(
+            self._store.list_master_lines(self._tenant_id)
+        ):
+            safe_name = str(name).replace("/", "_").replace("\\", "_").strip()
+            if not safe_name:
+                continue
+            filename = f"TIER__{safe_name}.tier"
+            if filename in known:
+                continue
+            digest = hashlib.sha256(
+                f"tier:{name}".encode("utf-8")
+            ).hexdigest()
+            rows.append(
+                ReadableRow(
+                    sha256=digest,
+                    filename=filename,
+                    supplier=str(name),
+                    document_number="",
+                    document_date=None,
+                    amount_ht=None,
+                    amount_tva=None,
+                    amount_ttc=None,
+                    category=DocumentCategory.DIVERS_A_CLASSER,
+                    reason=(
+                        "Tiers inconnu du r?f?rentiel verrouill? : aucun onglet "
+                        "ne sera cr?? avant autorisation."
+                    ),
+                    action=(
+                        "Choisir un rattachement ALIAS ou cr?er un nouveau tiers."
+                    ),
+                    status=DocumentStatus.EN_ATTENTE,
+                    extra={
+                        "payment_source": "BANQUE_PRO",
+                        "counterparty_account": "622600",
+                        "fiscal_year_target": str(self._year),
+                        "deferred_month": "NON",
+                        "report": "NON",
+                        "tier_alias_target": "",
+                    },
+                )
+            )
         return rows
 
     def _piece_rel_for_sha(self, sha: str, fallback: Path) -> str:
@@ -1707,7 +1920,10 @@ class ApdFourStagePipeline:
         try:
             paths.append(
                 SupplierLedgerExporter(
-                    self._store, export_dir=self._export_dir.parent
+                    self._store,
+                    export_dir=self._export_dir.parent,
+                    strict_tiers=True,
+                    include_matched_pieces=True,
                 ).export_supplier_ledger(self._tenant_id)
             )
         except Exception:  # noqa: BLE001
@@ -1715,7 +1931,10 @@ class ApdFourStagePipeline:
         try:
             paths.append(
                 ClientLedgerExporter(
-                    self._store, export_dir=self._export_dir.parent
+                    self._store,
+                    export_dir=self._export_dir.parent,
+                    strict_tiers=True,
+                    include_matched_pieces=True,
                 ).export(self._tenant_id)
             )
         except Exception:  # noqa: BLE001
@@ -1762,7 +1981,9 @@ class ApdFourStagePipeline:
                     continue
                 paths.append(
                     CategorySummaryExporter(
-                        self._store, export_dir=self._export_dir.parent
+                        self._store,
+                        export_dir=self._export_dir.parent,
+                        include_payment_date=True,
                     ).export_category_summary(self._tenant_id, category)
                 )
             except Exception:  # noqa: BLE001
@@ -2027,7 +2248,10 @@ class ApdFourStagePipeline:
         try:
             paths.append(
                 SupplierLedgerExporter(
-                    self._store, export_dir=self._export_dir.parent
+                    self._store,
+                    export_dir=self._export_dir.parent,
+                    strict_tiers=True,
+                    include_matched_pieces=True,
                 ).export_supplier_ledger(self._tenant_id)
             )
         except Exception:  # noqa: BLE001 - one ledger never blocks the stage
@@ -2035,7 +2259,10 @@ class ApdFourStagePipeline:
         try:
             paths.append(
                 ClientLedgerExporter(
-                    self._store, export_dir=self._export_dir.parent
+                    self._store,
+                    export_dir=self._export_dir.parent,
+                    strict_tiers=True,
+                    include_matched_pieces=True,
                 ).export(self._tenant_id)
             )
         except Exception:  # noqa: BLE001

@@ -147,12 +147,26 @@ def render_pending_table(questions: Iterable[Mapping[str, Any]]) -> str:
             f"<td>{_cell(question.get(key))}</td>"
             for key, _label in PENDING_FIELDS
         )
+        alias_choices = question.get("tier_alias_choices") or [
+            "CREER_NOUVEAU_FOURNISSEUR",
+            "CREER_NOUVEAU_CLIENT",
+            "RESTAURANTS_REPAS",
+            "PEAGES_AUTOROUTES",
+            "STATIONS_CARBURANT",
+        ]
+        alias_select = _select(
+            f"tier-alias-{index}",
+            ["", *alias_choices],
+            question.get("tier_alias_target") or "",
+            role="tier_alias",
+        )
         body_rows.append(
             "<tr>"
             + cells
             + f"<td>{category_select}</td>"
             + f"<td>{exercise_select}</td>"
             + f"<td>{source_select}</td>"
+            + f"<td>{alias_select}</td>"
             + f'<td><button type="button" '
             f'onclick="validerPiece(\'{doc_id}\', this)">Valider</button></td>'
             + "</tr>"
@@ -204,6 +218,24 @@ def render_messages(report: Mapping[str, Any]) -> str:
 
 def dashboard_html(*, title: str = PAGE_TITLE) -> str:
     """Return the complete French HTML dashboard (stages 1-4 as buttons)."""
+    payload = as_dict()
+    try:
+        from services.tier_reference_service import TierReferenceService
+
+        payload["tier_alias_targets"] = list(
+            TierReferenceService().bootstrap(
+                write_missing=False
+            ).alias_targets()
+        )
+    except Exception:  # noqa: BLE001
+        payload["tier_alias_targets"] = [
+            "CREER_NOUVEAU_FOURNISSEUR",
+            "CREER_NOUVEAU_CLIENT",
+            "RESTAURANTS_REPAS",
+            "PEAGES_AUTOROUTES",
+            "STATIONS_CARBURANT",
+        ]
+    choices_json = json.dumps(payload, ensure_ascii=False)
     buttons = "\n".join(
         f'<button type="button" class="stage" data-stage="{number}" '
         f'title="{escape(hint)}">{escape(label)}</button>'
@@ -255,7 +287,7 @@ p.empty{{margin:0;color:var(--muted);font-style:italic}}
 <section class="card" id="stage-result"><h2>Compte-rendu d'étape</h2><p class="empty">Lancez une étape 1 à 4.</p></section>
 <section class="card" id="questions"><h2>Questions en attente</h2><p class="empty">Cliquez sur « Questions en attente ».</p></section>
 </main>
-<script>window.CHOICES = {json.dumps(as_dict(), ensure_ascii=False)};</script>
+<script>window.CHOICES = {choices_json};</script>
 <script>
 const state = document.getElementById('state');
 function esc(value) {{
@@ -314,6 +346,7 @@ async function showPending() {{
     const category = selectOptions('category', CHOICES.categorie, item.categorie);
     const exercise = selectOptions('exercise', CHOICES.exercice_cible, '2026');
     const source = selectOptions('payment_source', CHOICES.source_paiement, 'BANQUE_PRO');
+    const alias = selectOptions('tier_alias', ['', ...(CHOICES.tier_alias_targets || [])], item.tier_alias_target || '');
     return '<tr>' +
       '<td>' + esc(item.filename) + '</td>' +
       '<td>' + esc(item.fournisseur) + '</td>' +
@@ -324,6 +357,7 @@ async function showPending() {{
       '<td>' + category + '</td>' +
       '<td>' + exercise + '</td>' +
       '<td>' + source + '</td>' +
+      '<td>' + alias + '</td>' +
       '<td><button type="button" onclick="validerPiece(\'' + doc + '\', this)">Valider</button></td>' +
       '</tr>';
   }}).join('');
@@ -340,6 +374,9 @@ async function validerPiece(docId, button) {{
   const category = row.querySelector('select[data-role="category"]').value;
   const exercise = row.querySelector('select[data-role="exercise"]').value;
   const source = row.querySelector('select[data-role="payment_source"]').value;
+  const alias = row.querySelector('select[data-role="tier_alias"]')
+    ? row.querySelector('select[data-role="tier_alias"]').value
+    : '';
   const response = await fetch('/api/decide', {{
     method: 'POST',
     headers: {{'Content-Type': 'application/json'}},
@@ -348,7 +385,8 @@ async function validerPiece(docId, button) {{
       decision: 'VALIDE',
       category: category,
       fiscal_year_target: exercise,
-      payment_source: source
+      payment_source: source,
+      tier_alias_target: alias
     }})
   }});
   if (response.ok) {{

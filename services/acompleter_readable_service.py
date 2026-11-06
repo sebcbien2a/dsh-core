@@ -48,6 +48,7 @@ READABLE_HEADERS: tuple[str, ...] = (
     "Exercice cible",
     "Mois décalé",
     "Report",
+    "Rattacher comme ALIAS de (ou NOUVEAU_TIERS)",
     "Pièce PDF (Clic)",
 )
 HIDDEN_HEADERS: tuple[str, ...] = (
@@ -70,6 +71,7 @@ PAYMENT_SOURCE_COLUMN = "H"
 EXERCISE_COLUMN = "J"
 MONTH_COLUMN = "K"
 REPORT_COLUMN = "L"
+ALIAS_TARGET_COLUMN = "M"
 ACTION_COLUMN = "G"
 
 
@@ -129,6 +131,7 @@ class ReadableDecision:
     fiscal_year_target: str | None = None
     deferred_month: str | None = None
     report: str | None = None
+    tier_alias_target: str = ""
     action: str = ""
 
     @property
@@ -216,7 +219,45 @@ def _add_list_validation(
     validation.add(f"{column}2:{column}{max(last_row, 2)}")
 
 
-def _install_validations(sheet: Any, last_row: int) -> None:
+def _add_formula_validation(
+    sheet: Any, column: str, formula: str, last_row: int
+) -> None:
+    from openpyxl.worksheet.datavalidation import DataValidation
+
+    validation = DataValidation(
+        type="list",
+        formula1=formula,
+        allow_blank=True,
+        showDropDown=False,
+    )
+    validation.error = "Choisissez une valeur propos?e dans la liste."
+    validation.errorTitle = "Choix invalide"
+    validation.prompt = "S?lectionnez une valeur officielle."
+    validation.promptTitle = "Liste officielle"
+    sheet.add_data_validation(validation)
+    validation.add(f"{column}2:{column}{max(last_row, 2)}")
+
+
+def _alias_choices() -> tuple[str, ...]:
+    try:
+        from services.tier_reference_service import TierReferenceService
+
+        return TierReferenceService().bootstrap(
+            write_missing=False
+        ).alias_targets()
+    except Exception:  # noqa: BLE001
+        return (
+            "CREER_NOUVEAU_FOURNISSEUR",
+            "CREER_NOUVEAU_CLIENT",
+            "RESTAURANTS_REPAS",
+            "PEAGES_AUTOROUTES",
+            "STATIONS_CARBURANT",
+        )
+
+
+def _install_validations(
+    sheet: Any, last_row: int, *, alias_formula: str | None = None
+) -> None:
     try:
         sheet.data_validations.dataValidation.clear()
     except AttributeError:
@@ -230,6 +271,14 @@ def _install_validations(sheet: Any, last_row: int) -> None:
         sheet, MONTH_COLUMN, DEFERRED_MONTH_CHOICES, last_row
     )
     _add_list_validation(sheet, REPORT_COLUMN, REPORT_CHOICES, last_row)
+    if alias_formula:
+        _add_formula_validation(
+            sheet, ALIAS_TARGET_COLUMN, alias_formula, last_row
+        )
+    else:
+        _add_list_validation(
+            sheet, ALIAS_TARGET_COLUMN, _alias_choices(), last_row
+        )
 
 
 def write_readable_workbook(
@@ -311,6 +360,7 @@ def write_readable_workbook(
             row.extra.get("fiscal_year_target", ""),
             row.extra.get("deferred_month", ""),
             row.extra.get("report", ""),
+            row.extra.get("tier_alias_target", ""),
             None,
         )
         hidden_values = (
@@ -347,12 +397,30 @@ def write_readable_workbook(
             cell.alignment = Alignment(vertical="top", wrap_text=True)
 
     last_row = max(sheet.max_row, 1)
-    _install_validations(sheet, last_row)
+    alias_choices = _alias_choices()
+    alias_formula = None
+    if alias_choices:
+        from openpyxl.workbook.defined_name import DefinedName
+
+        lists = workbook.create_sheet("LISTES_TIERS")
+        for index, choice in enumerate(alias_choices, start=1):
+            lists.cell(row=index, column=1, value=choice)
+        lists.sheet_state = "hidden"
+        workbook.defined_names.add(
+            DefinedName(
+                "TIERS_ALIAS",
+                attr_text=f"LISTES_TIERS!$A$1:$A${len(alias_choices)}",
+            )
+        )
+        alias_formula = "TIERS_ALIAS"
+    _install_validations(
+        sheet, last_row, alias_formula=alias_formula
+    )
     sheet.auto_filter.ref = (
         f"A1:{get_column_letter(len(READABLE_HEADERS))}{last_row}"
     )
     sheet.freeze_panes = "A2"
-    widths = (12, 26, 18, 12, 24, 62, 42, 22, 22, 14, 14, 10, 32)
+    widths = (12, 26, 18, 12, 24, 62, 42, 22, 22, 14, 14, 10, 24, 32)
     for column, width in enumerate(widths, start=1):
         sheet.column_dimensions[get_column_letter(column)].width = width
     workbook.properties.creator = "DSH-Core P24"
@@ -449,6 +517,9 @@ def read_readable_decisions(
                         values.get("Mois décalé", "")
                     ),
                     report=normalize_report(values.get("Report", "")),
+                    tier_alias_target=values.get(
+                        "Rattacher comme ALIAS de (ou NOUVEAU_TIERS)", ""
+                    ),
                     action=action,
                 )
             )

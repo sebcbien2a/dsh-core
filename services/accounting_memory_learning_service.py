@@ -132,6 +132,7 @@ def _default_rules() -> dict[str, Any]:
             "SMTRT": {"source": "SMTRT.eml"},
             "QREFINISH": {"group": "QREFINISH"},
         },
+        "tiers": {},
         "decisions": [],
     }
 
@@ -193,9 +194,10 @@ class AccountingMemoryLearningService:
             "groups": dict(defaults["groups"]),
             "aliases": dict(defaults["aliases"]),
             "suppliers": dict(defaults["suppliers"]),
+            "tiers": dict(defaults["tiers"]),
             "decisions": list(payload.get("decisions") or []),
         }
-        for key in ("groups", "aliases", "suppliers"):
+        for key in ("groups", "aliases", "suppliers", "tiers"):
             stored = payload.get(key)
             if isinstance(stored, dict):
                 merged[key].update(stored)
@@ -291,6 +293,50 @@ class AccountingMemoryLearningService:
             ):
                 return str(canonical)
         return text
+
+    def tier_records(self) -> list[dict[str, Any]]:
+        rules = self.load()
+        tiers = rules.get("tiers")
+        if not isinstance(tiers, dict):
+            return []
+        return [dict(value) for value in tiers.values() if isinstance(value, dict)]
+
+    def remember_tier(self, record: Any) -> None:
+        rules = self.load()
+        canonical = str(getattr(record, "canonical", "") or "").strip()
+        if not canonical:
+            return
+        aliases = tuple(getattr(record, "aliases", ()) or ())
+        rules.setdefault("tiers", {})[canonical] = {
+            "canonical": canonical,
+            "role": str(getattr(record, "role", "") or ""),
+            "category": str(getattr(record, "category", "") or ""),
+            "subcategory": str(getattr(record, "subcategory", "") or ""),
+            "aliases": list(aliases),
+            "prefixes": list(getattr(record, "prefixes", ()) or ()),
+            "payment_method": str(getattr(record, "payment_method", "") or ""),
+            "status": str(getattr(record, "status", "AUTORISE") or "AUTORISE"),
+        }
+        for alias in aliases:
+            if alias:
+                rules["aliases"][str(alias)] = canonical
+        for prefix in tuple(getattr(record, "prefixes", ()) or ()):
+            if prefix:
+                group = rules["groups"].setdefault(
+                    canonical,
+                    {"canonical": canonical, "members": [], "reference_prefixes": []},
+                )
+                current = {str(item) for item in group.get("reference_prefixes") or ()}
+                current.add(str(prefix).upper())
+                group["reference_prefixes"] = sorted(current)
+        self.save()
+
+    def tier_role(self, name: Any) -> str:
+        text = self.canonical_name(name)
+        for row in self.tier_records():
+            if str(row.get("canonical")) == text:
+                return str(row.get("role") or "")
+        return ""
 
     def aliases_for(self, name: str) -> tuple[str, ...]:
         canonical = self.canonical_name(name)

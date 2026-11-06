@@ -250,6 +250,15 @@ class HermesAccountingBridge:
                 if path is not None
                 else _text((line or {}).get("invoice_url"))
             )
+            try:
+                metadata = self._workbook.read_p17_metadata(row.sha256) or {}
+            except (
+                WorkbookLockedError,
+                AcompleterWorkbookError,
+                PermissionError,
+                OSError,
+            ):
+                metadata = {}
             questions.append(
                 {
                     "doc_id": row.sha256,
@@ -281,6 +290,13 @@ class HermesAccountingBridge:
                     "action": action,
                     "piece_pdf": piece,
                     "link": piece,
+                    "tier_alias_target": metadata.get(
+                        "Rattacher comme ALIAS de (ou NOUVEAU_TIERS)"
+                    )
+                    or "",
+                    "tier_alias_choices": list(
+                        self._pipeline._tier_reference.alias_targets()
+                    ),
                 }
             )
         return questions
@@ -294,6 +310,35 @@ class HermesAccountingBridge:
         target = _normalise_decision(decision)
         arbitration = dict(arbitration or {})
         row = self._find_row(doc_id)
+        if (
+            row is not None
+            and row.nom_fichier.startswith("TIER__")
+            and row.nom_fichier.endswith(".tier")
+        ):
+            target = str(
+                arbitration.get("tier_alias_target")
+                or arbitration.get("category")
+                or ""
+            ).strip()
+            if target:
+                name = row.nom_fichier[len("TIER__") : -len(".tier")]
+                self._pipeline._tier_reference.learn_alias(name, target)
+                self._pipeline._apply_tier_reference()
+                self._align(row.sha256, DocumentStatus.VALIDE)
+                return {
+                    "doc_id": _text(doc_id),
+                    "decision": DocumentStatus.VALIDE.value,
+                    "status": DocumentStatus.VALIDE.value,
+                    "tier_alias_target": target,
+                    "destination": None,
+                }
+            return {
+                "doc_id": _text(doc_id),
+                "decision": DocumentStatus.EN_ATTENTE.value,
+                "status": DocumentStatus.EN_ATTENTE.value,
+                "message": "Choisissez un rattachement ALIAS.",
+                "destination": None,
+            }
         if row is None:
             line = self._find_store_line(doc_id)
             if line is None:

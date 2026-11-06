@@ -82,6 +82,7 @@ P17_EXTENSION_HEADERS: tuple[str, ...] = (
     "Compte de Contrepartie",
     PIECE_LINK_HEADER,
     "Report",
+    "Rattacher comme ALIAS de (ou NOUVEAU_TIERS)",
 )
 EXTENDED_HEADERS: tuple[str, ...] = HEADERS + P17_EXTENSION_HEADERS
 # P22 appends the manager-facing readable columns. They are only materialised
@@ -112,7 +113,25 @@ _VALIDATION_LISTS: dict[str, tuple[str, ...]] = {
     "source de paiement": PAYMENT_SOURCE_CHOICES,
     "compte de contrepartie": COUNTERPARTY_ACCOUNT_CHOICES,
     "report": REPORT_CHOICES,
+    "rattacher comme alias de (ou nouveau_tiers)": (
+        "CREER_NOUVEAU_FOURNISSEUR",
+        "CREER_NOUVEAU_CLIENT",
+        "RESTAURANTS_REPAS",
+        "PEAGES_AUTOROUTES",
+        "STATIONS_CARBURANT",
+    ),
 }
+
+
+def _tier_alias_choices() -> tuple[str, ...]:
+    try:
+        from services.tier_reference_service import TierReferenceService
+
+        return TierReferenceService().bootstrap(
+            write_missing=False
+        ).alias_targets()
+    except Exception:  # noqa: BLE001
+        return _VALIDATION_LISTS["rattacher comme alias de (ou nouveau_tiers)"]
 
 
 def _normalized_header(value: object) -> str:
@@ -128,7 +147,10 @@ def install_data_validations(sheet: Any, last_row: int) -> None:
     except AttributeError:
         pass
     for cell in sheet[1]:
-        choices = _VALIDATION_LISTS.get(_normalized_header(cell.value))
+        header = _normalized_header(cell.value)
+        choices = _VALIDATION_LISTS.get(header)
+        if header == "rattacher comme alias de (ou nouveau_tiers)":
+            choices = _tier_alias_choices()
         if choices is None:
             continue
         validation = DataValidation(
@@ -413,19 +435,21 @@ class AcompleterWorkbook:
                 ws.column_dimensions[letter].hidden = True
             widths = {
                 "R": 13,
-                "S": 13,
-                "T": 26,
-                "U": 18,
-                "V": 12,
-                "W": 24,
-                "X": 62,
-                "Y": 42,
-                "Z": 22,
+                "S": 24,
+                "T": 13,
+                "U": 26,
+                "V": 18,
+                "W": 12,
+                "X": 24,
+                "Y": 62,
+                "Z": 42,
                 "AA": 22,
-                "AB": 14,
+                "AB": 22,
                 "AC": 14,
-                "AD": 10,
-                "AE": 32,
+                "AD": 14,
+                "AE": 10,
+                "AF": 24,
+                "AG": 32,
             }
             for letter, width in widths.items():
                 ws.column_dimensions[letter].width = width
@@ -472,6 +496,7 @@ class AcompleterWorkbook:
                     row.extra.get("fiscal_year_target", ""),
                     row.extra.get("deferred_month", ""),
                     row.extra.get("report", ""),
+                    row.extra.get("tier_alias_target", ""),
                 )
                 for offset, value in enumerate(values):
                     cell = ws.cell(
@@ -546,6 +571,7 @@ class AcompleterWorkbook:
         payment_source: PaymentSource | str | None = None,
         counterparty_account: object = None,
         report: object = None,
+        alias_target: object = None,
     ) -> bool:
         """Write the P17 columns of one existing row (pipeline-owned cells).
 
@@ -567,6 +593,7 @@ class AcompleterWorkbook:
             "payment_source": payment_source,
             "counterparty_account": counterparty_account,
             "report": report,
+            "alias_target": alias_target,
         }
         values = self._normalize_p17_values(**raw_values)
         raw_for_header = {
@@ -581,6 +608,7 @@ class AcompleterWorkbook:
             "Source de Paiement": payment_source,
             "Compte de Contrepartie": counterparty_account,
             "Report": report,
+            "Rattacher comme ALIAS de (ou NOUVEAU_TIERS)": alias_target,
         }
         selected = {
             header: value
@@ -735,6 +763,9 @@ class AcompleterWorkbook:
             "Source de Paiement": payment_source_value,
             "Compte de Contrepartie": counterparty_account_value,
             "Report": text(raw_values.get("report")).upper() or "NON",
+            "Rattacher comme ALIAS de (ou NOUVEAU_TIERS)": text(
+                raw_values.get("alias_target")
+            ),
         }
 
     @staticmethod

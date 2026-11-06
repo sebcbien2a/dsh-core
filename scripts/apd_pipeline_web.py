@@ -162,6 +162,9 @@ class Handler(BaseHTTPRequestHandler):
                     "expense_subcategory": payload.get(
                         "expense_subcategory"
                     ),
+                    "tier_alias_target": payload.get(
+                        "tier_alias_target"
+                    ),
                 }
                 self._json(
                     self.bridge.decide_document(

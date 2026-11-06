@@ -468,8 +468,9 @@ def test_restaurant_subtable_has_invite_and_place_columns(tmp_path):
     )
     path = report.subtable_paths[ExpenseSubCategory.RESTAURATION]
     headers = header_of(path)
-    assert headers[:6] == (
+    assert headers[:7] == (
         "Date Ticket",
+        "Date de Paiement",
         "Lieu",
         "Société / Personne Invitée",
         "HT",
@@ -477,9 +478,9 @@ def test_restaurant_subtable_has_invite_and_place_columns(tmp_path):
         "TTC",
     )
     row = rows_of(path)[0]
-    assert row[1] == "Lyon 2e"
-    assert row[2] == "M. Dupont"
-    assert row[3] == 100.0 and row[4] == 20.0 and row[5] == 120.0
+    assert row[2] == "Lyon 2e"
+    assert row[3] == "M. Dupont"
+    assert row[4] == 100.0 and row[5] == 20.0 and row[6] == 120.0
 
 
 def test_fuel_subtable_has_station_and_vehicle_columns(tmp_path):
@@ -498,6 +499,7 @@ def test_fuel_subtable_has_station_and_vehicle_columns(tmp_path):
     path = report.subtable_paths[ExpenseSubCategory.CARBURANT]
     assert header_of(path) == (
         "Date",
+        "Date de Paiement",
         "Fournisseur / Station",
         "Véhicule",
         "HT",
@@ -505,8 +507,8 @@ def test_fuel_subtable_has_station_and_vehicle_columns(tmp_path):
         "TTC",
     )
     row = rows_of(path)[0]
-    assert row[1] == "TOTAL A6"
-    assert row[2] == "Renault Trafic AB-123-CD"
+    assert row[2] == "TOTAL A6"
+    assert row[3] == "Renault Trafic AB-123-CD"
 
 
 def test_transport_subtable_has_nature_and_route_columns(tmp_path):
@@ -525,6 +527,7 @@ def test_transport_subtable_has_nature_and_route_columns(tmp_path):
     path = report.subtable_paths[ExpenseSubCategory.TRANSPORT_PARKING]
     assert header_of(path) == (
         "Date",
+        "Date de Paiement",
         "Nature (Péage/Train/Avion/Parking)",
         "Trajet / Lieu",
         "HT",
@@ -532,8 +535,8 @@ def test_transport_subtable_has_nature_and_route_columns(tmp_path):
         "TTC",
     )
     row = rows_of(path)[0]
-    assert row[1] == "Péage"
-    assert row[2] == "Lyon -> Marseille"
+    assert row[2] == "Péage"
+    assert row[3] == "Lyon -> Marseille"
 
 
 def test_hotel_subtable_separates_deductible_and_non_deductible_vat(tmp_path):
@@ -558,6 +561,7 @@ def test_hotel_subtable_separates_deductible_and_non_deductible_vat(tmp_path):
     path = report.subtable_paths[ExpenseSubCategory.HOTELLERIE]
     assert header_of(path) == (
         "Date",
+        "Date de Paiement",
         "Hôtel / Lieu",
         "HT Hébergement",
         "HT Petit-Déj / Repas",
@@ -566,12 +570,12 @@ def test_hotel_subtable_separates_deductible_and_non_deductible_vat(tmp_path):
         "TTC",
     )
     row = rows_of(path)[0]
-    assert row[1] == "Hôtel Ibis Lyon"
-    assert row[2] == 180.0
-    assert row[3] == 20.0
-    assert row[4] == 5.0
-    assert row[5] == 15.0
-    assert row[6] == 220.0
+    assert row[2] == "Hôtel Ibis Lyon"
+    assert row[3] == 180.0
+    assert row[4] == 20.0
+    assert row[5] == 5.0
+    assert row[6] == 15.0
+    assert row[7] == 220.0
     summary = rows_of(report.global_path)
     restaurant_summary = next(
         item for item in summary if item[0] == "HOTELLERIE"
@@ -620,6 +624,7 @@ def test_master_tables_expose_p23_piece_and_bank_columns(tmp_path):
     assert header_of(report.banque_tva_path) == MASTER_BANQUE_TVA_HEADERS
     assert MASTER_ACHATS_HEADERS == (
         "Date Pièce",
+        "Date de Paiement",
         "Flux (VENTE_CLIENT / ACHAT_FOURNISSEUR)",
         "Tiers (Client ou Fournisseur)",
         "N° Pièce",
@@ -661,9 +666,9 @@ def test_classification_marker_classified_vs_unclassified(tmp_path):
         supplier="INCONNU",
     )
     report = export_master(store, tmp_path)
-    rows = {row[3]: row for row in rows_of(report.pieces_path)}
-    assert rows["REST-001"][1] == "ACHAT_FOURNISSEUR"
-    assert rows["DIVERS-001"][1] == "ACHAT_FOURNISSEUR"
+    rows = {row[4]: row for row in rows_of(report.pieces_path)}
+    assert rows["REST-001"][2] == "ACHAT_FOURNISSEUR"
+    assert rows["DIVERS-001"][2] == "ACHAT_FOURNISSEUR"
     assert classify_marker(ExpenseSubCategory.CARBURANT) == (
         "IDENTIFIEE_CLASSEE:CARBURANT"
     )
@@ -750,7 +755,7 @@ def test_fiscal_year_switch_to_next_january_isolates_tva(tmp_path):
     assert report.fiscal_totals[2026].tva == Decimal("10.00")
     assert report.fiscal_totals[2027].tva == Decimal("20.00")
     rows = {
-        row[3]: row for row in rows_of(report.pieces_path)
+        row[4]: row for row in rows_of(report.pieces_path)
     }
     assert set(rows) == {"DEC-2026", "JUN-2026"}
     recap = rows_of(report.banque_tva_path, "RECAP_TVA")
@@ -871,19 +876,19 @@ def test_p23_unified_pieces_table_contains_sales_and_purchases(tmp_path):
     rows = rows_of(report.pieces_path)
 
     assert len(rows) == 2
-    by_flux = {row[1]: row for row in rows}
+    by_flux = {row[2]: row for row in rows}
     assert set(by_flux) == {"VENTE_CLIENT", "ACHAT_FOURNISSEUR"}
     sale = by_flux["VENTE_CLIENT"]
-    assert sale[2] == "CLIENT SARL"
-    assert sale[3] == "FA2001"
-    assert sale[4] == 1000.0
-    assert sale[5] == 200.0
-    assert sale[6] == 1200.0
+    assert sale[3] == "CLIENT SARL"
+    assert sale[4] == "FA2001"
+    assert sale[5] == 1000.0
+    assert sale[6] == 200.0
+    assert sale[7] == 1200.0
     purchase = by_flux["ACHAT_FOURNISSEUR"]
-    assert purchase[2] == "ROBERT BOSCH"
-    assert purchase[3] == "ACHAT-BOSCH"
+    assert purchase[3] == "ROBERT BOSCH"
+    assert purchase[4] == "ACHAT-BOSCH"
     for row in rows:
-        for column in (4, 5, 6, 10):
+        for column in (5, 6, 7, 11):
             assert isinstance(row[column], (int, float))
     assert report.row_count == 2
 
@@ -1073,6 +1078,7 @@ def test_acompleter_workbook_accepts_p17_metadata(tmp_path):
         "Source de Paiement": "",
         "Compte de Contrepartie": "",
         "Report": "",
+        "Rattacher comme ALIAS de (ou NOUVEAU_TIERS)": "",
     }
 
 
@@ -1423,10 +1429,10 @@ def test_hotel_export_uses_soiree_etape_breakdown(tmp_path):
     )
     path = report.subtable_paths[ExpenseSubCategory.HOTELLERIE]
     row = rows_of(path)[0]
-    assert row[2] == 100.0
-    assert row[3] == 42.0
-    assert row[4] == 4.2
-    assert row[5] == 10.0
+    assert row[3] == 100.0
+    assert row[4] == 42.0
+    assert row[5] == 4.2
+    assert row[6] == 10.0
     summary = rows_of(report.global_path)
     hotel_summary = next(item for item in summary if item[0] == "HOTELLERIE")
     assert hotel_summary[3] == 14.2
@@ -1449,8 +1455,8 @@ def test_hotel_without_breakdown_keeps_accommodation_vat_non_deductible(tmp_path
     row = rows_of(
         report.subtable_paths[ExpenseSubCategory.HOTELLERIE]
     )[0]
-    assert row[4] == 0.0
-    assert row[5] == 10.0
+    assert row[5] == 0.0
+    assert row[6] == 10.0
 
 
 def test_invoice_parser_exposes_hotel_evening_stage_metadata():
