@@ -407,6 +407,16 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Fichier absent (ignore) : {name}")
     print(f"Documents ingeres : {report.ingested}")
     print(f"Classeurs Excel : {len(report.workbooks)}")
+    primary = next(
+        (
+            path
+            for path in report.workbooks
+            if path.name == "TABLEAU_MERE_PIECES_COMPTABLES.xlsx"
+        ),
+        report.workbooks[0] if report.workbooks else None,
+    )
+    if primary is not None:
+        print(f"classeur: {primary.resolve()}")
     if report.ca12_path is not None:
         print(f"Simulation CA12 {args.year} : {report.ca12_path.resolve()}")
     if report.balance_path is not None:

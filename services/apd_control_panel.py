@@ -56,7 +56,7 @@ PENDING_FIELDS: tuple[tuple[str, str], ...] = (
     ("raison", "Pourquoi en attente"),
     ("action", "Action attendue"),
 )
-PAGE_TITLE = "APD - Cockpit comptable P24"
+PAGE_TITLE = "APD - Cockpit comptable P25"
 
 
 def _cell(value: Any) -> str:

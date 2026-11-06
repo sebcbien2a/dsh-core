@@ -290,10 +290,14 @@ class HermesAccountingBridge:
                     "action": action,
                     "piece_pdf": piece,
                     "link": piece,
-                    "tier_alias_target": metadata.get(
-                        "Rattacher comme ALIAS de (ou NOUVEAU_TIERS)"
+                    "tier_alias_target": (
+                        metadata.get(
+                            "Rattacher comme ALIAS de (ou NOUVEAU_TIERS)"
+                        )
+                        or ""
                     )
-                    or "",
+                    if row.nom_fichier.endswith(".tier")
+                    else "",
                     "tier_alias_choices": list(
                         self._pipeline._tier_reference.alias_targets()
                     ),
@@ -517,8 +521,8 @@ class HermesAccountingBridge:
             directory = self._tree.state_dir(state)
             if not directory.is_dir():
                 continue
-            for candidate in directory.rglob(name):
-                if candidate.is_file():
+            for candidate in directory.rglob("*"):
+                if candidate.is_file() and candidate.name.casefold() == name.casefold():
                     return candidate
         return None
 

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-11-06T00:43:27.923055+00:00",
+  "updated_at": "2026-11-06T01:00:10.451433+00:00",
   "groups": {
     "PAINTCAR": {
       "canonical": "PAINTCAR",
@@ -271,8 +271,7 @@
         "AMZ",
         "AMAZON EU",
         "AMAZON FR",
-        "AMAZON BUSINESS",
-        "NOUVEAU MAGASIN"
+        "AMAZON BUSINESS"
       ],
       "prefixes": [],
       "payment_method": "CARTE_BANCAIRE",
@@ -493,7 +492,7 @@
       "deferred_month": "",
       "report": "",
       "decision": "VALIDE",
-      "learned_at": "2026-11-06T00:43:27.923055+00:00"
+      "learned_at": "2026-11-06T01:00:06.919849+00:00"
     }
   ]
 }

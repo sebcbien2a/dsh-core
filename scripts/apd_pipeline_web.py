@@ -195,7 +195,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     Handler.bridge = _bridge(args)
     server = ThreadingHTTPServer((args.host, args.port), Handler)
-    print(f"Interface APD P22 : http://{args.host}:{args.port}")
+    print(f"Interface APD P25 : http://{args.host}:{args.port}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
