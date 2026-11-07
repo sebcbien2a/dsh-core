@@ -387,7 +387,7 @@ async function showPending(initial) {{
     const exercise = selectOptions('exercise', CHOICES.exercice_cible, '2026');
     const source = selectOptions('payment_source', CHOICES.source_paiement, 'BANQUE_PRO');
     const alias = selectOptions('tier_alias', ['', ...(CHOICES.tier_alias_targets || [])], item.tier_alias_target || '');
-    return '<tr>' +
+    return '<tr data-doc-id="' + esc(doc) + '">' +
       '<td>' + esc(item.filename) + '</td>' +
       '<td>' + esc(item.fournisseur) + '</td>' +
       '<td>' + esc(item.numero_piece) + '</td>' +
@@ -398,7 +398,7 @@ async function showPending(initial) {{
       '<td>' + exercise + '</td>' +
       '<td>' + source + '</td>' +
       '<td>' + alias + '</td>' +
-      '<td><button type="button" onclick="validerPiece(\'' + doc + '\', this)">Valider</button></td>' +
+      '<td><button type="button" data-action="validate">Valider</button></td>' +
       '</tr>';
   }}).join('');
   document.getElementById('questions').innerHTML =
@@ -486,6 +486,13 @@ document.getElementById('status').addEventListener('click', () => showStatus());
 document.getElementById('pending').addEventListener('click', () => showPending());
 document.getElementById('all').addEventListener('click', () => showAll());
 document.getElementById('apply-excel').addEventListener('click', () => applyExcel());
+document.addEventListener('click', (event) => {{
+  const button = event.target.closest('button[data-action="validate"]');
+  if (!button) return;
+  const row = button.closest('tr');
+  if (!row) return;
+  validerPiece(row.dataset.docId || '', button);
+}});
 async function showAll() {{
   document.querySelectorAll('button.stage').forEach(b => b.disabled = true);
   await call('/api/run-all');

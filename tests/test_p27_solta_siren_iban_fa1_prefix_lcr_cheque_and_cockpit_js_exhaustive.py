@@ -492,6 +492,7 @@ def test_onedrive_pull_newer_director_files_and_push_expert(tmp_path):
         root=workspace / "document_flow",
         onedrive_dir=onedrive,
         export_dir=export_dir,
+        enabled=True,
     )
     pulled = bridge.pull_director_files()
     assert local_readable.read_bytes() == b"onedrive-new"

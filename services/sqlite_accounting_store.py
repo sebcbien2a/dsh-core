@@ -1,4 +1,4 @@
-"""Durable multi-tenant accounting store backed by SQLite (P13.1).
+﻿"""Durable multi-tenant accounting store backed by SQLite (P13.1).
 
 One database file holds every tenant; each row carries an indexed ``tenant_id``
 and every query is filtered on it. The class is structurally compatible with the
@@ -47,6 +47,7 @@ _AMOUNT_COLUMNS = frozenset({"Debit", "Credit", "Montantdevise"})
 _LINE_FIELDS = (
     "operation_date",
     "label",
+    "memo",
     "debit_amount",
     "credit_amount",
     "currency",
@@ -101,6 +102,7 @@ _LINE_FIELDS = (
     "report",
 )
 _LINE_MIGRATION_COLUMNS = (
+    ("memo", "TEXT"),
     ("category", "TEXT"),
     ("amount_ht", "TEXT"),
     ("amount_tva", "TEXT"),
@@ -641,7 +643,7 @@ class SqliteAccountingStore:
             " ON d.tenant_id = l.tenant_id AND d.line_id = l.line_id"
         )
         select = (
-            "SELECT l.line_id AS line_id, l.operation_date, l.label, l.debit_amount,"
+            "SELECT l.line_id AS line_id, l.operation_date, l.label, l.memo, l.debit_amount,"
             " l.credit_amount, l.currency, l.counterparty,"
             f" COALESCE(d.invoice_id, l.invoice_id) AS invoice_id, l.invoice_url,"
             " COALESCE(l.category, '') AS category,"
@@ -1457,7 +1459,7 @@ class SqliteAccountingStore:
             " ON d.tenant_id = l.tenant_id AND d.line_id = l.line_id"
         )
         select = (
-            "SELECT l.line_id AS line_id, l.operation_date, l.label, l.debit_amount,"
+            "SELECT l.line_id AS line_id, l.operation_date, l.label, l.memo, l.debit_amount,"
             " l.credit_amount, l.currency, l.counterparty,"
             f" {invoice} AS invoice_id, l.invoice_url,"
             " COALESCE(l.category, '') AS category,"

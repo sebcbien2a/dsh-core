@@ -543,13 +543,29 @@ def _piece_link_for_row(
     )
 
 
-def _write_piece_link(cell: Any, value: Any) -> bool:
+def _write_piece_link(
+    cell: Any, value: Any, display_text: Any = None
+) -> bool:
+    """Write a local ``HYPERLINK`` formula so Excel opens the PDF in Foxit.
+
+    A plain ``cell.hyperlink`` is rewritten by OneDrive/Excel into a
+    ``https://onedrive.live.com/...`` URL that opens in the browser. The
+    ``CELL("filename")`` formula keeps the link relative to the workbook
+    folder, so the default local PDF reader opens the file.
+    """
     if not isinstance(value, str) or not value.strip():
         return False
-    if not value.replace("\\", "/").startswith("PIECES_JOINTES/"):
+    normalized = value.replace("\\", "/")
+    if not normalized.startswith("PIECES_JOINTES/"):
         return False
-    cell.value = value
-    cell.hyperlink = value
+    windows_path = normalized.replace("/", "\\")
+    display = str(display_text or Path(normalized).name).replace('"', "'")
+    formula = (
+        '=IFERROR(HYPERLINK(LEFT(CELL("filename",A1),'
+        'FIND("[",CELL("filename",A1))-1)'
+        f'&"{windows_path}","{display}"),"{windows_path}")'
+    )
+    cell.value = formula
     cell.font = Font(color="0563C1", underline="single")
     return True
 
@@ -3009,6 +3025,12 @@ def _write_p17_workbook(
                 continue
             hyperlink = (hyperlinks or {}).get((offset, column))
             if hyperlink:
+                if _write_piece_link(cell, hyperlink, display_text=value):
+                    cell.border = border
+                    cell.alignment = Alignment(
+                        vertical="center", wrap_text=True
+                    )
+                    continue
                 cell.value = value
                 cell.hyperlink = hyperlink
                 cell.font = Font(color="0563C1", underline="single")
@@ -3844,13 +3866,70 @@ def _bank_counterparty_display(
     return f"{canonical} [{nature}]" if nature else canonical
 
 
+def _is_remise_encaissement(label: Any) -> bool:
+    return "REMISE ENCAISSEMENT" in _fold(label).upper()
+
+
+def _split_remise_rows(
+    row: dict[str, Any],
+    matched: list[dict[str, Any]],
+    movement: Decimal,
+    workbook_path: Path,
+    start_index: int,
+) -> tuple[list[tuple[Any, ...]], dict[tuple[int, int], str]]:
+    """Explode one multi-client LCR remise into one row per customer invoice."""
+    label = _text_field(row, "label")
+    rows: list[tuple[Any, ...]] = []
+    hyperlinks: dict[tuple[int, int], str] = {}
+    total = Decimal("0.00")
+    for offset, document in enumerate(matched):
+        record = _summary_record(document)
+        ttc = (record["ttc"] or Decimal("0.00")).quantize(_CENT)
+        total += ttc
+        number = _piece_number_from_row(document) or record["invoice_id"]
+        client = str(record["counterparty"] or "").strip() or "CLIENT"
+        rows.append(
+            (
+                _date_cell(row.get("operation_date")),
+                client,
+                "LCR_ENCAISSEMENT_LOT",
+                f"{label} (Lot {movement} €) — Facture {number}",
+                Decimal("0.00"),
+                ttc,
+                str(number),
+                (record["tva"] or Decimal("0.00")).quantize(_CENT),
+                Decimal("0.00"),
+            )
+        )
+        link = _piece_link_for_row(workbook_path, document)
+        if link:
+            hyperlinks[(start_index + offset, 7)] = link
+    residual = (movement - total).quantize(_CENT)
+    if residual != 0:
+        rows.append(
+            (
+                _date_cell(row.get("operation_date")),
+                "ECART REMISE",
+                "LCR_ENCAISSEMENT_LOT",
+                f"{label} (Lot {movement} €) — Écart de lettrage",
+                Decimal("0.00"),
+                residual,
+                "ECART",
+                Decimal("0.00"),
+                Decimal("0.00"),
+            )
+        )
+    return rows, hyperlinks
+
+
 def _bank_mirror_rows(
     store: Any, tenant_id: str, workbook_path: Path
 ) -> tuple[list[tuple[Any, ...]], dict[tuple[int, int], str]]:
     documents = _piece_rows(store, tenant_id)
     rows: list[tuple[Any, ...]] = []
     hyperlinks: dict[tuple[int, int], str] = {}
-    for offset, row in enumerate(_bank_operations(store, tenant_id), start=2):
+    row_index = 2
+    for row in _bank_operations(store, tenant_id):
         movement = _movement_amount(row)
         matched = _match_bank_documents(row, documents)
         if matched:
@@ -3865,6 +3944,24 @@ def _bank_mirror_rows(
                 subset = _subset_for_amount(matched, movement)
                 if subset is not None:
                     matched = subset
+        label = _text_field(row, "label")
+        if not matched and _is_remise_encaissement(label):
+            candidates = [
+                document
+                for document in documents
+                if _is_sales_row(document)
+                and str(document.get("reconciliation_status") or "").upper()
+                not in _PAID_RECONCILIATION_STATUSES
+            ]
+            matched = _subset_for_amount(candidates, movement) or []
+        if _is_remise_encaissement(label) and len(matched) > 1:
+            split_rows, split_links = _split_remise_rows(
+                row, matched, movement, workbook_path, row_index
+            )
+            rows.extend(split_rows)
+            hyperlinks.update(split_links)
+            row_index += len(split_rows)
+            continue
         numbers: list[str] = []
         links: list[str] = []
         matched_total = Decimal("0.00")
@@ -3894,7 +3991,7 @@ def _bank_mirror_rows(
                 _bank_counterparty_display(row, matched),
                 _text_field(row, "payment_method", "document_type", "category")
                 or ("DEBIT" if debit else "CREDIT"),
-                _text_field(row, "label"),
+                label,
                 debit,
                 credit,
                 display,
@@ -3903,7 +4000,8 @@ def _bank_mirror_rows(
             )
         )
         if links:
-            hyperlinks[(offset, 7)] = links[0]
+            hyperlinks[(row_index, 7)] = links[0]
+        row_index += 1
     return rows, hyperlinks
 
 

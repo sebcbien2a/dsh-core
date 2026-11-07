@@ -69,6 +69,37 @@ _FEE_MARKERS = (
     "FORFAIT",
 )
 _ACCOUNT_ONLY = re.compile(r"[\d ]{11,}")
+_PAYMENT_INSTRUMENT_PREFIXES = ("LCR ", "RLV ", "VIR ", "PRLV ", "CB ")
+
+
+def _is_payment_instrument_name(value: str) -> bool:
+    text = str(value or "").strip().upper()
+    return any(text.startswith(prefix) for prefix in _PAYMENT_INSTRUMENT_PREFIXES)
+
+
+def _memo_counterparty(name: str, memo: str) -> str | None:
+    """Extract the real supplier from ``MEMO`` when ``NAME`` is an instrument."""
+    if not memo:
+        return None
+    if not _is_payment_instrument_name(name):
+        return None
+    candidate = memo.strip()
+    if "|" in candidate:
+        candidate = candidate.split("|", 1)[1].strip()
+    if not candidate or candidate.upper() == name.strip().upper():
+        return None
+    if _is_payment_instrument_name(candidate):
+        return None
+    return candidate or None
+
+
+def _combine_name_memo(name: str, memo: str) -> str:
+    """Concatenate ``NAME`` and ``MEMO`` instead of dropping the second label."""
+    primary = _clean(name)
+    secondary = _clean(memo)
+    if primary and secondary and primary.casefold() != secondary.casefold():
+        return f"{primary} | {secondary}"
+    return primary or secondary
 
 
 class OfxStatementError(ValueError):
@@ -144,6 +175,7 @@ class OfxTransaction:
             "line_id": self.inline_line_id,
             "operation_date": self.operation_date.isoformat(),
             "label": self.label,
+            "memo": self.memo,
             "debit_amount": (
                 str(self.debit_amount) if self.debit_amount is not None else None
             ),
@@ -450,8 +482,9 @@ def parse_ofx_statement(content: str | bytes) -> OfxStatement:
     duplicates = 0
     for index, block in enumerate(blocks, start=1):
         fields = _leaf_fields(block)
-        label = _clean(fields.get("NAME")) or _clean(fields.get("MEMO"))
+        name = _clean(fields.get("NAME"))
         memo = _clean(fields.get("MEMO"))
+        label = _combine_name_memo(name, memo)
         if not label:
             raise OfxStatementError("MISSING_LABEL", f"transaction {index}")
         amount = parse_ofx_amount(fields.get("TRNAMT"))
@@ -461,7 +494,10 @@ def parse_ofx_statement(content: str | bytes) -> OfxStatement:
             duplicates += 1
             continue
         seen.add(fitid)
-        classification = classify_ofx_line(label, memo, amount)
+        classification = classify_ofx_line(name, memo, amount)
+        counterparty = classification.counterparty or _memo_counterparty(
+            name, memo
+        )
         transaction_type = _clean(fields.get("TRNTYPE")).upper()
         if not transaction_type:
             transaction_type = "CREDIT" if amount > 0 else "DEBIT"
@@ -479,7 +515,7 @@ def parse_ofx_statement(content: str | bytes) -> OfxStatement:
                 category=classification.category,
                 payment_reference=classification.payment_reference,
                 purchase_date=classification.purchase_date,
-                counterparty=classification.counterparty,
+                counterparty=counterparty,
                 currency=currency,
                 account_id=account_id or None,
                 source="ofx",

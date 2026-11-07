@@ -32,6 +32,7 @@ from typing import Iterable
 from services.folder_tree_service import ensure_tree
 
 ONEDRIVE_ENV = "APD_ONEDRIVE_DIR"
+ONEDRIVE_BRIDGE_ENV = "APD_ONEDRIVE_BRIDGE"
 SHARED_DIR_NAME = "APD_COMPTA_PARTAGE"
 PILOTAGE_DIR_NAME = "01_PILOTAGE_DIRIGEANT_ET_PERE"
 EXPERT_DIR_NAME = "02_CONSULTATION_EXPERT_COMPTABLE"
@@ -56,6 +57,18 @@ class OneDriveSyncReport:
     pushed_director: tuple[Path, ...]
     pushed_expert: tuple[Path, ...]
     skipped: tuple[str, ...]
+
+
+def onedrive_bridge_enabled() -> bool:
+    """Return ``False`` when the workspace is already natively synced."""
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv()
+    except Exception:  # noqa: BLE001 - dotenv is optional
+        pass
+    raw = os.environ.get(ONEDRIVE_BRIDGE_ENV, "1").strip().lower()
+    return raw not in {"0", "false", "off", "no", "disabled"}
 
 
 def resolve_onedrive_root(
@@ -114,6 +127,7 @@ class OneDriveAccountingBridge:
         root: str | os.PathLike[str] | None = None,
         onedrive_dir: str | os.PathLike[str] | None = None,
         export_dir: str | os.PathLike[str] | None = None,
+        enabled: bool | None = None,
     ) -> None:
         self._tenant_id = tenant_id
         self._tree = ensure_tree(tenant_id, root)
@@ -123,7 +137,12 @@ class OneDriveAccountingBridge:
             if export_dir is not None
             else self._tree.state_dir("04_EXPORT_COMPTA") / tenant_id
         )
-        self._onedrive_root = resolve_onedrive_root(onedrive_dir)
+        self._enabled = (
+            onedrive_bridge_enabled() if enabled is None else bool(enabled)
+        )
+        self._onedrive_root = (
+            resolve_onedrive_root(onedrive_dir) if self._enabled else None
+        )
         self._shared_dir = (
             self._onedrive_root / SHARED_DIR_NAME
             if self._onedrive_root is not None
@@ -240,13 +259,18 @@ class OneDriveAccountingBridge:
     def sync(self) -> OneDriveSyncReport:
         """Pull director edits, then publish both shared folders."""
         if self._shared_dir is None:
+            reason = (
+                "ONEDRIVE_BRIDGE_DISABLED"
+                if not self._enabled
+                else "ONEDRIVE_NOT_FOUND"
+            )
             return OneDriveSyncReport(
                 onedrive_root=None,
                 shared_dir=None,
                 pulled=(),
                 pushed_director=(),
                 pushed_expert=(),
-                skipped=("ONEDRIVE_NOT_FOUND",),
+                skipped=(reason,),
             )
         self.ensure_structure()
         pulled = self.pull_director_files()

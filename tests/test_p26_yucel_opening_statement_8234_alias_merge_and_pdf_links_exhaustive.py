@@ -306,10 +306,12 @@ def test_payment_lines_have_pdf_links_and_readable_lettering(tmp_path):
     payment_row = next(row for row in rows if row[1].value == "PAIEMENT")
     assert invoice_row[8].value == "Payée le 03/07/2026 par VIR"
     assert payment_row[8].value == "Règle Facture : FA16423"
-    assert payment_row[9].value == (
-        "PIECES_JOINTES/VENTES/FA16423_2026-01-31_CARROSSERIE_YUCELL.pdf"
+    assert str(payment_row[9].value).startswith("=IFERROR(HYPERLINK(")
+    assert (
+        "PIECES_JOINTES\\VENTES\\FA16423_2026-01-31_CARROSSERIE_YUCELL.pdf"
+        in str(payment_row[9].value)
     )
-    assert payment_row[9].hyperlink is not None
+    assert payment_row[9].hyperlink is None
 
 
 # -- 4. alias table merge ---------------------------------------------------
