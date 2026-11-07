@@ -34,9 +34,22 @@ DEFAULT_TIER_REFERENCE_PATH = (
     / "APD"
     / TIER_REFERENCE_FILENAME
 )
+ROOT_TIER_REFERENCE_PATH = (
+    Path("workspace") / "document_flow" / "APD" / TIER_REFERENCE_FILENAME
+)
 ROLES = ("CLIENT", "FOURNISSEUR", "PRESTATAIRE", "INTERNE_EXCLUS")
 STATUSES = ("AUTORISE", "A_AUTORISER")
 COLUMNS: tuple[str, ...] = (
+    "Nom Officiel Canonique",
+    "ALIAS à regrouper (séparés par ;)",
+    "Renommer en (Optionnel)",
+    "Rôle",
+    "Catégorie par Défaut",
+    "Sous-Catégorie",
+    "Mode Règlement",
+    "Statut",
+)
+LEGACY_COLUMNS: tuple[str, ...] = (
     "Nom Officiel (Canonique)",
     "Rôle (CLIENT / FOURNISSEUR / PRESTATAIRE / INTERNE_EXCLUS)",
     "Catégorie par Défaut",
@@ -77,6 +90,7 @@ class TierRecord:
     prefixes: tuple[str, ...] = ()
     payment_method: str = ""
     status: str = "AUTORISE"
+    rename_to: str = ""
 
     @property
     def alias_text(self) -> str:
@@ -286,6 +300,9 @@ class TierReferenceService:
         }
         if self._path.is_file():
             for record in self._read_workbook():
+                base = records.get(record.canonical)
+                if base is not None and not record.prefixes:
+                    record = replace(record, prefixes=base.prefixes)
                 records[record.canonical] = record
         if self._store is not None:
             for record in self._read_store():
@@ -298,8 +315,27 @@ class TierReferenceService:
         if not self._path.is_file():
             if write_missing:
                 self.save_workbook()
+        elif self._is_legacy_workbook():
+            self.save_workbook()
+        self.apply_alias_merges()
         self._sync()
         return tuple(self._records.values())
+
+    def _is_legacy_workbook(self) -> bool:
+        from openpyxl import load_workbook
+
+        try:
+            workbook = load_workbook(self._path, read_only=True)
+            try:
+                headers = [
+                    str(cell.value or "")
+                    for cell in next(workbook.active.iter_rows(max_row=1))
+                ]
+            finally:
+                workbook.close()
+        except Exception:  # noqa: BLE001
+            return False
+        return len(headers) > 1 and "ALIAS" not in headers[1].upper()
 
     def records(self) -> tuple[TierRecord, ...]:
         if not self._loaded:
@@ -443,22 +479,120 @@ class TierReferenceService:
         self._sync()
         return record
 
+    def apply_alias_merges(self) -> tuple[str, ...]:
+        """Merge rows moved to another row's alias column or renamed.
+
+        The director can either move a canonical name from column A to the
+        alias column B of another row, or fill ``Renommer en``. In both cases
+        the source tier is merged into the target: SQLite counterparties are
+        renamed, ``learned_accounting_rules.json`` learns the alias and the
+        duplicate ledger sheet disappears.
+        """
+        records = {record.canonical: record for record in self.records()}
+        merges: dict[str, str] = {}
+        for record in records.values():
+            target = str(record.rename_to or "").strip()
+            if target and _fold(target) != _fold(record.canonical):
+                merges[record.canonical] = target
+                continue
+            for other in records.values():
+                if other.canonical == record.canonical:
+                    continue
+                if any(
+                    _fold(alias) == _fold(record.canonical)
+                    for alias in other.aliases
+                ):
+                    merges[record.canonical] = other.canonical
+                    break
+        if not merges:
+            return ()
+        merged: list[str] = []
+        for source, target in merges.items():
+            source_record = records.get(source)
+            if source_record is None:
+                continue
+            target_record = records.get(target)
+            if target_record is None:
+                target_record = next(
+                    (
+                        record
+                        for record in records.values()
+                        if _fold(record.canonical) == _fold(target)
+                    ),
+                    None,
+                )
+            if target_record is None:
+                continue
+            aliases = tuple(
+                dict.fromkeys(
+                    (
+                        *target_record.aliases,
+                        source,
+                        *source_record.aliases,
+                    )
+                )
+            )
+            records[target_record.canonical] = replace(
+                target_record, aliases=aliases, rename_to=""
+            )
+            records.pop(source, None)
+            self._rename_sqlite(source, target_record.canonical)
+            for alias in (source, *source_record.aliases):
+                self._rename_sqlite(alias, target_record.canonical)
+            if self._memory is not None:
+                try:
+                    self._memory.remember_alias(source, target_record.canonical)
+                    for alias in source_record.aliases:
+                        self._memory.remember_alias(
+                            alias, target_record.canonical
+                        )
+                except Exception:  # noqa: BLE001
+                    pass
+            merged.append(source)
+        self._records = records
+        self.save_workbook()
+        self._sync()
+        return tuple(merged)
+
+    def _rename_sqlite(self, source: str, target: str) -> None:
+        if self._store is None:
+            return
+        rename = getattr(self._store, "rename_counterparty", None)
+        if not callable(rename):
+            return
+        try:
+            rows = self._store.list_master_lines(self._tenant_id)
+        except Exception:  # noqa: BLE001
+            return
+        for row in rows:
+            name = str(row.get("counterparty") or "").strip()
+            if not name:
+                continue
+            if _fold(name) == _fold(source):
+                try:
+                    rename(self._tenant_id, name, target)
+                except Exception:  # noqa: BLE001
+                    continue
+
     # -- persistence -----------------------------------------------------
 
     def save_workbook(self) -> Path:
+        path = self.path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self._write_workbook(path)
+        if path.resolve() == DEFAULT_TIER_REFERENCE_PATH.resolve():
+            mirror = ROOT_TIER_REFERENCE_PATH
+            if mirror.resolve() != path.resolve():
+                mirror.parent.mkdir(parents=True, exist_ok=True)
+                self._write_workbook(mirror)
+        return path
+
+    def _write_workbook(self, path: Path) -> None:
         from openpyxl import Workbook
         from openpyxl.styles import Alignment, Font, PatternFill
         from openpyxl.worksheet.datavalidation import DataValidation
+        from openpyxl.utils import get_column_letter
 
-        path = self.path
-        path.parent.mkdir(parents=True, exist_ok=True)
-        if path.is_file():
-            try:
-                existing = self._read_workbook()
-                for record in existing:
-                    self._records.setdefault(record.canonical, record)
-            except Exception:  # noqa: BLE001
-                pass
         workbook = Workbook()
         sheet = workbook.active
         sheet.title = "REFERENTIEL_TIERS"
@@ -477,11 +611,11 @@ class TierReferenceService:
         ):
             values = (
                 record.canonical,
+                record.alias_text,
+                record.rename_to,
                 record.role,
                 record.category,
                 record.subcategory,
-                record.alias_text,
-                record.prefix_text,
                 record.payment_method,
                 record.status,
             )
@@ -489,9 +623,9 @@ class TierReferenceService:
                 sheet.cell(row=row_index, column=column, value=value)
         last_row = max(sheet.max_row, 2)
         validations = {
-            "B": '"' + ",".join(ROLES) + '"',
-            "C": excel_list(CATEGORY_CHOICES),
-            "D": excel_list(SUBCATEGORY_CHOICES),
+            "D": '"' + ",".join(ROLES) + '"',
+            "E": excel_list(CATEGORY_CHOICES),
+            "F": excel_list(SUBCATEGORY_CHOICES),
             "H": '"' + ",".join(STATUSES) + '"',
         }
         for column, formula in validations.items():
@@ -501,12 +635,10 @@ class TierReferenceService:
             sheet.add_data_validation(validation)
             validation.add(f"{column}2:{column}{last_row}")
         sheet.freeze_panes = "A2"
-        widths = (30, 20, 22, 26, 62, 22, 18, 18)
-        from openpyxl.utils import get_column_letter
-
+        widths = (30, 62, 24, 20, 22, 26, 18, 18)
         for column, width in enumerate(widths, start=1):
             sheet.column_dimensions[get_column_letter(column)].width = width
-        temporary = path.with_name(path.name + ".tmp-p25")
+        temporary = path.with_name(path.name + ".tmp-p26")
         try:
             workbook.save(temporary)
             try:
@@ -521,7 +653,6 @@ class TierReferenceService:
                     shutil.copy2(temporary, fallback)
         finally:
             temporary.unlink(missing_ok=True)
-        return path
 
     def _read_workbook(self) -> tuple[TierRecord, ...]:
         from openpyxl import load_workbook
@@ -532,29 +663,49 @@ class TierReferenceService:
         sheet = workbook.active
         records: list[TierRecord] = []
         try:
+            headers = [
+                str(cell.value or "").strip() for cell in sheet[1]
+            ]
+            new_format = len(headers) > 1 and "ALIAS" in headers[1].upper()
             for row in sheet.iter_rows(min_row=2, values_only=True):
                 if not row or not row[0]:
                     continue
                 canonical = str(row[0]).strip()
-                role = str(row[1] or "").strip().upper()
-                if not canonical or role not in ROLES:
+                if not canonical:
+                    continue
+                if new_format:
+                    aliases = _split(row[1])
+                    rename_to = str(row[2] or "").strip()
+                    role = str(row[3] or "").strip().upper()
+                    category = str(row[4] or "").strip()
+                    subcategory = str(row[5] or "").strip()
+                    payment_method = str(row[6] or "").strip()
+                    status = str(row[7] or "AUTORISE").strip().upper()
+                    prefixes: tuple[str, ...] = ()
+                else:
+                    role = str(row[1] or "").strip().upper()
+                    category = str(row[2] or "").strip()
+                    subcategory = str(row[3] or "").strip()
+                    aliases = _split(row[4])
+                    prefixes = _split(row[5])
+                    payment_method = str(row[6] or "").strip()
+                    status = str(row[7] or "AUTORISE").strip().upper()
+                    rename_to = ""
+                if role not in ROLES:
                     continue
                 records.append(
                     TierRecord(
                         canonical,
                         role,
-                        str(row[2] or "").strip()
-                        if str(row[2] or "").strip() in CATEGORY_CHOICES
+                        category if category in CATEGORY_CHOICES else "",
+                        subcategory
+                        if subcategory in SUBCATEGORY_CHOICES
                         else "",
-                        str(row[3] or "").strip()
-                        if str(row[3] or "").strip() in SUBCATEGORY_CHOICES
-                        else "",
-                        _split(row[4]),
-                        _split(row[5]),
-                        str(row[6] or "").strip(),
-                        str(row[7] or "AUTORISE").strip().upper()
-                        if str(row[7] or "").strip().upper() in STATUSES
-                        else "A_AUTORISER",
+                        aliases,
+                        prefixes,
+                        payment_method,
+                        status if status in STATUSES else "A_AUTORISER",
+                        rename_to,
                     )
                 )
         finally:
@@ -666,7 +817,9 @@ __all__ = [
     "ALIAS_TARGET_TOLLS",
     "COLUMNS",
     "DEFAULT_TIER_REFERENCE_PATH",
+    "LEGACY_COLUMNS",
     "ROLES",
+    "ROOT_TIER_REFERENCE_PATH",
     "STATUSES",
     "SEED_TIERS",
     "TIER_REFERENCE_ENV",

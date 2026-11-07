@@ -19,6 +19,10 @@ echo [2/2] Ouverture du classeur lisible et de l'interface web locale
 if exist "workspace\document_flow\APD\02_A_COMPLETER\_A_COMPLETER.xlsx" (
     start "" "workspace\document_flow\APD\02_A_COMPLETER\_A_COMPLETER.xlsx"
 )
+echo Liberation du port 8765...
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr :8765 ^| findstr LISTENING') do (
+    taskkill /F /PID %%a >nul 2>&1
+)
 start "APD P25 Web" /min .venv-v3\Scripts\python.exe scripts\apd_pipeline_web.py --tenant APD
 timeout /t 2 >nul
 start http://127.0.0.1:8765

@@ -513,6 +513,11 @@ def _piece_link_for_row(
 ) -> str | None:
     stored = str(row.get("piece_pdf") or "").strip()
     if stored:
+        normalized = stored.replace("\\", "/")
+        if normalized.startswith("PIECES_JOINTES/"):
+            candidate = workbook_path.parent / normalized
+            if candidate.is_file():
+                return normalized
         candidate = Path(stored)
         if not candidate.is_absolute():
             candidate = workbook_path.parent / candidate
@@ -530,7 +535,9 @@ def _piece_link_for_row(
     )
     if found is None:
         return None
-    return relative_link(found, workbook_path)
+    return relative_link(
+        Path(found).resolve(), Path(workbook_path).resolve()
+    )
 
 
 def _write_piece_link(cell: Any, value: Any) -> bool:
@@ -912,6 +919,9 @@ class SupplierLedgerEntry:
     matched: bool
     matchable: bool
     matched_pieces: str = ""
+    payment_date: str = ""
+    payment_method: str = ""
+    piece_pdf: str = ""
 
     @property
     def signed_amount(self) -> Decimal:
@@ -1092,6 +1102,14 @@ def _build_supplier_ledger_entries(
         for row in rows
         if row.get("decision_invoice_id")
     }
+    invoice_rows: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        if _is_bank_ledger_row(row):
+            continue
+        for key in ("invoice_id", "line_id", "document_invoice_id"):
+            value = str(row.get(key) or "").strip()
+            if value:
+                invoice_rows.setdefault(value, row)
     entries: list[SupplierLedgerEntry] = []
     for row in rows:
         if is_apd_self_row(row):
@@ -1126,6 +1144,22 @@ def _build_supplier_ledger_entries(
                 if is_refund
                 else SUPPLIER_LEDGER_TYPE_PAIEMENT
             )
+            matched_id = str(
+                row.get("decision_invoice_id")
+                or row.get("invoice_id")
+                or ""
+            ).strip()
+            matched_row = invoice_rows.get(matched_id)
+            piece_number = ""
+            piece_pdf = ""
+            if matched_row is not None:
+                piece_number = str(
+                    _piece_number_from_row(matched_row)
+                    or matched_row.get("invoice_id")
+                    or matched_row.get("line_id")
+                    or ""
+                ).strip()
+                piece_pdf = str(matched_row.get("piece_pdf") or "").strip()
             entries.append(
                 SupplierLedgerEntry(
                     entry_type=entry_type,
@@ -1139,18 +1173,18 @@ def _build_supplier_ledger_entries(
                     status=_ledger_status(True, raw_status, matched),
                     raw_status=raw_status,
                     line_id=str(row.get("line_id") or ""),
-                    invoice_id=(
-                        str(
-                            row.get("decision_invoice_id")
-                            or row.get("invoice_id")
-                            or ""
-                        )
-                        or None
-                    ),
+                    invoice_id=piece_number or matched_id or None,
                     supplier=supplier_name,
                     matched=matched,
                     matchable=False,
-                    matched_pieces=str(row.get("invoice_id") or ""),
+                    matched_pieces=piece_number or matched_id,
+                    payment_date=str(row.get("reconciliation_date") or ""),
+                    payment_method=_payment_method_label(
+                        row.get("reconciliation_reference")
+                        or row.get("payment_method")
+                        or row.get("label")
+                    ),
+                    piece_pdf=piece_pdf,
                 )
             )
             continue
@@ -1198,6 +1232,12 @@ def _build_supplier_ledger_entries(
                     and (debit != 0 or credit != 0)
                 ),
                 matched_pieces=str(row.get("reconciliation_reference") or ""),
+                payment_date=str(row.get("reconciliation_date") or ""),
+                payment_method=_payment_method_label(
+                    row.get("reconciliation_reference")
+                    or row.get("payment_method")
+                    or ""
+                ),
             )
         )
     return entries
@@ -1401,6 +1441,21 @@ def _supplier_slug(value: str) -> str:
     return text[:80] or "FOURNISSEUR"
 
 
+def _supplier_matched_display(entry: SupplierLedgerEntry) -> str:
+    if entry.entry_type in {
+        SUPPLIER_LEDGER_TYPE_PAIEMENT,
+        SUPPLIER_LEDGER_TYPE_AVOIR_REMBOURSEMENT,
+    }:
+        pieces = entry.matched_pieces or "NON RAPPROCHEE"
+        return f"Règle Facture : {pieces}"
+    if entry.entry_type == SUPPLIER_LEDGER_TYPE_FACTURE and entry.payment_date:
+        method = entry.payment_method or "VIR"
+        return (
+            f"Payée le {_format_display_date(entry.payment_date)} par {method}"
+        )
+    return entry.matched_pieces
+
+
 def _write_supplier_ledger_sheet(
     sheet: Any,
     entries: list[SupplierLedgerEntry],
@@ -1445,17 +1500,26 @@ def _write_supplier_ledger_sheet(
     equilibrium_rows: list[int] = []
     for index, entry in enumerate(entries, start=2):
         running = (running + entry.credit - entry.debit).quantize(_CENT)
+        link_invoice = (
+            entry.invoice_id
+            or entry.matched_pieces
+            or entry.reference
+        )
+        if entry.entry_type == SUPPLIER_LEDGER_TYPE_PAIEMENT and entry.matched_pieces:
+            link_invoice = entry.matched_pieces.split(" + ")[0].strip()
         piece_link = (
             _piece_link_for_row(
                 workbook_path,
                 {
-                    "invoice_id": entry.invoice_id or entry.reference,
+                    "invoice_id": link_invoice,
                     "category": DocumentCategory.ACHATS_MARCHANDISES.value,
+                    "piece_pdf": entry.piece_pdf,
                 },
             )
             if workbook_path is not None
             else None
         )
+        matched_display = _supplier_matched_display(entry)
         values = (
             _date_cell(entry.operation_date),
             entry.entry_type,
@@ -1465,7 +1529,7 @@ def _write_supplier_ledger_sheet(
             entry.credit,
             None,
             _text(entry.status),
-            *((_text(entry.matched_pieces),) if include_matched_pieces else ()),
+            *((_text(matched_display),) if include_matched_pieces else ()),
             piece_link,
         )
         for column, value in enumerate(values, start=1):
@@ -1871,6 +1935,8 @@ class ClientLedgerEntry:
     client: str
     piece_pdf: str | None = None
     matched_pieces: str = ""
+    payment_date: str = ""
+    payment_method: str = ""
 
 
 def _client_invoice_date(row: dict[str, Any], record: dict[str, Any]) -> str:
@@ -1902,6 +1968,11 @@ def _client_invoice_entries(
             continue
         if document_type in {"LCR_REMITTANCE", "LCR_SUB_PAYMENT"}:
             continue
+        if (
+            str(row.get("reconciliation_status") or "").strip().upper()
+            == "SOLDEE_EXERCICE_ANTERIEUR_2025"
+        ):
+            continue
         record = _summary_record(row)
         ttc = record["ttc"] or Decimal("0.00")
         if ttc == 0:
@@ -1920,6 +1991,13 @@ def _client_invoice_entries(
         if not client:
             continue
         is_credit_note = document_type == "AVOIR" or ttc < 0
+        paid = (
+            str(row.get("reconciliation_status") or "").upper()
+            in _PAID_RECONCILIATION_STATUSES
+        )
+        reconciliation_reference = _text_field(
+            row, "reconciliation_reference", "fitid"
+        )
         entries.append(
             ClientLedgerEntry(
                 entry_type=(
@@ -1937,11 +2015,12 @@ def _client_invoice_entries(
                 invoice_id=str(record["invoice_id"] or line_id),
                 client=client,
                 piece_pdf=str(row.get("piece_pdf") or "") or None,
-                matched_pieces=(
-                    _text_field(row, "reconciliation_reference", "fitid")
-                    if str(row.get("reconciliation_status") or "").upper()
-                    in _PAID_RECONCILIATION_STATUSES
-                    else ""
+                matched_pieces=reconciliation_reference if paid else "",
+                payment_date=(
+                    str(row.get("reconciliation_date") or "") if paid else ""
+                ),
+                payment_method=(
+                    _payment_method_label(reconciliation_reference) if paid else ""
                 ),
             )
         )
@@ -2081,18 +2160,72 @@ def _client_payment_entries(
     return entries
 
 
+_PAYMENT_REFERENCE_PREFIXES = ("virement ", "vir ", "lcr ", "cb ")
+
+
+def _normalize_payment_reference(value: Any) -> str:
+    """Fold a payment reference and strip the bank-operation prefixes.
+
+    ``"VIREMENT 202610061041193444201450"`` and
+    ``"202610061041193444201450"`` must compare equal so a synthetic
+    ``Règlement lettré (registre)`` line is never created twice.
+    """
+    text = _fold(value).strip()
+    changed = True
+    while changed:
+        changed = False
+        for prefix in _PAYMENT_REFERENCE_PREFIXES:
+            if text.startswith(prefix):
+                text = text[len(prefix) :].strip()
+                changed = True
+    return text
+
+
+def _payment_method_label(reference: Any) -> str:
+    """Return ``VIR`` / ``REMISE`` / ``LCR`` / ``CB`` for a payment reference."""
+    text = _fold(reference)
+    if "remise" in text:
+        return "REMISE"
+    if "lcr" in text:
+        return "LCR"
+    if text.startswith("cb ") or "carte" in text:
+        return "CB"
+    if "vir" in text:
+        return "VIR"
+    return ""
+
+
 def _client_synthetic_payments(
     invoices: list[dict[str, Any]], existing: list[ClientLedgerEntry]
 ) -> list[ClientLedgerEntry]:
-    """Materialise lettering already stored on invoices without a bank row."""
-    payment_keys = {
-        (
-            _fold(entry.reference),
-            str(entry.operation_date or ""),
-            entry.credit,
-        )
+    """Materialise lettering already stored on invoices without a bank row.
+
+    A synthetic payment is only kept for a global remittance that has no
+    individual bank/virement line already booked. Any reference, date/amount
+    pair or amount already lettered on a ``FA16*`` invoice suppresses the
+    duplicate ``Règlement lettré (registre)`` line.
+    """
+    existing_references = {
+        _normalize_payment_reference(entry.reference)
         for entry in existing
+        if entry.reference
     }
+    existing_pairs = {
+        (str(entry.operation_date or ""), entry.credit) for entry in existing
+    }
+    existing_amounts = {entry.credit for entry in existing}
+    lettered_fa16_amounts: set[Decimal] = set()
+    lettered_fa16_references: set[str] = set()
+    for entry in existing:
+        pieces = [
+            piece.strip()
+            for piece in re.split(r"\s*\+\s*", entry.matched_pieces or "")
+            if piece.strip()
+        ]
+        for piece in pieces:
+            if piece.upper().startswith("FA16"):
+                lettered_fa16_amounts.add(entry.credit)
+                lettered_fa16_references.add(piece.upper())
     synthetic: list[ClientLedgerEntry] = []
     for row in invoices:
         status = str(row.get("reconciliation_status") or "").upper()
@@ -2102,6 +2235,7 @@ def _client_synthetic_payments(
         record = _summary_record(row)
         if amount is None:
             amount = record["ttc"] or Decimal("0.00")
+        amount = amount.quantize(_CENT)
         if amount <= 0:
             continue
         client = _learned_memory().canonical_name(record["counterparty"])
@@ -2113,10 +2247,21 @@ def _client_synthetic_payments(
         date_value = str(
             row.get("reconciliation_date") or row.get("operation_date") or ""
         )
-        key = (_fold(reference), date_value, amount.quantize(_CENT))
-        if key in payment_keys:
+        normalized_reference = _normalize_payment_reference(reference)
+        invoice_reference = str(record["invoice_id"] or "").upper()
+        if normalized_reference and normalized_reference in existing_references:
             continue
-        payment_keys.add(key)
+        if (date_value, amount) in existing_pairs:
+            continue
+        if amount in existing_amounts and invoice_reference.startswith("FA16"):
+            continue
+        if amount in lettered_fa16_amounts:
+            continue
+        if invoice_reference and invoice_reference in lettered_fa16_references:
+            continue
+        existing_references.add(normalized_reference)
+        existing_pairs.add((date_value, amount))
+        existing_amounts.add(amount)
         synthetic.append(
             ClientLedgerEntry(
                 entry_type=CLIENT_LEDGER_TYPE_PAIEMENT,
@@ -2124,7 +2269,7 @@ def _client_synthetic_payments(
                 reference=reference,
                 label="Règlement lettré (registre)",
                 debit=Decimal("0.00"),
-                credit=amount.quantize(_CENT),
+                credit=amount,
                 status="LETTRE",
                 line_id=str(row.get("line_id") or ""),
                 invoice_id=None,
@@ -2132,6 +2277,26 @@ def _client_synthetic_payments(
             )
         )
     return synthetic
+
+
+def _format_display_date(value: Any) -> str:
+    parsed = _parse_iso_date(value)
+    if parsed is not None:
+        return parsed.strftime("%d/%m/%Y")
+    text = str(value or "").strip()
+    return text[:10] if text else ""
+
+
+def _client_matched_display(entry: ClientLedgerEntry) -> str:
+    if entry.entry_type == CLIENT_LEDGER_TYPE_PAIEMENT:
+        pieces = entry.matched_pieces or "NON RAPPROCHEE"
+        return f"Règle Facture : {pieces}"
+    if entry.entry_type == CLIENT_LEDGER_TYPE_FACTURE and entry.payment_date:
+        method = entry.payment_method or "VIR"
+        return (
+            f"Payée le {_format_display_date(entry.payment_date)} par {method}"
+        )
+    return entry.matched_pieces
 
 
 def _write_client_ledger_sheet(
@@ -2171,14 +2336,18 @@ def _write_client_ledger_sheet(
     running = Decimal("0.00")
     for index, entry in enumerate(entries, start=2):
         running = (running + entry.debit - entry.credit).quantize(_CENT)
+        link_invoice = entry.invoice_id or entry.reference
+        if entry.entry_type == CLIENT_LEDGER_TYPE_PAIEMENT and entry.matched_pieces:
+            link_invoice = entry.matched_pieces.split(" + ")[0].strip()
         link = _piece_link_for_row(
             workbook_path,
             {
-                "invoice_id": entry.invoice_id or entry.reference,
+                "invoice_id": link_invoice,
                 "category": DocumentCategory.VENTES_CLIENTS.value,
                 "piece_pdf": entry.piece_pdf,
             },
         )
+        matched_display = _client_matched_display(entry)
         values = (
             _date_cell(entry.operation_date),
             entry.entry_type,
@@ -2188,7 +2357,7 @@ def _write_client_ledger_sheet(
             entry.credit,
             None,
             _text(entry.status),
-            *((_text(entry.matched_pieces),) if include_matched_pieces else ()),
+            *((_text(matched_display),) if include_matched_pieces else ()),
             link,
         )
         for column, value in enumerate(values, start=1):

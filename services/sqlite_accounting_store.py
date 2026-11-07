@@ -1014,6 +1014,75 @@ class SqliteAccountingStore:
                 conn.execute("ROLLBACK")
                 raise
 
+    def force_upsert_document_line(
+        self, tenant_id: str, line_id: str, line: dict[str, Any]
+    ) -> str:
+        """Insert or update a document line even when a decision exists.
+
+        Reserved for the opening-statement ingestion (P26): the director's
+        historical truth must overwrite a stale synthetic lettering. Normal
+        document-flow synchronisation keeps using
+        :meth:`upsert_document_line` and its immutability invariant.
+        """
+        validate_tenant_id(tenant_id)
+        _validate_line_id(line_id)
+        line = dict(line)
+        payment_source = normalize_payment_source(line.get("payment_source"))
+        if payment_source is not None:
+            line["payment_source"] = payment_source.value
+            mandatory_account = counterparty_account_for_payment_source(
+                payment_source
+            )
+            if mandatory_account is not None:
+                line["counterparty_account"] = mandatory_account
+        values = [None if line.get(k) is None else str(line[k]) for k in _LINE_FIELDS]
+        status = str(line.get("status") or _PENDING)
+        with closing(self._connect()) as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                existing = conn.execute(
+                    "SELECT 1 FROM reconciliation_lines"
+                    " WHERE tenant_id = ? AND line_id = ?",
+                    (tenant_id, line_id),
+                ).fetchone()
+                if existing is None:
+                    conn.execute(
+                        "INSERT INTO reconciliation_lines"
+                        f" (tenant_id, line_id, {', '.join(_LINE_FIELDS)}, status, created_at)"
+                        f" VALUES (?, ?, {', '.join('?' for _ in _LINE_FIELDS)}, ?, ?)",
+                        (tenant_id, line_id, *values, status, _now()),
+                    )
+                    conn.execute("COMMIT")
+                    return "created"
+                assignments = ", ".join(f"{field} = ?" for field in _LINE_FIELDS)
+                conn.execute(
+                    f"UPDATE reconciliation_lines SET {assignments}, status = ?"
+                    " WHERE tenant_id = ? AND line_id = ?",
+                    (*values, status, tenant_id, line_id),
+                )
+                conn.execute("COMMIT")
+                return "updated"
+            except BaseException:
+                conn.execute("ROLLBACK")
+                raise
+
+    def rename_counterparty(
+        self, tenant_id: str, old_name: str, new_name: str
+    ) -> int:
+        """Rename every line of one counterparty (P26 alias merge)."""
+        validate_tenant_id(tenant_id)
+        old_text = str(old_name or "").strip()
+        new_text = str(new_name or "").strip()
+        if not old_text or not new_text or old_text == new_text:
+            return 0
+        with closing(self._connect()) as conn, conn:
+            cursor = conn.execute(
+                "UPDATE reconciliation_lines SET counterparty = ?"
+                " WHERE tenant_id = ? AND counterparty = ?",
+                (new_text, tenant_id, old_text),
+            )
+            return cursor.rowcount
+
     def save_candidate_rule(self, tenant_id: str, rule: dict[str, Any]) -> None:
         validate_tenant_id(tenant_id)
         if self.rule_writer is not None:

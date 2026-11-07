@@ -134,8 +134,8 @@ def test_tier_reference_seed_aliases_and_workbook_priority(tmp_path):
         for row in range(2, sheet.max_row + 1)
         if sheet.cell(row, 1).value == "PAINTCAR"
     )
-    sheet.cell(paincar_row, 5).value = (
-        str(sheet.cell(paincar_row, 5).value) + "; NOUVEL ALIAS PAINTCAR"
+    sheet.cell(paincar_row, 2).value = (
+        str(sheet.cell(paincar_row, 2).value) + "; NOUVEL ALIAS PAINTCAR"
     )
     workbook.save(path)
     workbook.close()

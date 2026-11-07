@@ -216,8 +216,34 @@ def render_messages(report: Mapping[str, Any]) -> str:
     return f'<h4>Compte-rendu</h4><ul class="messages">{items}</ul>'
 
 
-def dashboard_html(*, title: str = PAGE_TITLE) -> str:
+def load_pending_questions(
+    *, tenant_id: str = "APD", root: Any = None
+) -> list[dict[str, Any]]:
+    """Load the full pending-question list from ``_A_COMPLETER.xlsx`` + SQLite.
+
+    The cockpit must show the questions immediately, without waiting for the
+    director to click the "Questions en attente" button.
+    """
+    try:
+        from services.hermes_accounting_bridge import HermesAccountingBridge
+
+        bridge = HermesAccountingBridge(tenant_id, root=root)
+        return list(bridge.list_pending_questions())
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def dashboard_html(
+    *,
+    title: str = PAGE_TITLE,
+    pending_questions: Iterable[Mapping[str, Any]] | None = None,
+) -> str:
     """Return the complete French HTML dashboard (stages 1-4 as buttons)."""
+    if pending_questions is None:
+        pending_questions = load_pending_questions()
+    pending_json = json.dumps(
+        list(pending_questions), ensure_ascii=False, default=str
+    )
     payload = as_dict()
     try:
         from services.tier_reference_service import TierReferenceService
@@ -288,6 +314,7 @@ p.empty{{margin:0;color:var(--muted);font-style:italic}}
 <section class="card" id="questions"><h2>Questions en attente</h2><p class="empty">Cliquez sur « Questions en attente ».</p></section>
 </main>
 <script>window.CHOICES = {choices_json};</script>
+<script>window.INITIAL_PENDING = {pending_json};</script>
 <script>
 const state = document.getElementById('state');
 function esc(value) {{
@@ -332,8 +359,8 @@ function selectOptions(role, choices, selected) {{
   ).join('');
   return '<select data-role="' + role + '">' + options + '</select>';
 }}
-async function showPending() {{
-  const data = await call('/api/pending');
+async function showPending(initial) {{
+  const data = initial || await call('/api/pending');
   if (!data) return;
   if (!data.length) {{
     document.getElementById('questions').innerHTML =
@@ -433,6 +460,9 @@ async function showAll() {{
   document.querySelectorAll('button.stage').forEach(b => b.disabled = false);
   await Promise.all([showStatus(), showPending()]);
 }}
+if (window.INITIAL_PENDING) {{
+  showPending(window.INITIAL_PENDING);
+}}
 </script>
 </body>
 </html>"""
@@ -442,6 +472,7 @@ __all__ = [
     "PAGE_TITLE",
     "STAGE_LABELS",
     "dashboard_html",
+    "load_pending_questions",
     "render_messages",
     "render_pending_table",
     "render_stage_details",
