@@ -52,6 +52,7 @@ from services.accounting_memory_learning_service import (
 )
 from services.tier_reference_service import (
     TIER_REFERENCE_FILENAME,
+    TierReferenceError,
     TierReferenceService,
 )
 from services.apd_evidence_rules import (
@@ -72,6 +73,10 @@ from services.folder_tree_service import (
 from services.ofx_bank_statement_parser import (
     import_ofx_statement,
     parse_ofx_statement,
+)
+from services.payment_instrument_reconciliation_service import (
+    UnmatchedPaymentInstrument,
+    reconcile_payment_instruments,
 )
 from services.pdf_splitter_and_linker import (
     PIECE_LINK_HEADER,
@@ -278,6 +283,7 @@ class ApdFourStagePipeline:
         self._workbook = AcompleterWorkbook(self._tenant_dir)
         self._a_completer_dir = self._tree.state_dir(FolderState.A_COMPLETER)
         self._last_reports: dict[int, StageReport] = {}
+        self._unmatched_instruments: tuple[UnmatchedPaymentInstrument, ...] = ()
         for sibling in UNIFIED_TENANT_PREPARATION:
             try:
                 ensure_tree(sibling, root)
@@ -550,7 +556,10 @@ class ApdFourStagePipeline:
                 ).strip()
                 if target:
                     name = row.nom_fichier[len("TIER__") : -len(".tier")]
-                    self._tier_reference.learn_alias(name, target)
+                    try:
+                        self._tier_reference.learn_alias(name, target)
+                    except TierReferenceError:
+                        continue
                     self._apply_tier_reference()
                     try:
                         self._workbook.align_statut(
@@ -684,7 +693,10 @@ class ApdFourStagePipeline:
                 target = str(decision.tier_alias_target or "").strip()
                 if target:
                     name = decision.filename[len("TIER__") : -len(".tier")]
-                    self._tier_reference.learn_alias(name, target)
+                    try:
+                        self._tier_reference.learn_alias(name, target)
+                    except TierReferenceError:
+                        continue
                     self._apply_tier_reference()
                     try:
                         self._workbook.align_statut(
@@ -971,9 +983,9 @@ class ApdFourStagePipeline:
             return 0
         tiers = self._tier_reference
         rows = self._store.list_master_lines(self._tenant_id)
-        unknown = tiers.unknown_tiers(rows)
+        unknown = tiers.unknown_tier_entries(rows)
         written = 0
-        for name in unknown:
+        for name, _line in unknown:
             safe_name = str(name).replace("/", "_").replace("\\", "_").strip()
             if not safe_name:
                 continue
@@ -1594,7 +1606,7 @@ class ApdFourStagePipeline:
         known = {row.filename for row in rows}
         if not self._enable_tier_workflow:
             return rows
-        for name in self._tier_reference.unknown_tiers(
+        for name, line in self._tier_reference.unknown_tier_entries(
             self._store.list_master_lines(self._tenant_id)
         ):
             safe_name = str(name).replace("/", "_").replace("\\", "_").strip()
@@ -1606,23 +1618,95 @@ class ApdFourStagePipeline:
             digest = hashlib.sha256(
                 f"tier:{name}".encode("utf-8")
             ).hexdigest()
+            document_date = None
+            raw_date = str(line.get("operation_date") or "")[:10]
+            if raw_date:
+                try:
+                    document_date = date.fromisoformat(raw_date)
+                except ValueError:
+                    document_date = None
+            piece_pdf = str(line.get("piece_pdf") or "").strip() or None
+            if piece_pdf is None:
+                invoice_url = str(line.get("invoice_url") or "").strip()
+                if invoice_url:
+                    piece_pdf = invoice_url
+            amount_ttc = _parse_decimal(line.get("amount_ttc"))
+            if amount_ttc is None:
+                amount_ttc = _parse_decimal(
+                    line.get("debit_amount") or line.get("credit_amount")
+                )
             rows.append(
                 ReadableRow(
                     sha256=digest,
                     filename=filename,
                     supplier=str(name),
-                    document_number="",
-                    document_date=None,
-                    amount_ht=None,
-                    amount_tva=None,
-                    amount_ttc=None,
-                    category=DocumentCategory.DIVERS_A_CLASSER,
+                    document_number=str(
+                        line.get("invoice_id")
+                        or line.get("label")
+                        or line.get("line_id")
+                        or ""
+                    ),
+                    document_date=document_date,
+                    amount_ht=_parse_decimal(line.get("amount_ht")),
+                    amount_tva=_parse_decimal(line.get("amount_tva")),
+                    amount_ttc=amount_ttc,
+                    category=str(
+                        line.get("category")
+                        or DocumentCategory.DIVERS_A_CLASSER.value
+                    ),
                     reason=(
-                        "Tiers inconnu du r?f?rentiel verrouill? : aucun onglet "
-                        "ne sera cr?? avant autorisation."
+                        "Tiers inconnu du référentiel verrouillé : aucun onglet "
+                        "ne sera créé avant autorisation."
                     ),
                     action=(
-                        "Choisir un rattachement ALIAS ou cr?er un nouveau tiers."
+                        "Choisir un rattachement ALIAS ou créer un nouveau tiers."
+                    ),
+                    status=DocumentStatus.EN_ATTENTE,
+                    piece_pdf=piece_pdf,
+                    extra={
+                        "payment_source": "BANQUE_PRO",
+                        "counterparty_account": "622600",
+                        "fiscal_year_target": str(self._year),
+                        "deferred_month": "NON",
+                        "report": "NON",
+                        "tier_alias_target": "",
+                    },
+                )
+            )
+        for instrument in self._unmatched_instruments:
+            filename = f"INSTRUMENT__{instrument.line_id}.tier"
+            if filename in known:
+                continue
+            digest = hashlib.sha256(
+                f"instrument:{instrument.line_id}".encode("utf-8")
+            ).hexdigest()
+            document_date = None
+            raw_date = str(instrument.operation_date or "")[:10]
+            if raw_date:
+                try:
+                    document_date = date.fromisoformat(raw_date)
+                except ValueError:
+                    document_date = None
+            rows.append(
+                ReadableRow(
+                    sha256=digest,
+                    filename=filename,
+                    supplier="INSTRUMENT DE PAIEMENT",
+                    document_number=instrument.label,
+                    document_date=document_date,
+                    amount_ht=None,
+                    amount_tva=None,
+                    amount_ttc=instrument.amount,
+                    category=DocumentCategory.DIVERS_A_CLASSER,
+                    reason=(
+                        f"LCR / Chèque de {instrument.amount} € du "
+                        f"{instrument.operation_date} sans facture "
+                        "correspondante : sélectionner le Fournisseur/Client "
+                        "concerné."
+                    ),
+                    action=(
+                        "Choisir le tiers concerné ou déposer la facture "
+                        "manquante."
                     ),
                     status=DocumentStatus.EN_ATTENTE,
                     extra={
@@ -1691,6 +1775,19 @@ class ApdFourStagePipeline:
             )
         except Exception as exc:  # noqa: BLE001 - customer lettering never blocks
             messages.append(f"LETTRAGE_CLIENTS_IGNORE:{exc}")
+        instrument_reconciled = 0
+        try:
+            instrument_report = reconcile_payment_instruments(
+                self._store, self._tenant_id
+            )
+            self._unmatched_instruments = instrument_report.unmatched
+            instrument_reconciled = len(instrument_report.matched)
+            messages.append(
+                f"LCR/Chèques rapprochés : {instrument_reconciled}, "
+                f"sans facture : {len(instrument_report.unmatched)}."
+            )
+        except Exception as exc:  # noqa: BLE001 - instrument lettering never blocks
+            messages.append(f"LETTRAGE_LCR_CHEQUE_IGNORE:{exc}")
         master = self._export_master_tables()
         workbooks = (
             master.banque_tva_path,
@@ -1705,7 +1802,7 @@ class ApdFourStagePipeline:
             name=STAGE_NAMES[2],
             processed=len(statements),
             imported_ofx=imported,
-            reconciled=reconciled + customer_reconciled,
+            reconciled=reconciled + customer_reconciled + instrument_reconciled,
             workbooks=workbooks,
             messages=tuple(messages),
         )

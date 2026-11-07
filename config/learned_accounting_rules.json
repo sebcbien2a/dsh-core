@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-11-07T05:59:44.460673+00:00",
+  "updated_at": "2026-11-07T19:11:49.292972+00:00",
   "groups": {
     "PAINTCAR": {
       "canonical": "PAINTCAR",
@@ -142,7 +142,23 @@
     "HABITAT AUTOMATISME / SAS DIFFAM": "SAS_DIFFAM",
     "YASMIN CONSULTING": "YASMIN CONSULTING",
     "EM'A Les Emaux de l'Atlantique": "EM'A Les Emaux de l'Atlantique",
-    "ROBERT BOSCH - SIA ABRASIVES": "BOSCH_SIA"
+    "ROBERT BOSCH - SIA ABRASIVES": "BOSCH_SIA",
+    "SOLTA": "SOLTA_LR_COLOR",
+    "SOLTA GROUPE": "SOLTA_LR_COLOR",
+    "SOLTA SAS": "SOLTA_LR_COLOR",
+    "LR COLOR": "SOLTA_LR_COLOR",
+    "LR COLOR 3": "SOLTA_LR_COLOR",
+    "LRCOLOR3": "SOLTA_LR_COLOR",
+    "VITACOLOR": "SOLTA_LR_COLOR",
+    "VITAMARINE": "SOLTA_LR_COLOR",
+    "RESIHOM": "SOLTA_LR_COLOR",
+    "COLOR STORE FRANCE": "COLOR_STORE_FRANCE",
+    "COLOR STORE": "COLOR_STORE_FRANCE",
+    "COMPAGNIE EIFFA": "PEAGES_AUTOROUTES",
+    "EIFFAGE": "PEAGES_AUTOROUTES",
+    "LE MARMARA": "LE_MARMARA",
+    "LE RELAI DE TRE": "RESTAURANTS_REPAS",
+    "RELAI DE TRE": "RESTAURANTS_REPAS"
   },
   "suppliers": {
     "LIDL": {
@@ -196,7 +212,10 @@
       ],
       "prefixes": [],
       "payment_method": "",
-      "status": "AUTORISE"
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
     },
     "CARROSSERIE_YUCEL": {
       "canonical": "CARROSSERIE_YUCEL",
@@ -208,11 +227,12 @@
         "SARL CARROSSERIE YUCE",
         "YUCEL"
       ],
-      "prefixes": [
-        "FA16"
-      ],
+      "prefixes": [],
       "payment_method": "VIREMENT",
-      "status": "AUTORISE"
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
     },
     "PAINTCAR": {
       "canonical": "PAINTCAR",
@@ -229,7 +249,10 @@
         "ILA"
       ],
       "payment_method": "LCR",
-      "status": "AUTORISE"
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
     },
     "QREFINISH": {
       "canonical": "QREFINISH",
@@ -243,7 +266,10 @@
       ],
       "prefixes": [],
       "payment_method": "VIREMENT",
-      "status": "AUTORISE"
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
     },
     "BOSCH_SIA": {
       "canonical": "BOSCH_SIA",
@@ -258,7 +284,10 @@
       ],
       "prefixes": [],
       "payment_method": "PRELEVEMENT",
-      "status": "AUTORISE"
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
     },
     "AMAZON": {
       "canonical": "AMAZON",
@@ -275,7 +304,10 @@
       ],
       "prefixes": [],
       "payment_method": "CARTE_BANCAIRE",
-      "status": "AUTORISE"
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
     },
     "ACTION": {
       "canonical": "ACTION",
@@ -288,7 +320,10 @@
       ],
       "prefixes": [],
       "payment_method": "CARTE_BANCAIRE",
-      "status": "AUTORISE"
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
     },
     "LIDL": {
       "canonical": "LIDL",
@@ -301,7 +336,10 @@
       ],
       "prefixes": [],
       "payment_method": "CARTE_BANCAIRE",
-      "status": "AUTORISE"
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
     },
     "PEAGES_AUTOROUTES": {
       "canonical": "PEAGES_AUTOROUTES",
@@ -321,11 +359,16 @@
         "COFIROUTE",
         "ULYS",
         "BIP AND GO",
-        "PEAGE"
+        "PEAGE",
+        "COMPAGNIE EIFFA",
+        "EIFFAGE"
       ],
       "prefixes": [],
       "payment_method": "CARTE_BANCAIRE",
-      "status": "AUTORISE"
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
     },
     "RESTAURANTS_REPAS": {
       "canonical": "RESTAURANTS_REPAS",
@@ -350,11 +393,17 @@
         "DELIVEROO",
         "CAFE",
         "GRILL",
-        "PAILLOTE"
+        "PAILLOTE",
+        "LE MARMARA",
+        "LE RELAI DE TRE",
+        "RELAI DE TRE"
       ],
       "prefixes": [],
       "payment_method": "CARTE_BANCAIRE",
-      "status": "AUTORISE"
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
     },
     "STATIONS_CARBURANT": {
       "canonical": "STATIONS_CARBURANT",
@@ -375,7 +424,10 @@
       ],
       "prefixes": [],
       "payment_method": "CARTE_BANCAIRE",
-      "status": "AUTORISE"
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
     },
     "PARKINGS_TRANSPORTS": {
       "canonical": "PARKINGS_TRANSPORTS",
@@ -397,7 +449,10 @@
       ],
       "prefixes": [],
       "payment_method": "CARTE_BANCAIRE",
-      "status": "AUTORISE"
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
     },
     "BOXTAL": {
       "canonical": "BOXTAL",
@@ -409,7 +464,10 @@
       ],
       "prefixes": [],
       "payment_method": "CARTE_BANCAIRE",
-      "status": "AUTORISE"
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
     },
     "CHRONOPOST": {
       "canonical": "CHRONOPOST",
@@ -421,7 +479,10 @@
       ],
       "prefixes": [],
       "payment_method": "CARTE_BANCAIRE",
-      "status": "AUTORISE"
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
     },
     "TRANSPORTS_CATROUX": {
       "canonical": "TRANSPORTS_CATROUX",
@@ -434,7 +495,10 @@
       ],
       "prefixes": [],
       "payment_method": "VIREMENT",
-      "status": "AUTORISE"
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
     },
     "SAS_DIFFAM": {
       "canonical": "SAS_DIFFAM",
@@ -448,7 +512,10 @@
       ],
       "prefixes": [],
       "payment_method": "CARTE_BANCAIRE",
-      "status": "AUTORISE"
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
     },
     "LE_TEMPS_DES_CERISES": {
       "canonical": "LE_TEMPS_DES_CERISES",
@@ -462,7 +529,10 @@
       ],
       "prefixes": [],
       "payment_method": "CARTE_BANCAIRE",
-      "status": "AUTORISE"
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
     },
     "TRADEINN": {
       "canonical": "TRADEINN",
@@ -477,7 +547,81 @@
       ],
       "prefixes": [],
       "payment_method": "CARTE_BANCAIRE",
-      "status": "AUTORISE"
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
+    },
+    "SOLTA_LR_COLOR": {
+      "canonical": "SOLTA_LR_COLOR",
+      "role": "FOURNISSEUR",
+      "category": "ACHATS_MARCHANDISES",
+      "subcategory": "",
+      "aliases": [
+        "SOLTA",
+        "SOLTA GROUPE",
+        "SOLTA SAS",
+        "LR COLOR",
+        "LR COLOR 3",
+        "LRCOLOR3",
+        "VITACOLOR",
+        "VITAMARINE",
+        "RESIHOM"
+      ],
+      "prefixes": [],
+      "payment_method": "VIREMENT",
+      "status": "AUTORISE",
+      "siren": "327274155",
+      "siret": "32727415500057",
+      "iban": [
+        "FR7610096182390008817130172"
+      ]
+    },
+    "COLOR_STORE_FRANCE": {
+      "canonical": "COLOR_STORE_FRANCE",
+      "role": "FOURNISSEUR",
+      "category": "ACHATS_MARCHANDISES",
+      "subcategory": "",
+      "aliases": [
+        "COLOR STORE FRANCE",
+        "COLOR STORE"
+      ],
+      "prefixes": [],
+      "payment_method": "VIREMENT",
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
+    },
+    "CHOLLET": {
+      "canonical": "CHOLLET",
+      "role": "CLIENT",
+      "category": "VENTES_CLIENTS",
+      "subcategory": "",
+      "aliases": [
+        "CHOLLET"
+      ],
+      "prefixes": [],
+      "payment_method": "VIREMENT",
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
+    },
+    "LE_MARMARA": {
+      "canonical": "LE_MARMARA",
+      "role": "FOURNISSEUR",
+      "category": "FRAIS_GENERAUX",
+      "subcategory": "RESTAURATION",
+      "aliases": [
+        "LE MARMARA"
+      ],
+      "prefixes": [],
+      "payment_method": "",
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
     }
   },
   "decisions": [

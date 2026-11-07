@@ -451,6 +451,9 @@ def test_failed_save_keeps_original_and_cleans_temp(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "services.acompleter_workbook_service.os.replace", boom
     )
+    monkeypatch.setattr(
+        "services.acompleter_workbook_service.shutil.copy2", boom
+    )
     assert (
         err(service.upsert, SHA_B, "b.pdf", [], DocumentCategory.DIVERS_A_CLASSER).code
         == "WRITE_FAILED"

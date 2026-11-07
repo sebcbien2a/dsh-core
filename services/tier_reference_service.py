@@ -1,10 +1,11 @@
-"""P25 - Locked tier reference with aliases and explicit authorization.
+"""P27 - Locked tier reference with aliases, SIREN/SIRET and IBAN matching.
 
 The workbook ``REFERENTIEL_TIERS_APD.xlsx`` is the human master list of
 clients, suppliers, service providers and internal entities. It is mirrored in
 SQLite (``tier_reference``) and in the portable
 ``config/learned_accounting_rules.json``. The pipeline reads it first at every
-stage so an alias or role edited by the director is applied immediately.
+stage so an alias, SIREN/SIRET, IBAN or role edited by the director is applied
+immediately.
 """
 
 from __future__ import annotations
@@ -40,6 +41,18 @@ ROOT_TIER_REFERENCE_PATH = (
 ROLES = ("CLIENT", "FOURNISSEUR", "PRESTATAIRE", "INTERNE_EXCLUS")
 STATUSES = ("AUTORISE", "A_AUTORISER")
 COLUMNS: tuple[str, ...] = (
+    "Nom Officiel Canonique",
+    "ALIAS à regrouper (séparés par ;)",
+    "Renommer en (Optionnel)",
+    "SIREN / SIRET",
+    "IBAN / RIB (séparés par ;)",
+    "Rôle",
+    "Catégorie par Défaut",
+    "Sous-Catégorie",
+    "Mode Règlement",
+    "Statut",
+)
+P26_COLUMNS: tuple[str, ...] = (
     "Nom Officiel Canonique",
     "ALIAS à regrouper (séparés par ;)",
     "Renommer en (Optionnel)",
@@ -80,6 +93,86 @@ def _split(value: Any) -> tuple[str, ...]:
     )
 
 
+def _digits(value: Any) -> str:
+    return re.sub(r"\D", "", str(value or ""))
+
+
+def _iban(value: Any) -> str:
+    return re.sub(r"\s+", "", str(value or "")).upper()
+
+
+def _parse_siren_siret(value: Any) -> tuple[str, str]:
+    """Split a ``SIREN / SIRET`` cell into its 9- and 14-digit identifiers."""
+    siren = ""
+    siret = ""
+    for part in re.split(r"[;,/|]+", str(value or "")):
+        digits = _digits(part)
+        if len(digits) == 14 and not siret:
+            siret = digits
+            siren = siren or digits[:9]
+        elif len(digits) == 9 and not siren:
+            siren = digits
+    if not siren and not siret:
+        digits = _digits(value)
+        if len(digits) >= 14:
+            return digits[:9], digits[:14]
+        if len(digits) >= 9:
+            return digits[:9], ""
+    return siren, siret
+
+
+INVALID_TIER_NOISE: frozenset[str] = frozenset(
+    {
+        "COMMANDE",
+        "CLIENT",
+        "CLIENTS",
+        "CLIENTS CHEQUES",
+        "CLIENTS LCR",
+        "FACTURE",
+        "DEVIS",
+        "AVOIR",
+        "TOTAL",
+        "CHEQUE",
+        "LCR",
+        "VIREMENT",
+        "BANQUE",
+        "CAISSE D'EPARGNE",
+        "CAISSE DEPARGNE",
+    }
+)
+PAYMENT_INSTRUMENT_PREFIXES: tuple[str, ...] = (
+    "LCR ",
+    "RLV ",
+    "CHEQUE ",
+    "CHQ ",
+    "REMISE ",
+)
+CLIENT_INVOICE_PATTERN = re.compile(r"^FA\s*1\d{4,}", re.IGNORECASE)
+
+
+def is_payment_instrument_label(value: Any) -> bool:
+    """Return ``True`` for ``LCR ...`` / ``CHEQUE ...`` bank instruments."""
+    text = str(value or "").strip().upper()
+    return any(text.startswith(prefix) for prefix in PAYMENT_INSTRUMENT_PREFIXES)
+
+
+def is_client_invoice_reference(value: Any) -> bool:
+    """Return ``True`` for the APD customer numbering ``FA1xxxxx``."""
+    return bool(CLIENT_INVOICE_PATTERN.match(str(value or "").strip()))
+
+
+def is_invalid_tier_noise(value: Any) -> bool:
+    """Return ``True`` for generic OCR words that are never a real tier."""
+    text = re.sub(r"\s+", " ", str(value or "")).strip().upper()
+    if not text:
+        return True
+    if text in INVALID_TIER_NOISE:
+        return True
+    if is_payment_instrument_label(text):
+        return True
+    return False
+
+
 @dataclass(frozen=True)
 class TierRecord:
     canonical: str
@@ -91,6 +184,9 @@ class TierRecord:
     payment_method: str = ""
     status: str = "AUTORISE"
     rename_to: str = ""
+    siren: str = ""
+    siret: str = ""
+    iban: tuple[str, ...] = ()
 
     @property
     def alias_text(self) -> str:
@@ -99,6 +195,10 @@ class TierRecord:
     @property
     def prefix_text(self) -> str:
         return "; ".join(self.prefixes)
+
+    @property
+    def iban_text(self) -> str:
+        return "; ".join(self.iban)
 
     @property
     def authorized(self) -> bool:
@@ -110,6 +210,14 @@ class TierRecord:
             return False
         candidates = [_fold(self.canonical), *( _fold(alias) for alias in self.aliases)]
         if any(candidate and (candidate == text or candidate in text) for candidate in candidates):
+            return True
+        digits = _digits(value)
+        if self.siren and len(self.siren) >= 9 and self.siren in digits:
+            return True
+        if self.siret and len(self.siret) >= 14 and self.siret in digits:
+            return True
+        iban_text = _iban(value)
+        if any(iban and iban in iban_text for iban in self.iban):
             return True
         return any(
             re.search(rf"(?<![A-Z0-9]){re.escape(prefix)}[A-Z0-9]*", str(value), re.IGNORECASE)
@@ -137,7 +245,40 @@ SEED_TIERS: tuple[TierRecord, ...] = (
         "CLIENT",
         "VENTES_CLIENTS",
         aliases=("CARROSSERIE YUCELL", "SARL CARROSSERIE YUCE", "YUCEL"),
-        prefixes=("FA16",),
+        payment_method="VIREMENT",
+    ),
+    TierRecord(
+        "SOLTA_LR_COLOR",
+        "FOURNISSEUR",
+        "ACHATS_MARCHANDISES",
+        aliases=(
+            "SOLTA",
+            "SOLTA GROUPE",
+            "SOLTA SAS",
+            "LR COLOR",
+            "LR COLOR 3",
+            "LRCOLOR3",
+            "VITACOLOR",
+            "VITAMARINE",
+            "RESIHOM",
+        ),
+        payment_method="VIREMENT",
+        siren="327274155",
+        siret="32727415500057",
+        iban=("FR7610096182390008817130172",),
+    ),
+    TierRecord(
+        "COLOR_STORE_FRANCE",
+        "FOURNISSEUR",
+        "ACHATS_MARCHANDISES",
+        aliases=("COLOR STORE FRANCE", "COLOR STORE"),
+        payment_method="VIREMENT",
+    ),
+    TierRecord(
+        "CHOLLET",
+        "CLIENT",
+        "VENTES_CLIENTS",
+        aliases=("CHOLLET",),
         payment_method="VIREMENT",
     ),
     TierRecord(
@@ -188,7 +329,7 @@ SEED_TIERS: tuple[TierRecord, ...] = (
         "FOURNISSEUR",
         "FRAIS_GENERAUX",
         "TRANSPORT_PARKING",
-        aliases=("VINCI", "AUTOROUTE", "EPR", "ASF", "ESCOTA", "APRR", "AREA", "SANEF", "SAPN", "COFIROUTE", "ULYS", "BIP AND GO", "PEAGE"),
+        aliases=("VINCI", "AUTOROUTE", "EPR", "ASF", "ESCOTA", "APRR", "AREA", "SANEF", "SAPN", "COFIROUTE", "ULYS", "BIP AND GO", "PEAGE", "COMPAGNIE EIFFA", "EIFFAGE"),
         payment_method="CARTE_BANCAIRE",
     ),
     TierRecord(
@@ -196,7 +337,7 @@ SEED_TIERS: tuple[TierRecord, ...] = (
         "FOURNISSEUR",
         "FRAIS_GENERAUX",
         "RESTAURATION",
-        aliases=("RESTAURANT", "RESTO", "BRASSERIE", "BISTROT", "PIZZERIA", "AUBERGE", "TRAITEUR", "BOULANGERIE", "MC DONALD", "MCDONALDS", "BURGER KING", "KFC", "SUSHI", "UBER EATS", "DELIVEROO", "CAFE", "GRILL", "PAILLOTE"),
+        aliases=("RESTAURANT", "RESTO", "BRASSERIE", "BISTROT", "PIZZERIA", "AUBERGE", "TRAITEUR", "BOULANGERIE", "MC DONALD", "MCDONALDS", "BURGER KING", "KFC", "SUSHI", "UBER EATS", "DELIVEROO", "CAFE", "GRILL", "PAILLOTE", "LE MARMARA", "LE RELAI DE TRE", "RELAI DE TRE"),
         payment_method="CARTE_BANCAIRE",
     ),
     TierRecord(
@@ -335,7 +476,7 @@ class TierReferenceService:
                 workbook.close()
         except Exception:  # noqa: BLE001
             return False
-        return len(headers) > 1 and "ALIAS" not in headers[1].upper()
+        return not (len(headers) > 3 and "SIREN" in headers[3].upper())
 
     def records(self) -> tuple[TierRecord, ...]:
         if not self._loaded:
@@ -609,10 +750,15 @@ class TierReferenceService:
             sorted(self.records(), key=lambda item: item.canonical.casefold()),
             start=2,
         ):
+            siren_siret = "; ".join(
+                value for value in (record.siren, record.siret) if value
+            )
             values = (
                 record.canonical,
                 record.alias_text,
                 record.rename_to,
+                siren_siret,
+                record.iban_text,
                 record.role,
                 record.category,
                 record.subcategory,
@@ -623,10 +769,10 @@ class TierReferenceService:
                 sheet.cell(row=row_index, column=column, value=value)
         last_row = max(sheet.max_row, 2)
         validations = {
-            "D": '"' + ",".join(ROLES) + '"',
-            "E": excel_list(CATEGORY_CHOICES),
-            "F": excel_list(SUBCATEGORY_CHOICES),
-            "H": '"' + ",".join(STATUSES) + '"',
+            "F": '"' + ",".join(ROLES) + '"',
+            "G": excel_list(CATEGORY_CHOICES),
+            "H": excel_list(SUBCATEGORY_CHOICES),
+            "J": '"' + ",".join(STATUSES) + '"',
         }
         for column, formula in validations.items():
             validation = DataValidation(
@@ -635,10 +781,10 @@ class TierReferenceService:
             sheet.add_data_validation(validation)
             validation.add(f"{column}2:{column}{last_row}")
         sheet.freeze_panes = "A2"
-        widths = (30, 62, 24, 20, 22, 26, 18, 18)
+        widths = (30, 62, 24, 22, 40, 20, 22, 26, 18, 18)
         for column, width in enumerate(widths, start=1):
             sheet.column_dimensions[get_column_letter(column)].width = width
-        temporary = path.with_name(path.name + ".tmp-p26")
+        temporary = path.with_name(path.name + ".tmp-p27")
         try:
             workbook.save(temporary)
             try:
@@ -666,14 +812,35 @@ class TierReferenceService:
             headers = [
                 str(cell.value or "").strip() for cell in sheet[1]
             ]
-            new_format = len(headers) > 1 and "ALIAS" in headers[1].upper()
+            p27_format = len(headers) > 3 and "SIREN" in headers[3].upper()
+            p26_format = (
+                not p27_format
+                and len(headers) > 1
+                and "ALIAS" in headers[1].upper()
+            )
             for row in sheet.iter_rows(min_row=2, values_only=True):
                 if not row or not row[0]:
                     continue
                 canonical = str(row[0]).strip()
                 if not canonical:
                     continue
-                if new_format:
+                siren = ""
+                siret = ""
+                iban: tuple[str, ...] = ()
+                if p27_format:
+                    aliases = _split(row[1])
+                    rename_to = str(row[2] or "").strip()
+                    siren, siret = _parse_siren_siret(row[3])
+                    iban = tuple(
+                        _iban(item) for item in _split(row[4]) if _iban(item)
+                    )
+                    role = str(row[5] or "").strip().upper()
+                    category = str(row[6] or "").strip()
+                    subcategory = str(row[7] or "").strip()
+                    payment_method = str(row[8] or "").strip()
+                    status = str(row[9] or "AUTORISE").strip().upper()
+                    prefixes: tuple[str, ...] = ()
+                elif p26_format:
                     aliases = _split(row[1])
                     rename_to = str(row[2] or "").strip()
                     role = str(row[3] or "").strip().upper()
@@ -681,7 +848,7 @@ class TierReferenceService:
                     subcategory = str(row[5] or "").strip()
                     payment_method = str(row[6] or "").strip()
                     status = str(row[7] or "AUTORISE").strip().upper()
-                    prefixes: tuple[str, ...] = ()
+                    prefixes = ()
                 else:
                     role = str(row[1] or "").strip().upper()
                     category = str(row[2] or "").strip()
@@ -706,6 +873,9 @@ class TierReferenceService:
                         payment_method,
                         status if status in STATUSES else "A_AUTORISER",
                         rename_to,
+                        siren,
+                        siret,
+                        iban,
                     )
                 )
         finally:
@@ -732,6 +902,14 @@ class TierReferenceService:
                     _split(row.get("prefixes")),
                     str(row.get("payment_method") or ""),
                     str(row.get("status") or "AUTORISE"),
+                    "",
+                    str(row.get("siren") or ""),
+                    str(row.get("siret") or ""),
+                    tuple(
+                        _iban(item)
+                        for item in _split(row.get("iban"))
+                        if _iban(item)
+                    ),
                 )
             )
         return tuple(records)
@@ -756,6 +934,10 @@ class TierReferenceService:
                     tuple(row.get("prefixes") or ()),
                     str(row.get("payment_method") or ""),
                     str(row.get("status") or "AUTORISE"),
+                    "",
+                    str(row.get("siren") or ""),
+                    str(row.get("siret") or ""),
+                    tuple(row.get("iban") or ()),
                 )
             )
         return tuple(records)
@@ -777,6 +959,9 @@ class TierReferenceService:
                                 "prefixes": record.prefix_text,
                                 "payment_method": record.payment_method,
                                 "status": record.status,
+                                "siren": record.siren,
+                                "siret": record.siret,
+                                "iban": record.iban_text,
                             },
                         )
                     except Exception:  # noqa: BLE001
@@ -790,23 +975,38 @@ class TierReferenceService:
                     except Exception:  # noqa: BLE001
                         continue
 
-    def unknown_tiers(
+    def unknown_tier_entries(
         self, rows: Iterable[Mapping[str, Any]]
-    ) -> tuple[str, ...]:
-        unknown: dict[str, None] = {}
+    ) -> tuple[tuple[str, Mapping[str, Any]], ...]:
+        """Return ``(name, line)`` pairs for real unknown tiers only.
+
+        Generic OCR words (``CLIENT``, ``FACTURE``, ...) and bank instruments
+        (``LCR ...``, ``CHEQUE ...``) are never tiers: they are filtered out
+        before the director is asked anything.
+        """
+        unknown: dict[str, Mapping[str, Any]] = {}
         for row in rows:
             name = str(
                 row.get("counterparty") or row.get("supplier") or ""
             ).strip()
             if not name:
                 label = str(row.get("label") or "").strip()
+                if is_invalid_tier_noise(label):
+                    continue
                 record = self.resolve(label)
                 if record is None and label:
-                    unknown.setdefault(label, None)
+                    unknown.setdefault(label, row)
+                continue
+            if is_invalid_tier_noise(name):
                 continue
             if self.resolve(name) is None:
-                unknown.setdefault(name, None)
-        return tuple(unknown)
+                unknown.setdefault(name, row)
+        return tuple(unknown.items())
+
+    def unknown_tiers(
+        self, rows: Iterable[Mapping[str, Any]]
+    ) -> tuple[str, ...]:
+        return tuple(name for name, _row in self.unknown_tier_entries(rows))
 
 
 __all__ = [
@@ -815,9 +1015,13 @@ __all__ = [
     "ALIAS_TARGET_FUEL",
     "ALIAS_TARGET_RESTAURANTS",
     "ALIAS_TARGET_TOLLS",
+    "CLIENT_INVOICE_PATTERN",
     "COLUMNS",
     "DEFAULT_TIER_REFERENCE_PATH",
+    "INVALID_TIER_NOISE",
     "LEGACY_COLUMNS",
+    "P26_COLUMNS",
+    "PAYMENT_INSTRUMENT_PREFIXES",
     "ROLES",
     "ROOT_TIER_REFERENCE_PATH",
     "STATUSES",
@@ -827,4 +1031,7 @@ __all__ = [
     "TierRecord",
     "TierReferenceError",
     "TierReferenceService",
+    "is_client_invoice_reference",
+    "is_invalid_tier_noise",
+    "is_payment_instrument_label",
 ]

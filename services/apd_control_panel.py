@@ -56,7 +56,7 @@ PENDING_FIELDS: tuple[tuple[str, str], ...] = (
     ("raison", "Pourquoi en attente"),
     ("action", "Action attendue"),
 )
-PAGE_TITLE = "APD - Cockpit comptable P25"
+PAGE_TITLE = "APD - Cockpit comptable P27"
 
 
 def _cell(value: Any) -> str:
@@ -241,8 +241,11 @@ def dashboard_html(
     """Return the complete French HTML dashboard (stages 1-4 as buttons)."""
     if pending_questions is None:
         pending_questions = load_pending_questions()
-    pending_json = json.dumps(
-        list(pending_questions), ensure_ascii=False, default=str
+    pending_json = (
+        json.dumps(list(pending_questions), ensure_ascii=True, default=str)
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
     )
     payload = as_dict()
     try:
@@ -261,7 +264,12 @@ def dashboard_html(
             "PEAGES_AUTOROUTES",
             "STATIONS_CARBURANT",
         ]
-    choices_json = json.dumps(payload, ensure_ascii=False)
+    choices_json = (
+        json.dumps(payload, ensure_ascii=True)
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+    )
     buttons = "\n".join(
         f'<button type="button" class="stage" data-stage="{number}" '
         f'title="{escape(hint)}">{escape(label)}</button>'
@@ -306,6 +314,7 @@ p.empty{{margin:0;color:var(--muted);font-style:italic}}
 <button type="button" class="secondary" id="status">Statut général</button>
 <button type="button" class="secondary" id="pending">Questions en attente</button>
 <button type="button" class="secondary" id="all">Tout exécuter</button>
+<button type="button" class="secondary" id="apply-excel">Appliquer mes modifications Excel (_A_COMPLETER &amp; REFERENTIEL_TIERS)</button>
 </div>
 <p id="state">Prêt.</p>
 </section>
@@ -334,11 +343,15 @@ function kvRows(object, labels) {{
 const STATUS_LABELS = {{tenant:'Dossier',year:'Exercice',pending_questions:'Questions en attente',pending:'Pièces en attente',validated:'Pièces validées',rejected:'Pièces rejetées',store_pending:'Écritures en attente',tenant_dir:'Répertoire de travail',export_dir:'Répertoire des classeurs',readable_workbook:'Classeur lisible'}};
 const STAGE_LABELS = {{stage:'Étape',name:'Nom',status:'Statut',processed:'Pièces traitées',validated:'Pièces validées',pending:'Questions en attente',moved:'Fichiers déplacés',imported_ofx:'Lignes OFX importées',reconciled:'Rapprochements'}};
 async function call(url) {{
-  state.textContent = 'Traitement en cours…';
+  state.textContent = 'Exécution en cours...';
   try {{
     const response = await fetch(url, {{method: 'POST'}});
     const payload = await response.json();
-    state.textContent = response.ok ? 'Terminé.' : 'Erreur.';
+    if (!response.ok) {{
+      state.textContent = 'Erreur : ' + (payload.message || payload.error || response.status);
+      return null;
+    }}
+    state.textContent = 'Terminé.';
     return payload;
   }} catch (error) {{
     state.textContent = 'Erreur réseau : ' + error;
@@ -448,20 +461,41 @@ async function runAll() {{
     table(['Étape','Nom','Statut','Pièces traitées','Validées','En attente','Rapprochements'],
       reports.map(r => [r.stage, r.name, r.status, r.processed, r.validated, r.pending, r.reconciled]));
 }}
+async function applyExcel() {{
+  state.textContent = 'Exécution en cours... Application de vos modifications Excel.';
+  try {{
+    const response = await fetch('/api/apply-excel', {{method: 'POST'}});
+    const payload = await response.json();
+    if (!response.ok) {{
+      state.textContent = 'Erreur : ' + (payload.message || payload.error || 'inconnue');
+      return;
+    }}
+    const merged = (payload.aliases_merged || []).join(', ') || 'aucun';
+    state.textContent =
+      'Modifications appliquées. Alias fusionnés : ' + merged +
+      ' ; décisions : ' + (payload.decisions_applied || 0) + '.';
+    await showPending();
+  }} catch (error) {{
+    state.textContent = 'Erreur réseau : ' + error;
+  }}
+}}
 document.querySelectorAll('button.stage').forEach(button => {{
   button.addEventListener('click', () => runStage(Number(button.dataset.stage)));
 }});
-document.getElementById('status').addEventListener('click', showStatus);
-document.getElementById('pending').addEventListener('click', showPending);
-document.getElementById('all').addEventListener('click', showAll);
+document.getElementById('status').addEventListener('click', () => showStatus());
+document.getElementById('pending').addEventListener('click', () => showPending());
+document.getElementById('all').addEventListener('click', () => showAll());
+document.getElementById('apply-excel').addEventListener('click', () => applyExcel());
 async function showAll() {{
   document.querySelectorAll('button.stage').forEach(b => b.disabled = true);
   await call('/api/run-all');
   document.querySelectorAll('button.stage').forEach(b => b.disabled = false);
   await Promise.all([showStatus(), showPending()]);
 }}
-if (window.INITIAL_PENDING) {{
+if (window.INITIAL_PENDING && window.INITIAL_PENDING.length) {{
   showPending(window.INITIAL_PENDING);
+}} else {{
+  showPending();
 }}
 </script>
 </body>

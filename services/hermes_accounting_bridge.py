@@ -163,6 +163,36 @@ class HermesAccountingBridge:
         )
         self._workbook = AcompleterWorkbook(self._tenant_dir)
         self._year = int(year)
+        self._onedrive = None
+        try:
+            from services.onedrive_accounting_bridge_service import (
+                OneDriveAccountingBridge,
+            )
+
+            self._onedrive = OneDriveAccountingBridge(
+                self._tenant_id,
+                root=self._tree.root,
+                export_dir=self._export_dir,
+            )
+        except Exception:  # noqa: BLE001 - OneDrive is optional
+            self._onedrive = None
+
+    def _pull_onedrive(self) -> None:
+        if self._onedrive is None:
+            return
+        try:
+            self._onedrive.pull_director_files()
+        except Exception:  # noqa: BLE001 - OneDrive is best effort
+            return
+
+    def _push_onedrive(self) -> None:
+        if self._onedrive is None:
+            return
+        try:
+            self._onedrive.push_director_files()
+            self._onedrive.push_expert_workbooks()
+        except Exception:  # noqa: BLE001 - OneDrive is best effort
+            return
 
     @property
     def tenant_id(self) -> str:
@@ -454,11 +484,61 @@ class HermesAccountingBridge:
         }
 
     def run_stage(self, stage: int) -> dict[str, Any]:
+        self._pull_onedrive()
         report = self._pipeline.run_stage(stage)
+        self._push_onedrive()
         return report.as_dict()
 
     def run_all(self) -> list[dict[str, Any]]:
-        return [report.as_dict() for report in self._pipeline.run_all()]
+        self._pull_onedrive()
+        reports = [report.as_dict() for report in self._pipeline.run_all()]
+        self._push_onedrive()
+        return reports
+
+    def apply_excel_changes(self) -> dict[str, Any]:
+        """Re-read the director's Excel edits and apply them immediately.
+
+        Reads ``_A_COMPLETER.xlsx`` and ``REFERENTIEL_TIERS_APD.xlsx`` from
+        disk, merges aliases, applies human decisions, then refreshes the
+        readable workbook and the accounting exports.
+        """
+        self._pull_onedrive()
+        tiers = self._pipeline._tier_reference
+        tiers.bootstrap()
+        merged = tiers.apply_alias_merges()
+        applied = self._pipeline.apply_human_decisions()
+        self._pipeline._apply_tier_reference()
+        self._pipeline._write_readable_views()
+        refreshed: list[str] = []
+        try:
+            from services.accounting_spreadsheet_export_service import (
+                ClientLedgerExporter,
+                SupplierLedgerExporter,
+            )
+
+            client = ClientLedgerExporter(
+                self._store,
+                export_dir=self._export_dir,
+                strict_tiers=True,
+                include_matched_pieces=True,
+            ).export(self._tenant_id)
+            supplier = SupplierLedgerExporter(
+                self._store,
+                export_dir=self._export_dir,
+                strict_tiers=True,
+                include_matched_pieces=True,
+            ).export_supplier_ledger(self._tenant_id)
+            refreshed = [str(client), str(supplier)]
+        except Exception:  # noqa: BLE001 - refresh is best effort
+            refreshed = []
+        self._push_onedrive()
+        return {
+            "aliases_merged": list(merged),
+            "decisions_applied": applied,
+            "workbooks_refreshed": refreshed,
+            "tier_reference": str(tiers.path),
+            "readable_workbook": str(self._pipeline.readable_path),
+        }
 
     # -- internals -------------------------------------------------------
 

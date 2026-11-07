@@ -316,6 +316,9 @@ class AccountingMemoryLearningService:
             "prefixes": list(getattr(record, "prefixes", ()) or ()),
             "payment_method": str(getattr(record, "payment_method", "") or ""),
             "status": str(getattr(record, "status", "AUTORISE") or "AUTORISE"),
+            "siren": str(getattr(record, "siren", "") or ""),
+            "siret": str(getattr(record, "siret", "") or ""),
+            "iban": list(getattr(record, "iban", ()) or ()),
         }
         for alias in aliases:
             if alias:

@@ -43,7 +43,7 @@ def _default_open_date(invoice: str) -> str:
 
 
 def normalize_missing_dates(store: Any, tenant_id: str) -> int:
-    """Fill missing invoice dates and FA16 opening dates without touching paid ones."""
+    """Fill missing invoice dates and FA1* opening dates without touching paid ones."""
     fixed = 0
     for row in store.list_master_lines(tenant_id):
         category = str(row.get("category") or "")

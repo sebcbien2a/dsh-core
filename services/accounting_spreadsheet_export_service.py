@@ -52,7 +52,10 @@ from services.accounting_memory_learning_service import (
     AccountingMemoryLearningService,
     normalize_counterparty_name,
 )
-from services.tier_reference_service import TierReferenceService
+from services.tier_reference_service import (
+    TierReferenceService,
+    is_client_invoice_reference,
+)
 from services.pdf_splitter_and_linker import (
     PIECE_LINK_HEADER,
     PURCHASES_SUBDIR,
@@ -2202,7 +2205,7 @@ def _client_synthetic_payments(
 
     A synthetic payment is only kept for a global remittance that has no
     individual bank/virement line already booked. Any reference, date/amount
-    pair or amount already lettered on a ``FA16*`` invoice suppresses the
+    pair or amount already lettered on a ``FA1*`` invoice suppresses the
     duplicate ``Règlement lettré (registre)`` line.
     """
     existing_references = {
@@ -2214,8 +2217,8 @@ def _client_synthetic_payments(
         (str(entry.operation_date or ""), entry.credit) for entry in existing
     }
     existing_amounts = {entry.credit for entry in existing}
-    lettered_fa16_amounts: set[Decimal] = set()
-    lettered_fa16_references: set[str] = set()
+    lettered_client_amounts: set[Decimal] = set()
+    lettered_client_references: set[str] = set()
     for entry in existing:
         pieces = [
             piece.strip()
@@ -2223,9 +2226,9 @@ def _client_synthetic_payments(
             if piece.strip()
         ]
         for piece in pieces:
-            if piece.upper().startswith("FA16"):
-                lettered_fa16_amounts.add(entry.credit)
-                lettered_fa16_references.add(piece.upper())
+            if is_client_invoice_reference(piece):
+                lettered_client_amounts.add(entry.credit)
+                lettered_client_references.add(piece.upper())
     synthetic: list[ClientLedgerEntry] = []
     for row in invoices:
         status = str(row.get("reconciliation_status") or "").upper()
@@ -2253,11 +2256,13 @@ def _client_synthetic_payments(
             continue
         if (date_value, amount) in existing_pairs:
             continue
-        if amount in existing_amounts and invoice_reference.startswith("FA16"):
+        if amount in existing_amounts and is_client_invoice_reference(
+            invoice_reference
+        ):
             continue
-        if amount in lettered_fa16_amounts:
+        if amount in lettered_client_amounts:
             continue
-        if invoice_reference and invoice_reference in lettered_fa16_references:
+        if invoice_reference and invoice_reference in lettered_client_references:
             continue
         existing_references.add(normalized_reference)
         existing_pairs.add((date_value, amount))

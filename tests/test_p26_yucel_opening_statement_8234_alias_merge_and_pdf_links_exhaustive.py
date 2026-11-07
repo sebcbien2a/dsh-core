@@ -331,9 +331,9 @@ def test_alias_table_merges_sqlite_memory_and_duplicate_sheet(tmp_path):
     sheet.cell(row, 1, "CARROSSERIE_YUCELL_OLD")
     sheet.cell(row, 2, "ANCIENNE CARROSSERIE")
     sheet.cell(row, 3, "CARROSSERIE_YUCEL")
-    sheet.cell(row, 4, "CLIENT")
-    sheet.cell(row, 5, "VENTES_CLIENTS")
-    sheet.cell(row, 8, "AUTORISE")
+    sheet.cell(row, 6, "CLIENT")
+    sheet.cell(row, 7, "VENTES_CLIENTS")
+    sheet.cell(row, 10, "AUTORISE")
     workbook.save(path)
     workbook.close()
     add_invoice(

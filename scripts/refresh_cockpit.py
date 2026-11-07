@@ -57,6 +57,9 @@ from services.inbox_ingestion_service import (  # noqa: E402
     sync_workbooks_to_onedrive,
 )
 from services.obsidian_vault_service import VaultWriter  # noqa: E402
+from services.onedrive_accounting_bridge_service import (  # noqa: E402
+    OneDriveAccountingBridge,
+)
 from services.sqlite_accounting_store import (  # noqa: E402
     DEFAULT_DB_PATH,
     SqliteAccountingStore,
@@ -108,6 +111,10 @@ class CockpitRefreshReport:
     vat_deductible: Decimal | None = None
     vat_net: Decimal | None = None
     vat_net_b: Decimal | None = None
+    onedrive_shared_dir: Path | None = None
+    onedrive_pulled: tuple[Path, ...] = ()
+    onedrive_pushed_director: tuple[Path, ...] = ()
+    onedrive_pushed_expert: tuple[Path, ...] = ()
 
 
 def _unique_destination(directory: Path, name: str) -> Path:
@@ -278,6 +285,12 @@ def refresh_cockpit(
         report = InboxIngestionService(tenant, store, root).process_inbox()
         ingested = report.scanned
 
+    onedrive = OneDriveAccountingBridge(
+        tenant,
+        root=root,
+        export_dir=base_export / tenant,
+    )
+    onedrive_pulled = onedrive.pull_director_files()
     pipeline = ApdFourStagePipeline(
         tenant,
         store=store,
@@ -286,6 +299,8 @@ def refresh_cockpit(
         year=year,
     )
     stage_reports = pipeline.run_all()
+    onedrive_pushed_director = onedrive.push_director_files()
+    onedrive_pushed_expert = onedrive.push_expert_workbooks()
     workbooks = tuple(
         dict.fromkeys(
             path for stage_report in stage_reports for path in stage_report.workbooks
@@ -372,6 +387,10 @@ def refresh_cockpit(
         vat_deductible=vat_deductible,
         vat_net=vat_net,
         vat_net_b=vat_net_b,
+        onedrive_shared_dir=onedrive.shared_dir,
+        onedrive_pulled=onedrive_pulled,
+        onedrive_pushed_director=onedrive_pushed_director,
+        onedrive_pushed_expert=onedrive_pushed_expert,
     )
 
 
@@ -451,6 +470,17 @@ def main(argv: list[str] | None = None) -> int:
         )
         for name in report.pending_pieces:
             print(f"  - {name}")
+    if report.onedrive_shared_dir is not None:
+        print(f"OneDrive partagé : {report.onedrive_shared_dir}")
+        print(f"  - importés depuis OneDrive : {len(report.onedrive_pulled)}")
+        print(
+            f"  - publiés pilotage : {len(report.onedrive_pushed_director)}"
+        )
+        print(
+            f"  - publiés expert-comptable : {len(report.onedrive_pushed_expert)}"
+        )
+    else:
+        print("OneDrive non détecté : pont partagé ignoré.")
     return 0
 
 

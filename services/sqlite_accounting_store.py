@@ -427,6 +427,9 @@ CREATE TABLE IF NOT EXISTS tier_reference (
     prefixes TEXT NOT NULL DEFAULT '',
     payment_method TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'AUTORISE',
+    siren TEXT NOT NULL DEFAULT '',
+    siret TEXT NOT NULL DEFAULT '',
+    iban TEXT NOT NULL DEFAULT '',
     updated_at TEXT NOT NULL,
     PRIMARY KEY (tenant_id, canonical)
 );
@@ -477,6 +480,16 @@ class SqliteAccountingStore:
                 "ALTER TABLE counterparty_payment_rules"
                 " ADD COLUMN fallback_methods TEXT NOT NULL DEFAULT ''"
             )
+        tier_columns = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(tier_reference)")
+        }
+        for name in ("siren", "siret", "iban"):
+            if name not in tier_columns:
+                conn.execute(
+                    f"ALTER TABLE tier_reference ADD COLUMN {name}"
+                    " TEXT NOT NULL DEFAULT ''"
+                )
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_reconciliation_lines_category"
             " ON reconciliation_lines (tenant_id, category)"
@@ -855,19 +868,25 @@ class SqliteAccountingStore:
             str(fields.get("prefixes") or ""),
             str(fields.get("payment_method") or ""),
             str(fields.get("status") or "AUTORISE"),
+            str(fields.get("siren") or ""),
+            str(fields.get("siret") or ""),
+            str(fields.get("iban") or ""),
             _now(),
         )
         with closing(self._connect()) as conn, conn:
             conn.execute(
                 "INSERT INTO tier_reference"
                 " (tenant_id, canonical, role, category, subcategory, aliases,"
-                " prefixes, payment_method, status, updated_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                " prefixes, payment_method, status, siren, siret, iban,"
+                " updated_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
                 " ON CONFLICT(tenant_id, canonical) DO UPDATE SET"
                 " role=excluded.role, category=excluded.category,"
                 " subcategory=excluded.subcategory, aliases=excluded.aliases,"
                 " prefixes=excluded.prefixes, payment_method=excluded.payment_method,"
-                " status=excluded.status, updated_at=excluded.updated_at",
+                " status=excluded.status, siren=excluded.siren,"
+                " siret=excluded.siret, iban=excluded.iban,"
+                " updated_at=excluded.updated_at",
                 values,
             )
 

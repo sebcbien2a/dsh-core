@@ -1,4 +1,4 @@
-"""P22 - Local web interface for the APD four-stage cockpit.
+﻿"""P22 - Local web interface for the APD four-stage cockpit.
 
 Run ``python scripts/apd_pipeline_web.py`` and open ``http://127.0.0.1:8765``.
 The page exposes the same structured commands as the Hermès Telegram bridge:
@@ -46,7 +46,7 @@ PAGE = """<!doctype html>
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<title>APD - Cockpit P22</title>
+<title>APD - Cockpit P27</title>
 <style>
 body{font-family:system-ui,Segoe UI,Arial;margin:24px;background:#f7f9fc;color:#172033}
 h1{font-size:22px}button{padding:8px 14px;margin:4px;border:0;border-radius:6px;background:#1f4e78;color:#fff;cursor:pointer}
@@ -141,6 +141,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/run-all":
                 self._json(self.bridge.run_all())
                 return
+            if path == "/api/apply-excel":
+                self._json(self.bridge.apply_excel_changes())
+                return
             if path.startswith("/api/stage/"):
                 stage = int(path.rsplit("/", 1)[-1])
                 self._json(self.bridge.run_stage(stage))
@@ -195,7 +198,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     Handler.bridge = _bridge(args)
     server = ThreadingHTTPServer((args.host, args.port), Handler)
-    print(f"Interface APD P25 : http://{args.host}:{args.port}")
+    print(f"Interface APD P27 : http://{args.host}:{args.port}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

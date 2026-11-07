@@ -1,9 +1,9 @@
-@echo off
+﻿@echo off
 chcp 65001 >nul
-title Cockpit APD - Pipeline P25 (4 etapes)
+title Cockpit APD - Pipeline P27 (4 etapes)
 cd /d A:\dsh-core
 echo =====================================================================
-echo   COCKPIT APD - PIPELINE P25 EN 4 ETAPES SEQUENTIELLES
+echo   COCKPIT APD - PIPELINE P27 EN 4 ETAPES SEQUENTIELLES
 echo =====================================================================
 echo.
 echo [1/2] Execution des 4 etapes (Vision, Banque, Ventilation, Simulations)
@@ -23,7 +23,7 @@ echo Liberation du port 8765...
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr :8765 ^| findstr LISTENING') do (
     taskkill /F /PID %%a >nul 2>&1
 )
-start "APD P25 Web" /min .venv-v3\Scripts\python.exe scripts\apd_pipeline_web.py --tenant APD
+start "APD P27 Web" /min .venv-v3\Scripts\python.exe scripts\apd_pipeline_web.py --tenant APD
 timeout /t 2 >nul
 start http://127.0.0.1:8765
 echo.
