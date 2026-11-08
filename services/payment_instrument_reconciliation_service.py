@@ -184,15 +184,33 @@ def _match_invoices(
         by_counterparty.setdefault(name, []).append(row)
     matches: list[list[dict[str, Any]]] = []
     for group in by_counterparty.values():
+        payable_group = group
+        if bank_date is not None:
+            payable_group = [
+                row
+                for row in group
+                if (
+                    _parse_date(row.get("operation_date")) is None
+                    or _parse_date(row.get("operation_date")) <= bank_date
+                )
+            ]
         subset = _subset_sum(
             [
                 (row, _decimal(row.get("amount_ttc")) or Decimal("0.00"))
-                for row in group
+                for row in payable_group
             ],
             amount,
         )
         if subset:
-            matches.append(subset)
+            total = sum(
+                (
+                    _decimal(row.get("amount_ttc")) or Decimal("0.00")
+                    for row in subset
+                ),
+                Decimal("0.00"),
+            ).quantize(_CENT)
+            if abs((amount - total).quantize(_CENT)) <= Decimal("0.05"):
+                matches.append(subset)
     if len(matches) == 1:
         return matches[0]
     return []

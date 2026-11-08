@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-11-08T07:26:29.692337+00:00",
+  "updated_at": "2026-11-08T17:24:14.219256+00:00",
   "groups": {
     "PAINTCAR": {
       "canonical": "PAINTCAR",
@@ -156,7 +156,7 @@
     "COLOR STORE": "COLOR_STORE_FRANCE",
     "COMPAGNIE EIFFA": "PEAGES_AUTOROUTES",
     "EIFFAGE": "PEAGES_AUTOROUTES",
-    "LE MARMARA": "LE_MARMARA",
+    "LE MARMARA": "RESTAURANTS_REPAS",
     "LE RELAI DE TRE": "RESTAURANTS_REPAS",
     "RELAI DE TRE": "RESTAURANTS_REPAS",
     "BOSCH SA": "BOSCH_SIA",
@@ -200,22 +200,31 @@
     "FREE TELECOM _ FREE MOBILE": "FREE_TELECOM_FREE_MOBILE",
     "INTERMARCHE": "INTERMARCHE",
     "SAGE": "SAGE",
-    "MC DO SANILHAC": "MC_DO_SANILHAC",
-    "SHANGHAI WOK": "SHANGHAI_WOK",
-    "LE SAFARI": "LE_SAFARI",
+    "MC DO SANILHAC": "RESTAURANTS_REPAS",
+    "SHANGHAI WOK": "RESTAURANTS_REPAS",
+    "LE SAFARI": "RESTAURANTS_REPAS",
     "OLIVIER HOUALET": "OLIVIER_HOUALET",
     "Carrosserie Chantereau Stephano": "CARROSSERIE_CHANTEREAU_STEPHANO",
     "CARROSSERIE RIGAL": "CARROSSERIE_RIGAL",
     "GP AUTO - 03100": "GP_AUTO_03100",
     "SCTI": "SCTI",
     "Techni wheel": "TECHNI_WHEEL",
-    "XIN YI": "XIN_YI",
+    "XIN YI": "RESTAURANTS_REPAS",
     "Techni wheel Ostwald": "TECHNI_WHEEL_OSTWALD",
     "CARROSSERIE VINOLIENNE": "CARROSSERIE_VINOLIENNE",
     "YDES AUTO ACCESSOIRES": "YDES_AUTO_ACCESSOIRES",
     "Ydes Auto Accessoires GP15": "YDES_AUTO_ACCESSOIRES",
     "CLIENTS LCR": "CLIENTS_ENCAISSEMENT_GROUPE",
-    "CLIENTS CHEQUES": "CLIENTS_ENCAISSEMENT_GROUPE"
+    "CLIENTS CHEQUES": "CLIENTS_ENCAISSEMENT_GROUPE",
+    "Free Telecom": "FREE_TELECOM_FREE_MOBILE",
+    "FREE MOBILE": "FREE_TELECOM_FREE_MOBILE",
+    "LE_MARMARA": "RESTAURANTS_REPAS",
+    "LE_SAFARI": "RESTAURANTS_REPAS",
+    "MC_DO_SANILHAC": "RESTAURANTS_REPAS",
+    "SHANGHAI_WOK": "RESTAURANTS_REPAS",
+    "XIN_YI": "RESTAURANTS_REPAS",
+    "O WOK": "O_WOK",
+    "TAO FUSION": "TAO_FUSION"
   },
   "suppliers": {
     "LIDL": {
@@ -458,7 +467,16 @@
         "PAILLOTE",
         "LE MARMARA",
         "LE RELAI DE TRE",
-        "RELAI DE TRE"
+        "RELAI DE TRE",
+        "LE_MARMARA",
+        "LE_SAFARI",
+        "LE SAFARI",
+        "MC_DO_SANILHAC",
+        "MC DO SANILHAC",
+        "SHANGHAI_WOK",
+        "SHANGHAI WOK",
+        "XIN_YI",
+        "XIN YI"
       ],
       "prefixes": [],
       "payment_method": "CARTE_BANCAIRE",
@@ -761,10 +779,8 @@
         "TALENT&CO",
         "SONIA ATIA",
         "SONIA ALTIA",
-        "sonia ATIA",
         "AS CONSULTING",
         "ASCONSULTING",
-        "asconsulting",
         "YASMIN CONSULTING"
       ],
       "prefixes": [],
@@ -783,7 +799,6 @@
         "OpenRouter, Inc",
         "OPENROUTER",
         "OPENROUTER.AI",
-        "OpenRouter",
         "Inc"
       ],
       "prefixes": [],
@@ -876,7 +891,8 @@
       "subcategory": "",
       "aliases": [
         "GP Auto 36",
-        "DP2C"
+        "DP2C",
+        "GP Auto 36, DP2C"
       ],
       "prefixes": [],
       "payment_method": "",
@@ -922,7 +938,9 @@
       "category": "ACHATS_MARCHANDISES",
       "subcategory": "",
       "aliases": [
-        "FREE TELECOM _ FREE MOBILE"
+        "FREE TELECOM _ FREE MOBILE",
+        "Free Telecom",
+        "FREE MOBILE"
       ],
       "prefixes": [],
       "payment_method": "",
@@ -1168,6 +1186,36 @@
       ],
       "prefixes": [],
       "payment_method": "LCR",
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
+    },
+    "O_WOK": {
+      "canonical": "O_WOK",
+      "role": "FOURNISSEUR",
+      "category": "FRAIS_GENERAUX",
+      "subcategory": "RESTAURATION",
+      "aliases": [
+        "O WOK"
+      ],
+      "prefixes": [],
+      "payment_method": "",
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
+    },
+    "TAO_FUSION": {
+      "canonical": "TAO_FUSION",
+      "role": "FOURNISSEUR",
+      "category": "FRAIS_GENERAUX",
+      "subcategory": "RESTAURATION",
+      "aliases": [
+        "TAO FUSION"
+      ],
+      "prefixes": [],
+      "payment_method": "",
       "status": "AUTORISE",
       "siren": "",
       "siret": "",

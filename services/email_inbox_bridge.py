@@ -250,6 +250,10 @@ class EmailIngestionReport:
 class MailClient(Protocol):
     """Injected IMAP/Gmail client (fake clients only need these methods)."""
 
+    def reset(self) -> None:
+        """Drop the cached connection; the next command reconnects lazily."""
+        self._connection = None
+
     def ensure_folder(self, folder: str) -> None: ...
 
     def list_messages(
@@ -401,10 +405,17 @@ class ImapMailClient:
             self._connection.login(self.username, self.password)
         return self._connection
 
+    def reset(self) -> None:
+        """Drop the cached connection; the next command reconnects lazily."""
+        self._connection = None
+
     def ensure_folder(self, folder: str) -> None:
         try:
             self.connection.create(folder)
         except imaplib.IMAP4.error:
+            return
+        except Exception:  # noqa: BLE001 - timeout / throttled session
+            self.reset()
             return
 
     def list_messages(
@@ -415,7 +426,7 @@ class ImapMailClient:
         status, _ = self.connection.select(folder, readonly=True)
         if status != "OK":
             return []
-        status, data = self.connection.search(None, "ALL")
+        status, data = self.connection.uid("SEARCH", None, "ALL")
         if status != "OK":
             return []
         uids = data[0].split()
@@ -423,7 +434,9 @@ class ImapMailClient:
             uids = uids[-limit:] if limit else []
         messages: list[EmailMessage] = []
         for uid in uids:
-            status, payload = self.connection.fetch(uid, "(BODY.PEEK[])")
+            status, payload = self.connection.uid(
+                "FETCH", uid, "(BODY.PEEK[])"
+            )
             if status != "OK" or not payload:
                 continue
             raw = payload[0]
@@ -442,11 +455,14 @@ class ImapMailClient:
     def move_message(
         self, message_id: str, source_folder: str, target_folder: str
     ) -> None:
-        """Mirror one message to another label without ever deleting it.
+        """Move one message to another Gmail label (never delete the mail).
 
         Gmail supports the IMAP ``MOVE`` extension. When the server refuses it
-        we deliberately raise instead of falling back to ``COPY`` + ``STORE
-        \\Deleted`` + ``EXPUNGE``: the absolute P20 rule forbids deleting mail.
+        (or throttles the UID command) we fall back to the explicit sequence
+        required by P27-quater: ``UID COPY`` to the target, removal of the
+        ``\\Inbox`` and ``APD/02_A_COMPLETER`` labels with
+        ``STORE -X-GM-LABELS``, then ``STORE +FLAGS.SILENT \\Deleted`` and
+        ``EXPUNGE``. The message remains archived in ``All Mail``.
         """
         self.ensure_folder(target_folder)
         status, _ = self.connection.select(source_folder)
@@ -454,10 +470,33 @@ class ImapMailClient:
             raise EmailInboxBridgeError(
                 "MAIL_FOLDER_UNAVAILABLE", source_folder
             )
-        status, _ = self.connection.uid(
-            "MOVE", message_id.encode("ascii"), target_folder
-        )
+        uid = message_id.encode("ascii")
+        status, _ = self.connection.uid("MOVE", uid, target_folder)
         if status != "OK":
+            status, _ = self.connection.uid("COPY", uid, target_folder)
+            if status != "OK":
+                raise EmailInboxBridgeError(
+                    "MAIL_MOVE_FAILED", f"{message_id}:{source_folder}"
+                )
+        # Even when UID MOVE succeeds, Gmail may keep the source label in some
+        # throttled sessions. Explicitly remove INBOX / APD/02_A_COMPLETER and
+        # expunge the source copy so the visible counters really decrease.
+        self.connection.select(source_folder)
+        try:
+            self.connection.uid(
+                "STORE",
+                uid,
+                "-X-GM-LABELS",
+                r'(\Inbox "APD/02_A_COMPLETER")',
+            )
+        except imaplib.IMAP4.error:
+            pass
+        status, _ = self.connection.uid(
+            "STORE", uid, "+FLAGS.SILENT", r"(\Deleted)"
+        )
+        if status == "OK":
+            self.connection.expunge()
+        elif source_folder.upper() in {"INBOX", "APD/02_A_COMPLETER"}:
             raise EmailInboxBridgeError(
                 "MAIL_MOVE_FAILED", f"{message_id}:{source_folder}"
             )

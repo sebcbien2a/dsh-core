@@ -86,6 +86,9 @@ from services.sqlite_accounting_store import (
 UTF8_BOM = "\ufeff"
 _LEARNED_MEMORY: AccountingMemoryLearningService | None = None
 _TIER_REFERENCE: TierReferenceService | None = None
+VAT_REGIME_AUTOLIQUIDATION_UE = "AUTOLIQUIDATION_UE_0%"
+VAT_REGIME_EXONERE = "EXONERE_0%"
+VAT_REGIME_DEFAULT = "TVA_20%"
 
 
 def _learned_memory() -> AccountingMemoryLearningService:
@@ -949,24 +952,18 @@ SUPPLIER_LEDGER_COLUMNS_LEGACY = (
     "Type",
     "N° Pièce / Réf",
     "Libellé",
-    "Débit",
-    "Crédit",
-    "Solde Cumulé",
+    "Montant HT Pièce",
+    "Montant TVA Pièce",
+    "Régime TVA",
+    "Montant TTC Pièce",
+    "Débit Banque",
+    "Crédit Banque",
+    "Balance Bancaire Cumulée",
     "Code Lettrage / Statut",
+    "Pièce(s) / Règlement(s) Rapproché(s)",
     PIECE_LINK_HEADER,
 )
-SUPPLIER_LEDGER_COLUMNS_P25 = (
-    "Date",
-    "Type",
-    "N° Pièce / Réf",
-    "Libellé",
-    "Débit",
-    "Crédit",
-    "Solde Cumulé",
-    "Code Lettrage / Statut",
-    "Pièce(s) / Règlement(s) Rapproché(s) en face",
-    PIECE_LINK_HEADER,
-)
+SUPPLIER_LEDGER_COLUMNS_P25 = SUPPLIER_LEDGER_COLUMNS_LEGACY
 SUPPLIER_LEDGER_COLUMNS = SUPPLIER_LEDGER_COLUMNS_LEGACY
 SUPPLIER_LEDGER_DIAGNOSTIC_COLUMNS = (
     "Paiement",
@@ -988,8 +985,8 @@ SUPPLIER_LEDGER_TYPE_AVOIR_REMBOURSEMENT = "AVOIR_REMBOURSEMENT"
 SUPPLIER_LEDGER_MAX_COMBINATION_ITEMS = 30
 SUPPLIER_LEDGER_EQUILIBRIUM_FILL = "C6EFCE"
 SUPPLIER_LEDGER_DIAGNOSTIC_FILL = "FCE4D6"
-SUPPLIER_LEDGER_MIN_WIDTHS = (12, 12, 24, 40, 14, 14, 16, 24, 32)
-SUPPLIER_LEDGER_MIN_WIDTHS_P25 = (12, 12, 24, 40, 14, 14, 16, 24, 30, 32)
+SUPPLIER_LEDGER_MIN_WIDTHS = (12, 14, 24, 40, 14, 14, 20, 14, 14, 14, 18, 24, 30, 32)
+SUPPLIER_LEDGER_MIN_WIDTHS_P25 = SUPPLIER_LEDGER_MIN_WIDTHS
 
 
 class SupplierLedgerExportError(ValueError):
@@ -1028,6 +1025,12 @@ class SupplierLedgerEntry:
     payment_method: str = ""
     piece_pdf: str = ""
     invoice_url: str = ""
+    piece_ht: Decimal = Decimal("0.00")
+    piece_tva: Decimal = Decimal("0.00")
+    piece_ttc: Decimal = Decimal("0.00")
+    vat_regime: str = ""
+    bank_debit: Decimal = Decimal("0.00")
+    bank_credit: Decimal = Decimal("0.00")
 
     @property
     def signed_amount(self) -> Decimal:
@@ -1087,6 +1090,49 @@ def _ledger_amount_ttc(row: dict[str, Any]) -> Decimal:
     return Decimal("0.00")
 
 
+def _is_paintcar_row(row: dict[str, Any]) -> bool:
+    text = _fold(
+        " ".join(
+            str(row.get(key) or "")
+            for key in ("counterparty", "supplier", "invoice_id", "label")
+        )
+    )
+    return (
+        "paintcar" in text
+        or "crisol" in text
+        or bool(re.search(r"\bila[a-z0-9]{3,}", text))
+    )
+
+
+def vat_regime_for_row(row: dict[str, Any]) -> str:
+    """Return the explicit VAT regime of one accounting piece."""
+    if _is_paintcar_row(row):
+        return VAT_REGIME_AUTOLIQUIDATION_UE
+    tva = _decimal(row.get("amount_tva"))
+    ht = _decimal(row.get("amount_ht"))
+    if tva is None or tva == 0:
+        return VAT_REGIME_EXONERE
+    if ht is not None and ht > 0:
+        rate = (tva / ht * Decimal("100")).quantize(Decimal("0.1"))
+        if rate == rate.to_integral():
+            rate = rate.to_integral()
+        return f"TVA_{rate}%"
+    return VAT_REGIME_DEFAULT
+
+
+def _piece_values(row: dict[str, Any]) -> tuple[Decimal, Decimal, Decimal]:
+    ht = _decimal(row.get("amount_ht")) or Decimal("0.00")
+    tva = _decimal(row.get("amount_tva")) or Decimal("0.00")
+    ttc = _ledger_amount_ttc(row)
+    if ht == 0 and tva != 0 and ttc != 0:
+        ht = (ttc - tva).quantize(_CENT)
+    if tva == 0 and ht != 0 and ttc != 0:
+        tva = (ttc - ht).quantize(_CENT)
+    if ttc == 0 and (ht or tva):
+        ttc = (ht + tva).quantize(_CENT)
+    return ht.quantize(_CENT), tva.quantize(_CENT), ttc.quantize(_CENT)
+
+
 def _is_bank_ledger_row(row: dict[str, Any]) -> bool:
     if str(row.get("decision_action") or "").strip():
         return True
@@ -1141,9 +1187,18 @@ def _document_ledger_type(row: dict[str, Any]) -> str:
     return SUPPLIER_LEDGER_TYPE_AVOIR if ttc < 0 else SUPPLIER_LEDGER_TYPE_FACTURE
 
 
+def _signed_piece_values(row: dict[str, Any]) -> tuple[Decimal, Decimal, Decimal]:
+    ht, tva, ttc = _piece_values(row)
+    if _document_ledger_type(row) == SUPPLIER_LEDGER_TYPE_AVOIR or ttc < 0:
+        return -abs(ht), -abs(tva), -abs(ttc)
+    return abs(ht), abs(tva), abs(ttc)
+
+
 def _ledger_status(is_bank: bool, raw_status: str, matched: bool) -> str:
     if not is_bank:
         return "LETTRE" if matched else "NON_LETTRE"
+    if matched and raw_status == "PENDING":
+        return "RAPPROCHE"
     if raw_status == "PENDING":
         return "A_RAPPROCHER"
     if raw_status == "INVOICE_ATTACHED":
@@ -1201,7 +1256,7 @@ def _build_supplier_ledger_entries(
     rows: list[dict[str, Any]],
     *,
     strict_tiers: bool = False,
-    refund_as_credit: bool = False,
+    refund_as_credit: bool = True,
 ) -> list[SupplierLedgerEntry]:
     matched_invoice_ids = {
         str(row.get("decision_invoice_id"))
@@ -1248,6 +1303,13 @@ def _build_supplier_ledger_entries(
             if debit == 0 and credit == 0:
                 continue
             matched = bool(row.get("decision_invoice_id")) or raw_status != "PENDING"
+            reconciliation_status = str(
+                row.get("reconciliation_status") or ""
+            ).upper()
+            if reconciliation_status in _PAID_RECONCILIATION_STATUSES or (
+                reconciliation_status == "REMBOURSE_RAPPROCHE"
+            ):
+                matched = True
             is_refund = refund_as_credit and credit > 0 and debit == 0
             entry_type = (
                 SUPPLIER_LEDGER_TYPE_AVOIR_REMBOURSEMENT
@@ -1270,6 +1332,9 @@ def _build_supplier_ledger_entries(
                     or ""
                 ).strip()
                 piece_pdf = str(matched_row.get("piece_pdf") or "").strip()
+            bank_status = _ledger_status(True, raw_status, matched)
+            if _is_paintcar_row(row) and not matched:
+                bank_status = "A_RAPPROCHER — Facture(s) Paintcar manquante(s)"
             entries.append(
                 SupplierLedgerEntry(
                     entry_type=entry_type,
@@ -1280,7 +1345,7 @@ def _build_supplier_ledger_entries(
                     label=str(row.get("label") or ""),
                     debit=credit if is_refund else debit,
                     credit=Decimal("0.00") if is_refund else credit,
-                    status=_ledger_status(True, raw_status, matched),
+                    status=bank_status,
                     raw_status=raw_status,
                     line_id=str(row.get("line_id") or ""),
                     invoice_id=piece_number or matched_id or None,
@@ -1296,6 +1361,14 @@ def _build_supplier_ledger_entries(
                     ),
                     piece_pdf=piece_pdf,
                     invoice_url=str(row.get("invoice_url") or ""),
+                    bank_debit=(
+                        Decimal("0.00") if is_refund else debit.quantize(_CENT)
+                    ),
+                    bank_credit=(
+                        credit.quantize(_CENT)
+                        if is_refund
+                        else Decimal("0.00")
+                    ),
                 )
             )
             continue
@@ -1311,12 +1384,32 @@ def _build_supplier_ledger_entries(
             or ""
         )
         matched = invoice_id in matched_invoice_ids
+        piece_reconciliation = str(
+            row.get("reconciliation_status") or ""
+        ).upper()
+        if piece_reconciliation in _PAID_RECONCILIATION_STATUSES or (
+            piece_reconciliation == "REMBOURSE_RAPPROCHE"
+        ):
+            matched = True
         if entry_type == SUPPLIER_LEDGER_TYPE_AVOIR:
             debit = abs(ttc).quantize(_CENT)
             credit = Decimal("0.00")
         else:
             debit = Decimal("0.00")
             credit = abs(ttc).quantize(_CENT)
+        piece_ht, piece_tva, piece_ttc = _piece_values(row)
+        if entry_type == SUPPLIER_LEDGER_TYPE_AVOIR:
+            piece_ht, piece_tva, piece_ttc = (
+                -abs(piece_ht),
+                -abs(piece_tva),
+                -abs(piece_ttc),
+            )
+        else:
+            piece_ht, piece_tva, piece_ttc = (
+                abs(piece_ht),
+                abs(piece_tva),
+                abs(piece_ttc),
+            )
         entries.append(
             SupplierLedgerEntry(
                 entry_type=entry_type,
@@ -1350,6 +1443,10 @@ def _build_supplier_ledger_entries(
                     or ""
                 ),
                 invoice_url=str(row.get("invoice_url") or ""),
+                piece_ht=piece_ht.quantize(_CENT),
+                piece_tva=piece_tva.quantize(_CENT),
+                piece_ttc=piece_ttc.quantize(_CENT),
+                vat_regime=vat_regime_for_row(row),
             )
         )
     return entries
@@ -1490,9 +1587,21 @@ def _build_supplier_diagnostics(
     diagnostics: list[SupplierLedgerDiagnostic] = []
     for payment in payments:
         result = _find_combination(open_items, payment.debit)
+        paintcar = _is_paintcar_row(
+            {
+                "counterparty": payment.supplier,
+                "label": payment.label,
+            }
+        )
         if result.exact:
             status = "EXACT"
             message = "Combinaison exacte"
+        elif paintcar:
+            status = "A_RAPPROCHER"
+            message = "Facture(s) Paintcar manquante(s)"
+            result = _Combination(
+                False, (), result.residual, result.truncated
+            )
         elif not result.items:
             status = "AUCUNE_PIECE"
             message = (
@@ -1613,13 +1722,16 @@ def _write_supplier_ledger_sheet(
     running = Decimal("0.00")
     equilibrium_rows: list[int] = []
     for index, entry in enumerate(entries, start=2):
-        running = (running + entry.credit - entry.debit).quantize(_CENT)
+        running = (running + entry.bank_credit - entry.bank_debit).quantize(_CENT)
         link_invoice = (
             entry.invoice_id
             or entry.matched_pieces
             or entry.reference
         )
-        if entry.entry_type == SUPPLIER_LEDGER_TYPE_PAIEMENT and entry.matched_pieces:
+        if entry.entry_type in {
+            SUPPLIER_LEDGER_TYPE_PAIEMENT,
+            SUPPLIER_LEDGER_TYPE_AVOIR_REMBOURSEMENT,
+        } and entry.matched_pieces:
             link_invoice = entry.matched_pieces.split(" + ")[0].strip()
         piece_link = (
             _piece_link_for_row(
@@ -1640,25 +1752,27 @@ def _write_supplier_ledger_sheet(
             entry.entry_type,
             _text(entry.reference),
             _text(entry.label),
-            entry.debit,
-            entry.credit,
+            entry.piece_ht,
+            entry.piece_tva,
+            _text(entry.vat_regime),
+            entry.piece_ttc,
+            entry.bank_debit,
+            entry.bank_credit,
             None,
             _text(entry.status),
-            *((_text(matched_display),) if include_matched_pieces else ()),
+            _text(matched_display),
             piece_link,
         )
         for column, value in enumerate(values, start=1):
             cell = sheet.cell(row=index, column=column)
-            if column == len(columns) and _write_piece_link(
-                cell, value
-            ):
+            if column == len(columns) and _write_piece_link(cell, value):
                 cell.border = border
                 continue
-            if column == 7:
+            if column == 11:
                 cell.value = (
-                    f"=F{index}-E{index}"
+                    f"=J{index}-I{index}"
                     if index == 2
-                    else f"=G{index - 1}+F{index}-E{index}"
+                    else f"=K{index - 1}+J{index}-I{index}"
                 )
             elif isinstance(value, Decimal):
                 cell.value = float(value)
@@ -1667,19 +1781,18 @@ def _write_supplier_ledger_sheet(
             cell.border = border
             if index % 2 == 0:
                 cell.fill = band_fill
-            if column in (5, 6):
+            if column in (5, 6, 8, 9, 10, 11):
                 cell.number_format = "#,##0.00"
                 cell.alignment = Alignment(
                     horizontal="right", vertical="center"
                 )
-            elif column == 7:
-                cell.number_format = "#,##0.00"
-                cell.alignment = Alignment(
-                    horizontal="right", vertical="center"
-                )
-                if running == 0:
+                if (
+                    column == 11
+                    and running == 0
+                    and (entry.bank_debit or entry.bank_credit)
+                ):
                     cell.fill = equilibrium_fill
-                    cell.comment = Comment("Point d'équilibre", "DSH-Core")
+                    cell.comment = Comment("Point d'?quilibre", "DSH-Core")
                     equilibrium_rows.append(index)
             elif column == 1:
                 cell.alignment = Alignment(
@@ -1693,44 +1806,64 @@ def _write_supplier_ledger_sheet(
                 )
             else:
                 cell.alignment = Alignment(
-                    vertical="center", wrap_text=column in (3, 4, 8)
+                    vertical="center", wrap_text=column in (3, 4, 7, 12, 13)
                 )
 
     last_data_row = len(entries) + 1
-    sheet.auto_filter.ref = (
-        f"A1:{get_column_letter(len(columns) - 1)}{last_data_row}"
-    )
+    sheet.auto_filter.ref = f"A1:N{last_data_row}"
     sheet.freeze_panes = "A2"
 
-    total_row = last_data_row + 1
-    total_values = {
-        1: SUPPLIER_LEDGER_TOTAL_LABEL,
-        5: f"=SUM(E2:E{last_data_row})" if entries else 0,
-        6: f"=SUM(F2:F{last_data_row})" if entries else 0,
-        7: f"=G{last_data_row}" if entries else 0,
-        8: "SOLDE FINAL",
-    }
-    for column in range(1, len(columns) + 1):
-        cell = sheet.cell(row=total_row, column=column)
-        cell.font = Font(bold=True)
-        cell.fill = total_fill
-        cell.border = total_border
-        cell.value = total_values.get(column)
-        if column in (5, 6, 7):
-            cell.number_format = "#,##0.00"
-            cell.alignment = Alignment(
-                horizontal="right", vertical="center"
-            )
-        else:
-            cell.alignment = Alignment(
-                horizontal="left", vertical="center"
-            )
+    total_pieces_row = last_data_row + 1
+    total_bank_row = last_data_row + 2
+    gap_row = last_data_row + 3
+    summary_labels = (
+        (total_pieces_row, "TOTAL PI?CES (FACTURES - AVOIRS)"),
+        (total_bank_row, "TOTAL BANQUE (OP?RATIONS)"),
+        (gap_row, "?CART ? JUSTIFIER (PI?CES TTC - D?CAISSEMENTS NETS)"),
+    )
+    for row_index, label in summary_labels:
+        sheet.cell(row=row_index, column=1, value=label)
+        for column in range(1, len(columns) + 1):
+            cell = sheet.cell(row=row_index, column=column)
+            cell.font = Font(bold=True)
+            cell.fill = total_fill
+            cell.border = total_border
+            if column in (5, 6, 8, 9, 10, 11):
+                cell.number_format = "#,##0.00"
+                cell.alignment = Alignment(
+                    horizontal="right", vertical="center"
+                )
+            else:
+                cell.alignment = Alignment(
+                    horizontal="left", vertical="center"
+                )
+    if entries:
+        sheet.cell(row=total_pieces_row, column=5, value=f"=SUM(E2:E{last_data_row})")
+        sheet.cell(row=total_pieces_row, column=6, value=f"=SUM(F2:F{last_data_row})")
+        sheet.cell(row=total_pieces_row, column=8, value=f"=SUM(H2:H{last_data_row})")
+        sheet.cell(row=total_bank_row, column=9, value=f"=SUM(I2:I{last_data_row})")
+        sheet.cell(row=total_bank_row, column=10, value=f"=SUM(J2:J{last_data_row})")
+        sheet.cell(row=total_bank_row, column=11, value=f"=K{last_data_row}")
+        sheet.cell(
+            row=gap_row,
+            column=8,
+            value=f"=H{total_pieces_row}-(I{total_bank_row}-J{total_bank_row})",
+        )
+    else:
+        sheet.cell(row=total_pieces_row, column=5, value=0)
+        sheet.cell(row=total_pieces_row, column=6, value=0)
+        sheet.cell(row=total_pieces_row, column=8, value=0)
+        sheet.cell(row=total_bank_row, column=9, value=0)
+        sheet.cell(row=total_bank_row, column=10, value=0)
+        sheet.cell(row=total_bank_row, column=11, value=0)
+        sheet.cell(row=gap_row, column=8, value=0)
     if entries and running == 0:
-        balance_cell = sheet.cell(row=total_row, column=7)
+        balance_cell = sheet.cell(row=total_bank_row, column=11)
         balance_cell.fill = equilibrium_fill
-        balance_cell.comment = Comment("Point d'équilibre", "DSH-Core")
+        balance_cell.comment = Comment("Point d'?quilibre", "DSH-Core")
 
-    diagnostic_start = total_row + 2
+    diagnostic_start = gap_row + 2
+
     title_cell = sheet.cell(
         row=diagnostic_start,
         column=1,
@@ -1944,7 +2077,7 @@ class SupplierLedgerExporter:
         entries = _build_supplier_ledger_entries(
             rows,
             strict_tiers=self._strict_tiers,
-            refund_as_credit=self._include_matched_pieces,
+            refund_as_credit=True,
         )
         groups = _group_supplier_entries(
             entries, strict_tiers=self._strict_tiers
@@ -2008,29 +2141,8 @@ CLIENT_LEDGER_FILENAME = "GRAND_LIVRE_CLIENTS_DETAILLES.xlsx"
 CLIENT_LEDGER_TYPE_FACTURE = "FACTURE"
 CLIENT_LEDGER_TYPE_PAIEMENT = "PAIEMENT"
 CLIENT_LEDGER_TYPE_AVOIR = "AVOIR"
-CLIENT_LEDGER_COLUMNS_LEGACY: tuple[str, ...] = (
-    "Date",
-    "Type",
-    "N° Pièce / Réf",
-    "Libellé",
-    "Débit",
-    "Crédit",
-    "Solde Cumulé",
-    "Code Lettrage / Statut",
-    PIECE_LINK_HEADER,
-)
-CLIENT_LEDGER_COLUMNS_P25: tuple[str, ...] = (
-    "Date",
-    "Type",
-    "N° Pièce / Réf",
-    "Libellé",
-    "Débit",
-    "Crédit",
-    "Solde Cumulé",
-    "Code Lettrage / Statut",
-    "Pièce(s) / Règlement(s) Rapproché(s) en face",
-    PIECE_LINK_HEADER,
-)
+CLIENT_LEDGER_COLUMNS_LEGACY: tuple[str, ...] = SUPPLIER_LEDGER_COLUMNS_LEGACY
+CLIENT_LEDGER_COLUMNS_P25: tuple[str, ...] = SUPPLIER_LEDGER_COLUMNS_LEGACY
 CLIENT_LEDGER_COLUMNS = CLIENT_LEDGER_COLUMNS_LEGACY
 CLIENT_LEDGER_MIN_OPERATIONS = 2
 
@@ -2054,6 +2166,12 @@ class ClientLedgerEntry:
     matched_pieces: str = ""
     payment_date: str = ""
     payment_method: str = ""
+    piece_ht: Decimal = Decimal("0.00")
+    piece_tva: Decimal = Decimal("0.00")
+    piece_ttc: Decimal = Decimal("0.00")
+    vat_regime: str = ""
+    bank_debit: Decimal = Decimal("0.00")
+    bank_credit: Decimal = Decimal("0.00")
 
 
 def _client_invoice_date(row: dict[str, Any], record: dict[str, Any]) -> str:
@@ -2115,6 +2233,19 @@ def _client_invoice_entries(
         reconciliation_reference = _text_field(
             row, "reconciliation_reference", "fitid"
         )
+        piece_ht, piece_tva, piece_ttc = _piece_values(row)
+        if is_credit_note:
+            piece_ht, piece_tva, piece_ttc = (
+                -abs(piece_ht),
+                -abs(piece_tva),
+                -abs(piece_ttc),
+            )
+        else:
+            piece_ht, piece_tva, piece_ttc = (
+                abs(piece_ht),
+                abs(piece_tva),
+                abs(piece_ttc),
+            )
         entries.append(
             ClientLedgerEntry(
                 entry_type=(
@@ -2140,6 +2271,10 @@ def _client_invoice_entries(
                 payment_method=(
                     _payment_method_label(reconciliation_reference) if paid else ""
                 ),
+                piece_ht=piece_ht,
+                piece_tva=piece_tva,
+                piece_ttc=piece_ttc,
+                vat_regime=vat_regime_for_row(row),
             )
         )
     return entries
@@ -2274,6 +2409,7 @@ def _client_payment_entries(
                 client=client,
                 invoice_url=str(row.get("invoice_url") or ""),
                 matched_pieces=" + ".join(matched_pieces),
+                bank_credit=credit.quantize(_CENT),
             )
         )
     return entries
@@ -2396,6 +2532,7 @@ def _client_synthetic_payments(
                 invoice_id=None,
                 client=client,
                 invoice_url=str(row.get("invoice_url") or ""),
+                bank_credit=amount,
             )
         )
     return synthetic
@@ -2457,7 +2594,7 @@ def _write_client_ledger_sheet(
     sheet.row_dimensions[1].height = 32
     running = Decimal("0.00")
     for index, entry in enumerate(entries, start=2):
-        running = (running + entry.debit - entry.credit).quantize(_CENT)
+        running = (running + entry.bank_credit - entry.bank_debit).quantize(_CENT)
         link_invoice = entry.invoice_id or entry.reference
         if entry.entry_type == CLIENT_LEDGER_TYPE_PAIEMENT and entry.matched_pieces:
             link_invoice = entry.matched_pieces.split(" + ")[0].strip()
@@ -2476,11 +2613,15 @@ def _write_client_ledger_sheet(
             entry.entry_type,
             _text(entry.reference),
             _text(entry.label),
-            entry.debit,
-            entry.credit,
+            entry.piece_ht,
+            entry.piece_tva,
+            _text(entry.vat_regime),
+            entry.piece_ttc,
+            entry.bank_debit,
+            entry.bank_credit,
             None,
             _text(entry.status),
-            *((_text(matched_display),) if include_matched_pieces else ()),
+            _text(matched_display),
             link,
         )
         for column, value in enumerate(values, start=1):
@@ -2488,11 +2629,11 @@ def _write_client_ledger_sheet(
             if column == len(columns) and _write_piece_link(cell, value):
                 cell.border = border
                 continue
-            if column == 7:
+            if column == 11:
                 cell.value = (
-                    f"=E{index}-F{index}"
+                    f"=J{index}-I{index}"
                     if index == 2
-                    else f"=G{index - 1}+E{index}-F{index}"
+                    else f"=K{index - 1}+J{index}-I{index}"
                 )
             elif isinstance(value, Decimal):
                 cell.value = float(value)
@@ -2501,19 +2642,18 @@ def _write_client_ledger_sheet(
             cell.border = border
             if index % 2 == 0:
                 cell.fill = band_fill
-            if column in (5, 6):
+            if column in (5, 6, 8, 9, 10, 11):
                 cell.number_format = "#,##0.00"
                 cell.alignment = Alignment(
                     horizontal="right", vertical="center"
                 )
-            elif column == 7:
-                cell.number_format = "#,##0.00"
-                cell.alignment = Alignment(
-                    horizontal="right", vertical="center"
-                )
-                if running == 0:
+                if (
+                    column == 11
+                    and running == 0
+                    and (entry.bank_debit or entry.bank_credit)
+                ):
                     cell.fill = equilibrium_fill
-                    cell.comment = Comment("Solde client soldé", "DSH-Core")
+                    cell.comment = Comment("Solde client sold?", "DSH-Core")
             elif column == 1:
                 cell.alignment = Alignment(
                     horizontal="center", vertical="center"
@@ -2524,35 +2664,58 @@ def _write_client_ledger_sheet(
                 cell.alignment = Alignment(
                     horizontal="center", vertical="center"
                 )
-    total_row = len(entries) + 2
-    total_debit = sum((entry.debit for entry in entries), Decimal("0.00"))
-    total_credit = sum((entry.credit for entry in entries), Decimal("0.00"))
-    totals = {
-        1: "TOTAL",
-        5: total_debit.quantize(_CENT),
-        6: total_credit.quantize(_CENT),
-        7: (total_debit - total_credit).quantize(_CENT),
-    }
-    for column in range(1, len(columns) + 1):
-        cell = sheet.cell(row=total_row, column=column)
-        cell.font = Font(bold=True)
-        cell.fill = total_fill
-        cell.border = total_border
-        cell.value = totals.get(column)
-        if column in (5, 6, 7):
-            cell.number_format = "#,##0.00"
-            cell.alignment = Alignment(horizontal="right", vertical="center")
-        else:
-            cell.alignment = Alignment(horizontal="left", vertical="center")
-    sheet.auto_filter.ref = (
-        f"A1:{get_column_letter(len(columns) - 1)}{len(entries) + 1}"
+            else:
+                cell.alignment = Alignment(
+                    vertical="center", wrap_text=column in (3, 4, 7, 12, 13)
+                )
+    last_data_row = len(entries) + 1
+    total_pieces_row = last_data_row + 1
+    total_bank_row = last_data_row + 2
+    gap_row = last_data_row + 3
+    summary_labels = (
+        (total_pieces_row, "TOTAL PI?CES (FACTURES - AVOIRS)"),
+        (total_bank_row, "TOTAL BANQUE (OP?RATIONS)"),
+        (gap_row, "?CART ? JUSTIFIER (PI?CES TTC - D?CAISSEMENTS NETS)"),
     )
+    for row_index, label in summary_labels:
+        sheet.cell(row=row_index, column=1, value=label)
+        for column in range(1, len(columns) + 1):
+            cell = sheet.cell(row=row_index, column=column)
+            cell.font = Font(bold=True)
+            cell.fill = total_fill
+            cell.border = total_border
+            if column in (5, 6, 8, 9, 10, 11):
+                cell.number_format = "#,##0.00"
+                cell.alignment = Alignment(
+                    horizontal="right", vertical="center"
+                )
+            else:
+                cell.alignment = Alignment(
+                    horizontal="left", vertical="center"
+                )
+    if entries:
+        sheet.cell(row=total_pieces_row, column=5, value=f"=SUM(E2:E{last_data_row})")
+        sheet.cell(row=total_pieces_row, column=6, value=f"=SUM(F2:F{last_data_row})")
+        sheet.cell(row=total_pieces_row, column=8, value=f"=SUM(H2:H{last_data_row})")
+        sheet.cell(row=total_bank_row, column=9, value=f"=SUM(I2:I{last_data_row})")
+        sheet.cell(row=total_bank_row, column=10, value=f"=SUM(J2:J{last_data_row})")
+        sheet.cell(row=total_bank_row, column=11, value=f"=K{last_data_row}")
+        sheet.cell(
+            row=gap_row,
+            column=8,
+            value=f"=H{total_pieces_row}-(I{total_bank_row}-J{total_bank_row})",
+        )
+    else:
+        sheet.cell(row=total_pieces_row, column=5, value=0)
+        sheet.cell(row=total_pieces_row, column=6, value=0)
+        sheet.cell(row=total_pieces_row, column=8, value=0)
+        sheet.cell(row=total_bank_row, column=9, value=0)
+        sheet.cell(row=total_bank_row, column=10, value=0)
+        sheet.cell(row=total_bank_row, column=11, value=0)
+        sheet.cell(row=gap_row, column=8, value=0)
+    sheet.auto_filter.ref = f"A1:N{last_data_row}"
     sheet.freeze_panes = "A2"
-    widths = (
-        (12, 12, 24, 40, 14, 14, 16, 24, 30, 32)
-        if include_matched_pieces
-        else (12, 12, 24, 40, 14, 14, 16, 24, 32)
-    )
+    widths = (12, 14, 24, 40, 14, 14, 20, 14, 14, 14, 18, 24, 30, 32)
     for column, width in enumerate(widths, start=1):
         sheet.column_dimensions[get_column_letter(column)].width = width
 
@@ -3681,6 +3844,194 @@ def _master_rows(store: Any, tenant_id: str) -> list[dict[str, Any]]:
         and str(row.get("document_type") or "").strip().upper()
         not in NON_ACCOUNTABLE_DOCUMENT_TYPES
     ]
+
+
+VAT_CONTROL_SHEET = "CONTROLE_TVA_3_NIVEAUX"
+VAT_CONTROL_HEADERS: tuple[str, ...] = (
+    "Niveau",
+    "Source",
+    "Montant TVA",
+    "Écart vs Niveau 1",
+    "Statut",
+)
+
+
+def compute_vat_3way_control(
+    store: Any, tenant_id: str
+) -> dict[str, Any]:
+    """Compute the three independent VAT totals used by the control sheet."""
+    rows = _all_master_rows(store, tenant_id)
+    pieces = _piece_rows(store, tenant_id)
+    tiers = _tier_reference()
+
+    def included(row: dict[str, Any]) -> bool:
+        if is_apd_self_row(row):
+            return False
+        name = str(row.get("counterparty") or row.get("supplier") or "")
+        return not tiers.is_internal(name)
+
+    supplier_entries = _build_supplier_ledger_entries(
+        rows, strict_tiers=False, refund_as_credit=True
+    )
+    client_entries = _client_invoice_entries(rows, strict_tiers=False)
+    ledger_line_ids = {
+        entry.line_id for entry in (*supplier_entries, *client_entries)
+    }
+    ledger_entries: dict[str, Any] = {}
+    for entry in supplier_entries:
+        ledger_entries[entry.line_id] = entry
+    for entry in client_entries:
+        ledger_entries[entry.line_id] = entry
+    ledger_line_ids = set(ledger_entries)
+    level1 = sum(
+        (
+            _signed_piece_values(row)[1]
+            for row in pieces
+            if included(row) and str(row.get("line_id") or "") in ledger_line_ids
+        ),
+        Decimal("0.00"),
+    ).quantize(_CENT)
+    level2 = sum(
+        (entry.piece_tva for entry in ledger_entries.values()),
+        Decimal("0.00"),
+    ).quantize(_CENT)
+    category_totals: dict[str, Decimal] = {}
+    for category in DocumentCategory:
+        if category is DocumentCategory.BANQUE_FINANCE:
+            continue
+        total = sum(
+            (
+                _signed_piece_values(row)[1]
+                for row in store.list_category_lines(tenant_id, category)
+                if included(row)
+                and str(row.get("line_id") or "") in ledger_line_ids
+            ),
+            Decimal("0.00"),
+        ).quantize(_CENT)
+        if total != 0:
+            category_totals[category.value] = total
+    level3 = sum(category_totals.values(), Decimal("0.00")).quantize(_CENT)
+    excluded_vat = sum(
+        (
+            _signed_piece_values(row)[1]
+            for row in pieces
+            if str(row.get("line_id") or "") not in ledger_line_ids
+        ),
+        Decimal("0.00"),
+    ).quantize(_CENT)
+    bank_rows = [
+        row for row in rows if _is_bank_operation(row)
+    ]
+    bank_vat = sum(
+        (_decimal(row.get("amount_tva")) or Decimal("0.00") for row in bank_rows),
+        Decimal("0.00"),
+    ).quantize(_CENT)
+    paintcar_vat = sum(
+        (
+            _signed_piece_values(row)[1]
+            for row in pieces
+            if _is_paintcar_row(row)
+        ),
+        Decimal("0.00"),
+    ).quantize(_CENT)
+    return {
+        "level1": level1,
+        "level2": level2,
+        "level3": level3,
+        "gap12": (level2 - level1).quantize(_CENT),
+        "gap13": (level3 - level1).quantize(_CENT),
+        "gap23": (level3 - level2).quantize(_CENT),
+        "category_totals": category_totals,
+        "bank_vat": bank_vat,
+        "paintcar_vat": paintcar_vat,
+        "excluded_vat": excluded_vat,
+    }
+
+
+def write_vat_3way_control_sheet(
+    workbook: Any, store: Any, tenant_id: str
+) -> None:
+    """Append/replace the ``CONTROLE_TVA_3_NIVEAUX`` sheet in ``workbook``."""
+    if VAT_CONTROL_SHEET in workbook.sheetnames:
+        del workbook[VAT_CONTROL_SHEET]
+    sheet = workbook.create_sheet(VAT_CONTROL_SHEET)
+    report = compute_vat_3way_control(store, tenant_id)
+    header_fill = PatternFill("solid", fgColor=_HEADER_FILL)
+    header_font = Font(bold=True, color="FFFFFF")
+    for column, header in enumerate(VAT_CONTROL_HEADERS, start=1):
+        cell = sheet.cell(row=1, column=column, value=header)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+    level_values = (
+        ("Niveau 1", "TABLEAU_MERE_PIECES_COMPTABLES.xlsx", report["level1"]),
+        (
+            "Niveau 2",
+            "GRAND_LIVRE_APD_TOUS_FOURNISSEURS.xlsx + "
+            "GRAND_LIVRE_CLIENTS_DETAILLES.xlsx",
+            report["level2"],
+        ),
+        (
+            "Niveau 3",
+            "Synthèses par catégorie (hors double comptage des sous-tableaux)",
+            report["level3"],
+        ),
+    )
+    for row_index, (level, source, value) in enumerate(level_values, start=2):
+        sheet.cell(row=row_index, column=1, value=level)
+        sheet.cell(row=row_index, column=2, value=source)
+        cell = sheet.cell(row=row_index, column=3, value=float(value))
+        cell.number_format = "#,##0.00"
+        gap = 0 if row_index == 2 else float(value - report["level1"])
+        gap_cell = sheet.cell(row=row_index, column=4, value=gap)
+        gap_cell.number_format = "#,##0.00"
+        sheet.cell(
+            row=row_index,
+            column=5,
+            value="OK" if abs(Decimal(str(gap))) < Decimal("0.01") else "ECART",
+        )
+    check_row = 5
+    sheet.cell(row=check_row, column=1, value="Contrôle 3 niveaux")
+    sheet.cell(
+        row=check_row,
+        column=2,
+        value="Écart Niveau 1 / Niveau 2 / Niveau 3",
+    )
+    check = max(
+        abs(report["gap12"]), abs(report["gap13"]), abs(report["gap23"])
+    )
+    check_cell = sheet.cell(row=check_row, column=3, value=float(check))
+    check_cell.number_format = "#,##0.00"
+    sheet.cell(
+        row=check_row,
+        column=5,
+        value="ECART NUL" if check < Decimal("0.01") else "A_VERIFIER",
+    )
+    detail_start = check_row + 2
+    sheet.cell(row=detail_start, column=1, value="DÉTAIL NIVEAU 3")
+    sheet.cell(row=detail_start, column=1).font = Font(bold=True)
+    row_index = detail_start + 1
+    for category, value in sorted(report["category_totals"].items()):
+        sheet.cell(row=row_index, column=1, value="Niveau 3")
+        sheet.cell(row=row_index, column=2, value=category)
+        cell = sheet.cell(row=row_index, column=3, value=float(value))
+        cell.number_format = "#,##0.00"
+        row_index += 1
+    row_index += 1
+    sheet.cell(row=row_index, column=1, value="DÉTAIL HORS PIÈCES")
+    sheet.cell(row=row_index, column=1).font = Font(bold=True)
+    row_index += 1
+    for label, value in (
+        ("TVA bancaire (contrôle indicatif)", report["bank_vat"]),
+        ("TVA autoliquidée Paintcar / Crisol (CA12)", report["paintcar_vat"]),
+    ):
+        sheet.cell(row=row_index, column=1, value=label)
+        cell = sheet.cell(row=row_index, column=3, value=float(value))
+        cell.number_format = "#,##0.00"
+        row_index += 1
+    for column, width in enumerate((22, 62, 18, 18, 16), start=1):
+        sheet.column_dimensions[get_column_letter(column)].width = width
+    sheet.freeze_panes = "A2"
 
 
 def _piece_sort_key(row: dict[str, Any]) -> tuple[Any, int, str, str]:

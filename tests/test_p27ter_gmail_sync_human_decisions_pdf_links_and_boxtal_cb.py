@@ -137,7 +137,7 @@ def test_gmail_sync_stages_attachments_and_attaches_missing_pdfs(tmp_path):
     assert len(report.pdf_attached) == 7
     assert not report.pdf_missing
     assert report.labels_synced == 1
-    assert client.moves == [("42", "INBOX", "APD/02_A_COMPLETER")]
+    assert client.moves == [("42", "INBOX", "APD/LISTES_TRAITEES")]
     solta_line = store.get_line(TENANT, "PURCHASE-2601616")
     assert solta_line is not None
     assert solta_line["piece_pdf"].startswith("PIECES_JOINTES/ACHATS/")
@@ -320,10 +320,10 @@ def test_ledger_uses_native_relative_hyperlink(tmp_path):
     payment = next(
         row for row in sheet.iter_rows(min_row=2) if row[1].value == "PAIEMENT"
     )
-    assert payment[9].hyperlink is not None
+    assert payment[13].hyperlink is not None
     assert (
         "PIECES_JOINTES/VENTES/FA16423_2026-01-31_CARROSSERIE_YUCELL.pdf"
-        in str(payment[9].hyperlink.target)
+        in str(payment[13].hyperlink.target)
     )
     assert not str(payment[9].value).startswith("=IFERROR(HYPERLINK(")
 

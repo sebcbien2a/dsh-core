@@ -177,9 +177,9 @@ def test_excel_link_prefers_the_new_ged_folder(tmp_path):
     ).export(TENANT)
     sheet = load_workbook(path)["YDES_AUTO_ACCESSOIRES"]
     row = next(sheet.iter_rows(min_row=2))
-    assert row[8].hyperlink is not None
-    assert GED_FACTURES_CLIENTS in str(row[8].hyperlink.target)
-    assert Path(str(row[8].hyperlink.target)).name == "FA16436.pdf"
+    assert row[13].hyperlink is not None
+    assert GED_FACTURES_CLIENTS in str(row[13].hyperlink.target)
+    assert Path(str(row[13].hyperlink.target)).name == "FA16436.pdf"
 
 
 def test_amounts_are_kept_as_decimal():

@@ -1093,6 +1093,8 @@ class ApdFourStagePipeline:
                 self._tenant_id,
                 store=self._store,
                 root=self._tree.root,
+                classify_messages=True,
+                ingest_for_classification=True,
             )
             report = service.sync()
             return {
@@ -1163,7 +1165,19 @@ class ApdFourStagePipeline:
 
     def stage1_vision_and_mother_table(self) -> StageReport:
         from services.accounting_cleanup_service import run_cleanup
+        from services.boxtal_paintcar_repair_service import (
+            repair_boxtal_and_paintcar,
+        )
 
+        try:
+            repair_boxtal_and_paintcar(
+                self._store,
+                self._tenant_id,
+                self._tenant_dir,
+                self._export_dir,
+            )
+        except Exception:  # noqa: BLE001 - repair never blocks stage 1
+            pass
         run_cleanup(
             self._store,
             self._tenant_id,
@@ -2404,6 +2418,10 @@ class ApdFourStagePipeline:
         try:
             from openpyxl import Workbook
 
+            from services.accounting_spreadsheet_export_service import (
+                write_vat_3way_control_sheet,
+            )
+
             workbook = Workbook()
             sheet = workbook.active
             sheet.title = "COHERENCE"
@@ -2429,6 +2447,9 @@ class ApdFourStagePipeline:
                         issue.get("invoice_url", ""),
                     ]
                 )
+            write_vat_3way_control_sheet(
+                workbook, self._store, self._tenant_id
+            )
             path = self._export_dir / _COHERENCE_FILENAME
             temporary = path.with_name(path.name + ".tmp-p22")
             workbook.save(temporary)

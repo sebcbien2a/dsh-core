@@ -255,9 +255,9 @@ def test_client_supplier_separation_direction_and_yucel_matching(tmp_path):
     rows = [row for row in client_sheet.iter_rows(min_row=2, values_only=True)]
     invoice = next(row for row in rows if row[1] == "FACTURE")
     payment = next(row for row in rows if row[1] == "PAIEMENT")
-    assert invoice[4] == pytest.approx(950.76) and invoice[5] == 0
-    assert payment[4] == 0 and payment[5] == pytest.approx(950.76)
-    assert "FA16423" in str(payment[8])
+    assert invoice[7] == pytest.approx(950.76) and invoice[8] == 0
+    assert payment[8] == 0 and payment[9] == pytest.approx(950.76)
+    assert "FA16423" in str(payment[12])
     supplier_sheet = suppliers["AMAZON"]
     assert tuple(cell.value for cell in supplier_sheet[1]) == SUPPLIER_LEDGER_COLUMNS_P25
     supplier_rows = [
@@ -267,8 +267,8 @@ def test_client_supplier_separation_direction_and_yucel_matching(tmp_path):
     refund_row = next(
         row for row in supplier_rows if row[1] == "AVOIR_REMBOURSEMENT"
     )
-    assert invoice_row[4] == 0 and invoice_row[5] == pytest.approx(100.00)
-    assert refund_row[4] == pytest.approx(36.61) and refund_row[5] == 0
+    assert invoice_row[7] == pytest.approx(100.00) and invoice_row[8] == 0
+    assert refund_row[8] == 0 and refund_row[9] == pytest.approx(36.61)
     clients.close()
     suppliers.close()
 

@@ -35,19 +35,38 @@ from services.bank_reconciliation_service import (
 
 TIER_REFERENCE_FILENAME = "REFERENTIEL_TIERS_APD.xlsx"
 TIER_REFERENCE_ENV = "DSH_TIER_REFERENCE_PATH"
-DEFAULT_TIER_REFERENCE_PATH = (
-    Path("workspace")
-    / "document_flow"
-    / "APD"
-    / "04_EXPORT_COMPTA"
-    / "APD"
-    / TIER_REFERENCE_FILENAME
-)
 ROOT_TIER_REFERENCE_PATH = (
     Path("workspace") / "document_flow" / "APD" / TIER_REFERENCE_FILENAME
 )
+DEFAULT_TIER_REFERENCE_PATH = ROOT_TIER_REFERENCE_PATH
 ROLES = ("CLIENT", "FOURNISSEUR", "PRESTATAIRE", "INTERNE_EXCLUS")
 STATUSES = ("AUTORISE", "A_AUTORISER")
+
+
+def purge_duplicate_tier_workbooks(
+    root: str | os.PathLike[str] | None = None,
+) -> tuple[Path, ...]:
+    """Delete every duplicate tier workbook, keeping the single root file."""
+    base = (
+        Path(root)
+        if root is not None
+        else Path("workspace") / "document_flow" / "APD"
+    )
+    canonical = (base / TIER_REFERENCE_FILENAME).resolve()
+    removed: list[Path] = []
+    if not base.is_dir():
+        return ()
+    for path in base.rglob(f"{TIER_REFERENCE_FILENAME[:-5]}*.xlsx"):
+        if not path.is_file():
+            continue
+        if path.resolve() == canonical:
+            continue
+        try:
+            path.unlink()
+        except OSError:
+            continue
+        removed.append(path)
+    return tuple(removed)
 COLUMNS: tuple[str, ...] = (
     "Nom Officiel Canonique",
     "ALIAS à regrouper (séparés par ;)",
@@ -592,6 +611,7 @@ class TierReferenceService:
         elif write_missing and missing_seed:
             self.save_workbook()
         self.apply_alias_merges()
+        self.merge_known_duplicates()
         self._sync()
         return tuple(self._records.values())
 
@@ -780,6 +800,16 @@ class TierReferenceService:
                     break
         if not merges:
             return ()
+        gp_record = records.get("GP_AUTO_36_DP2C")
+        if gp_record is not None:
+            gp_aliases = tuple(
+                dict.fromkeys((*gp_record.aliases, "GP Auto 36, DP2C"))
+            )
+            if gp_aliases != gp_record.aliases:
+                records["GP_AUTO_36_DP2C"] = replace(
+                    gp_record, aliases=gp_aliases
+                )
+                deduped = True
         merged: list[str] = []
         for source, target in merges.items():
             source_record = records.get(source)
@@ -797,15 +827,19 @@ class TierReferenceService:
                 )
             if target_record is None:
                 continue
-            aliases = tuple(
-                dict.fromkeys(
-                    (
-                        *target_record.aliases,
-                        source,
-                        *source_record.aliases,
-                    )
-                )
-            )
+            alias_values: list[str] = []
+            seen_aliases: set[str] = set()
+            for alias in (
+                *target_record.aliases,
+                source,
+                *source_record.aliases,
+            ):
+                key = _fold(alias)
+                if not key or key in seen_aliases:
+                    continue
+                seen_aliases.add(key)
+                alias_values.append(alias)
+            aliases = tuple(alias_values)
             records[target_record.canonical] = replace(
                 target_record, aliases=aliases, rename_to=""
             )
@@ -826,6 +860,81 @@ class TierReferenceService:
         self._records = records
         self.save_workbook()
         self._sync()
+        return tuple(merged)
+
+    def merge_known_duplicates(self) -> tuple[str, ...]:
+        """Merge the director-known duplicates without losing any alias."""
+        merges: dict[str, str] = {
+            "LE_MARMARA": "RESTAURANTS_REPAS",
+            "LE_SAFARI": "RESTAURANTS_REPAS",
+            "MC_DO_SANILHAC": "RESTAURANTS_REPAS",
+            "SHANGHAI_WOK": "RESTAURANTS_REPAS",
+            "XIN_YI": "RESTAURANTS_REPAS",
+            "GP Auto 36, DP2C": "GP_AUTO_36_DP2C",
+        }
+        records = {record.canonical: record for record in self.records()}
+        deduped = False
+        for canonical, record in list(records.items()):
+            unique: list[str] = []
+            seen: set[str] = set()
+            for alias in record.aliases:
+                key = _fold(alias)
+                if not key or key in seen:
+                    continue
+                seen.add(key)
+                unique.append(alias)
+            if tuple(unique) != tuple(record.aliases):
+                records[canonical] = replace(record, aliases=tuple(unique))
+                deduped = True
+        gp_record = records.get("GP_AUTO_36_DP2C")
+        if gp_record is not None:
+            gp_aliases = tuple(
+                dict.fromkeys((*gp_record.aliases, "GP Auto 36, DP2C"))
+            )
+            if gp_aliases != gp_record.aliases:
+                records["GP_AUTO_36_DP2C"] = replace(
+                    gp_record, aliases=gp_aliases
+                )
+                deduped = True
+        merged: list[str] = []
+        for source, target in merges.items():
+            source_record = records.get(source)
+            if source_record is None:
+                continue
+            target_record = records.get(target)
+            if target_record is None:
+                continue
+            alias_values: list[str] = []
+            seen_aliases: set[str] = set()
+            for alias in (
+                *target_record.aliases,
+                source,
+                *source_record.aliases,
+            ):
+                key = _fold(alias)
+                if not key or key in seen_aliases:
+                    continue
+                seen_aliases.add(key)
+                alias_values.append(alias)
+            aliases = tuple(alias_values)
+            records[target] = replace(
+                target_record, aliases=aliases, rename_to=""
+            )
+            records.pop(source, None)
+            self._rename_sqlite(source, target)
+            delete = getattr(self._store, "delete_tier_reference", None)
+            if callable(delete):
+                try:
+                    delete(self._tenant_id, source)
+                except Exception:  # noqa: BLE001
+                    pass
+            for alias in (source, *source_record.aliases):
+                self._rename_sqlite(alias, target)
+            merged.append(source)
+        if merged or deduped:
+            self._records = records
+            self.save_workbook()
+            self._sync()
         return tuple(merged)
 
     def _rename_sqlite(self, source: str, target: str) -> None:
@@ -855,6 +964,7 @@ class TierReferenceService:
         path.parent.mkdir(parents=True, exist_ok=True)
         self._write_workbook(path)
         if path.resolve() == DEFAULT_TIER_REFERENCE_PATH.resolve():
+            purge_duplicate_tier_workbooks(path.parent)
             mirror = ROOT_TIER_REFERENCE_PATH
             if mirror.resolve() != path.resolve():
                 mirror.parent.mkdir(parents=True, exist_ok=True)
@@ -926,10 +1036,8 @@ class TierReferenceService:
                 try:
                     shutil.copy2(temporary, path)
                 except OSError:
-                    fallback = path.with_name(
-                        f"{path.stem}_MIS_A_JOUR{path.suffix}"
-                    )
-                    shutil.copy2(temporary, fallback)
+                    temporary.unlink(missing_ok=True)
+                    return
         finally:
             temporary.unlink(missing_ok=True)
 

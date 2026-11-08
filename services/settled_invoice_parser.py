@@ -98,6 +98,9 @@ _PAYMENT_MEANS = re.compile(
     r"[^\n\r]*",
     re.IGNORECASE,
 )
+_CREDIT_DOCUMENT = re.compile(
+    r"\bavoir\b|annulation|rembours", re.IGNORECASE
+)
 _FRENCH_DATE = re.compile(
     r"(\d{1,2})\s+(" + _MONTH_PATTERN + r")\s+(\d{4})", re.IGNORECASE
 )
@@ -130,6 +133,7 @@ class SettledInvoice:
     expense_subcategory: str | None = None
     source_filename: str = ""
     raw_text: str = field(default="", compare=False, repr=False)
+    is_credit_note: bool = False
 
     @property
     def line_id(self) -> str:
@@ -140,10 +144,18 @@ class SettledInvoice:
         )[:128]
 
     def as_ledger_line(self) -> dict[str, Any]:
-        label = (
-            f"Facture {self.supplier} {self.invoice_number} - Reglee "
-            f"({self.payment_method})"
-        )
+        if self.is_credit_note:
+            label = (
+                f"Avoir {self.supplier} {self.invoice_number} - "
+                f"Remboursement ({self.payment_method})"
+            )
+            document_type = "AVOIR"
+        else:
+            label = (
+                f"Facture {self.supplier} {self.invoice_number} - Reglee "
+                f"({self.payment_method})"
+            )
+            document_type = "FACTURE"
         return {
             "operation_date": (
                 self.invoice_date.isoformat() if self.invoice_date else None
@@ -156,12 +168,12 @@ class SettledInvoice:
             "amount_ht": str(self.total_ht.quantize(_CENT)),
             "amount_tva": str(self.total_tva.quantize(_CENT)),
             "amount_ttc": str(self.total_ttc.quantize(_CENT)),
-            "document_type": "FACTURE",
+            "document_type": document_type,
             "status": "VALIDE",
             "payment_method": self.payment_method,
             "payment_reference": self.payment_method,
             "due_date": self.due_date.isoformat() if self.due_date else None,
-            "already_paid_on_invoice": "1",
+            "already_paid_on_invoice": "0" if self.is_credit_note else "1",
             "balance_due": "0.00",
         }
 
@@ -292,6 +304,7 @@ def parse_settled_invoice(
     if detected is None:
         raise SettledInvoiceError("NOT_SETTLED_INVOICE", name)
     selected = detected.upper()
+    is_credit_note = bool(_CREDIT_DOCUMENT.search(_fold(text)))
     invoice_number = ""
     invoice_date: date | None = None
     boxtal = _INVOICE_BOXTAL.search(_fold(text))
@@ -353,6 +366,10 @@ def parse_settled_invoice(
     if selected.startswith("FREE"):
         category = CATEGORY_FRAIS_GENERAUX
         subcategory = SUBCATEGORY_TELECOM
+    if is_credit_note:
+        total_ht = -abs(total_ht)
+        total_tva = -abs(total_tva)
+        total_ttc = -abs(total_ttc)
     return SettledInvoice(
         supplier=selected,
         invoice_number=invoice_number,
@@ -361,7 +378,7 @@ def parse_settled_invoice(
         total_tva=total_tva,
         total_ttc=total_ttc,
         net_to_pay=net_to_pay,
-        already_paid_on_invoice=True,
+        already_paid_on_invoice=not is_credit_note,
         payment_method=_payment_method(text),
         payment_date=payment_date,
         due_date=invoice_date,
@@ -369,6 +386,7 @@ def parse_settled_invoice(
         expense_subcategory=subcategory,
         source_filename=name,
         raw_text=text,
+        is_credit_note=is_credit_note,
     )
 
 

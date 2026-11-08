@@ -279,10 +279,10 @@ def test_pdf_links_use_local_hyperlink_formula(tmp_path):
     payment = next(
         row for row in sheet.iter_rows(min_row=2) if row[1].value == "PAIEMENT"
     )
-    assert payment[9].hyperlink is not None
+    assert payment[13].hyperlink is not None
     assert (
         "PIECES_JOINTES/VENTES/FA16423_2026-01-31_CARROSSERIE_YUCELL.pdf"
-        in str(payment[9].hyperlink.target)
+        in str(payment[13].hyperlink.target)
     )
 
 

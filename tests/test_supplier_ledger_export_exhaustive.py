@@ -117,15 +117,26 @@ def sheet_of(path: Path, title: str | None = None):
 def ledger_rows(sheet) -> list[tuple]:
     rows: list[tuple] = []
     for row in range(2, sheet.max_row + 1):
-        if sheet.cell(row=row, column=1).value == "TOTAL":
+        value = sheet.cell(row=row, column=1).value
+        if isinstance(value, str) and value.startswith(
+            ("TOTAL PIÈCES", "TOTAL PI")
+        ):
             break
-        rows.append(tuple(sheet.cell(row=row, column=column).value for column in range(1, 9)))
+        rows.append(
+            tuple(
+                sheet.cell(row=row, column=column).value
+                for column in range(1, 15)
+            )
+        )
     return rows
 
 
 def total_row_of(sheet) -> int:
     for row in range(2, sheet.max_row + 1):
-        if sheet.cell(row=row, column=1).value == "TOTAL":
+        value = sheet.cell(row=row, column=1).value
+        if isinstance(value, str) and value.startswith(
+            ("TOTAL PIÈCES", "TOTAL PI")
+        ):
             return row
     raise AssertionError("TOTAL row not found")
 
@@ -172,19 +183,22 @@ def test_workbook_columns_title_and_layout(tmp_path):
     assert tuple(cell.value for cell in sheet[1]) == SUPPLIER_LEDGER_COLUMNS
     assert sheet.freeze_panes == "A2"
     assert list(sheet.merged_cells.ranges) == []
-    assert sheet.auto_filter.ref == "A1:H3"
+    assert sheet.auto_filter.ref == "A1:N3"
     rows = ledger_rows(sheet)
     assert len(rows) == 2
     assert rows[0][1] == "FACTURE"
     assert rows[0][2] == "F1"
     assert rows[0][3] == "Piece F1"
-    assert rows[0][4] == 0.0
-    assert rows[0][5] == 100.0
-    assert rows[0][7] == "NON_LETTRE"
+    assert rows[0][4] == 100.0
+    assert rows[0][5] == 0.0
+    assert rows[0][7] == 100.0
+    assert rows[0][8] == 0
+    assert rows[0][9] == 0
+    assert rows[0][11] == "NON_LETTRE"
     assert rows[1][1] == "PAIEMENT"
-    assert rows[1][4] == 100.0
-    assert rows[1][5] == 0.0
-    assert rows[1][7] == "A_RAPPROCHER"
+    assert rows[1][8] == 100.0
+    assert rows[1][9] == 0.0
+    assert rows[1][11] == "A_RAPPROCHER"
 
 
 def test_balance_formulas_totals_and_equilibrium_marker(tmp_path):
@@ -200,22 +214,23 @@ def test_balance_formulas_totals_and_equilibrium_marker(tmp_path):
         "AVOIR",
         "PAIEMENT",
     ]
-    assert [row[4] for row in ledger_rows(sheet)] == [0.0, 0.0, 30.0, 120.0]
-    assert [row[5] for row in ledger_rows(sheet)] == [100.0, 50.0, 0.0, 0.0]
-    assert sheet["G2"].value == "=F2-E2"
-    assert sheet["G3"].value == "=G2+F3-E3"
-    assert sheet["G4"].value == "=G3+F4-E4"
-    assert sheet["G5"].value == "=G4+F5-E5"
+    assert [row[7] for row in ledger_rows(sheet)] == [100.0, 50.0, -30.0, 0.0]
+    assert [row[8] for row in ledger_rows(sheet)] == [0.0, 0.0, 0.0, 120.0]
+    assert [row[9] for row in ledger_rows(sheet)] == [0.0, 0.0, 0.0, 0.0]
+    assert sheet["K2"].value == "=J2-I2"
+    assert sheet["K3"].value == "=K2+J3-I3"
+    assert sheet["K4"].value == "=K3+J4-I4"
+    assert sheet["K5"].value == "=K4+J5-I5"
     total = total_row_of(sheet)
-    assert sheet.cell(row=total, column=1).value == "TOTAL"
+    assert sheet.cell(row=total, column=1).value.startswith("TOTAL PI")
     assert sheet.cell(row=total, column=5).value == "=SUM(E2:E5)"
     assert sheet.cell(row=total, column=6).value == "=SUM(F2:F5)"
-    assert sheet.cell(row=total, column=7).value == "=G5"
-    assert sheet["G5"].comment is not None
-    assert sheet["G5"].comment.text == "Point d'équilibre"
-    assert str(sheet["G5"].fill.fgColor.rgb).endswith("C6EFCE")
-    assert sheet.cell(row=total, column=7).comment is not None
-    assert equilibrium_line(sheet) == "Points d'équilibre : 5"
+    assert sheet.cell(row=total, column=8).value == "=SUM(H2:H5)"
+    assert sheet.cell(row=total + 1, column=9).value == "=SUM(I2:I5)"
+    assert sheet.cell(row=total + 1, column=10).value == "=SUM(J2:J5)"
+    assert sheet.cell(row=total + 1, column=11).value == "=K5"
+    assert sheet.cell(row=total + 1, column=11).comment is None
+    assert equilibrium_line(sheet).startswith("Aucun point")
 
 
 def test_store_query_returns_documents_and_bank_candidates(tmp_path):
@@ -251,8 +266,9 @@ def test_credit_note_type_and_negative_amount_both_go_to_debit(tmp_path):
     add_document(store, "INV-1", day="2026-01-03", ttc="50.00")
     rows = ledger_rows(sheet_of(export(store, tmp_path)))
     assert [row[1] for row in rows] == ["AVOIR", "AVOIR", "FACTURE"]
-    assert [row[4] for row in rows] == [25.0, 10.0, 0.0]
-    assert [row[5] for row in rows] == [0.0, 0.0, 50.0]
+    assert [row[4] for row in rows] == [-25.0, -10.0, 50.0]
+    assert [row[7] for row in rows] == [-25.0, -10.0, 50.0]
+    assert [row[8] for row in rows] == [0.0, 0.0, 0.0]
     assert rows[0][2] == "CN-1"
     assert rows[1][2] == "NEG-1"
     assert rows[2][2] == "INV-1"
@@ -399,7 +415,7 @@ def test_empty_ledger_creates_a_placeholder_sheet(tmp_path):
     sheet = workbook.active
     assert tuple(cell.value for cell in sheet[1]) == SUPPLIER_LEDGER_COLUMNS
     assert ledger_rows(sheet) == []
-    assert sheet["A2"].value == "TOTAL"
+    assert sheet["A2"].value.startswith("TOTAL PI")
 
 
 def test_invalid_tenant_is_rejected(tmp_path):
@@ -456,9 +472,9 @@ def test_matched_documents_are_excluded_from_the_open_pool(tmp_path):
     assert rows[0][6] == 100.0
     ledger = ledger_rows(sheet_of(export(store, tmp_path, name="other.xlsx")))
     by_reference = {row[2]: row for row in ledger}
-    assert by_reference["F1"][7] == "LETTRE"
-    assert by_reference["PAY-1"][7] == "RAPPROCHE"
-    assert by_reference["PAY-2"][7] == "A_RAPPROCHER"
+    assert by_reference["F1"][11] == "LETTRE"
+    assert by_reference["PAY-1"][11] == "RAPPROCHE"
+    assert by_reference["PAY-2"][11] == "A_RAPPROCHER"
 
 
 def test_residual_delta_identifies_a_missing_credit_note(tmp_path):
@@ -523,10 +539,10 @@ def test_supplier_refund_is_a_credit_line_without_diagnostic(tmp_path):
     add_payment(store, "REF-1", day="2026-01-11", amount="50.00", credit=True)
     sheet = sheet_of(export(store, tmp_path))
     rows = ledger_rows(sheet)
-    assert [row[1] for row in rows] == ["FACTURE", "PAIEMENT"]
-    assert rows[1][4] == 0.0
-    assert rows[1][5] == 50.0
-    assert rows[1][7] == "A_RAPPROCHER"
+    assert [row[1] for row in rows] == ["FACTURE", "AVOIR_REMBOURSEMENT"]
+    assert rows[1][8] == 0.0
+    assert rows[1][9] == 50.0
+    assert rows[1][11] == "A_RAPPROCHER"
     assert diagnostic_rows(sheet) == []
 
 

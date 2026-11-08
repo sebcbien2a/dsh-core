@@ -913,6 +913,15 @@ class SqliteAccountingStore:
             ).fetchone()
         return dict(row) if row is not None else None
 
+    def delete_tier_reference(self, tenant_id: str, canonical: str) -> bool:
+        validate_tenant_id(tenant_id)
+        with closing(self._connect()) as conn, conn:
+            cursor = conn.execute(
+                "DELETE FROM tier_reference WHERE tenant_id = ? AND canonical = ?",
+                (tenant_id, str(canonical)),
+            )
+            return cursor.rowcount > 0
+
     def arbitrate(self, tenant_id: str, line_id: str, decision: dict[str, Any]) -> None:
         """Persist the HITL decision for a line, atomically and only once."""
         validate_tenant_id(tenant_id)

@@ -37,7 +37,7 @@ from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
@@ -806,6 +806,21 @@ class VatSimulationService:
             report.tenant_id, report.year, self._export_dir
         )
         _write_ca12_workbook(report, target)
+        try:
+            from services.accounting_spreadsheet_export_service import (
+                write_vat_3way_control_sheet,
+            )
+
+            workbook = load_workbook(target)
+            try:
+                write_vat_3way_control_sheet(
+                    workbook, self._store, report.tenant_id
+                )
+                _atomic_save_workbook(workbook, target)
+            finally:
+                workbook.close()
+        except Exception:  # noqa: BLE001 - control sheet never blocks CA12
+            pass
         return target
 
 

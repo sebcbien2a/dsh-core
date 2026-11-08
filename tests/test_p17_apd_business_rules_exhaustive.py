@@ -1265,7 +1265,7 @@ def test_personal_expense_is_validated_without_pro_bank_match(tmp_path):
     ws = load_workbook(ledger).active
     entry = [cell.value for cell in ws[2]]
     assert entry[1] == "FACTURE"
-    assert entry[7] == "HORS_PERIMETRE"
+    assert entry[11] == "HORS_PERIMETRE"
     text = " ".join(
         str(cell.value or "")
         for row in ws.iter_rows()

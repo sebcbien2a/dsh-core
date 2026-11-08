@@ -111,7 +111,11 @@ def main(argv: list[str] | None = None) -> int:
             f"Connexion IMAP {GMAIL_HOST}:{GMAIL_PORT} ...", flush=True
         )
         service = GmailImapSyncService(
-            args.tenant, store=store, root=args.root
+            args.tenant,
+            store=store,
+            root=args.root,
+            classify_messages=True,
+            ingest_for_classification=True,
         )
         _print_sync_report(service.sync())
 

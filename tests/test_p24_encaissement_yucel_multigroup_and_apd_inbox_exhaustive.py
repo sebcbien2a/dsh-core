@@ -231,7 +231,7 @@ def test_client_ledger_yucel_and_bank_mirror_counterparty(tmp_path):
     assert tuple(cell.value for cell in sheet[1]) == CLIENT_LEDGER_COLUMNS
     rows = [row for row in sheet.iter_rows(min_row=2, values_only=True)]
     assert any(row[1] == "FACTURE" and row[2] == "FA16406" for row in rows)
-    assert any(row[1] == "PAIEMENT" and row[5] == 2013.32 for row in rows)
+    assert any(row[1] == "PAIEMENT" and row[9] == 2013.32 for row in rows)
     workbook.close()
 
     master = MasterTableExporter(

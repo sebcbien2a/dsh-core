@@ -604,6 +604,7 @@ def test_export_creates_expected_workbook_and_sheets(tmp_path):
         CA12_DETAIL_B_SHEET,
         CA12_DEFERRED_SHEET,
         CA12_INCOMING_SHEET,
+        "CONTROLE_TVA_3_NIVEAUX",
     ]
     assert workbook[CA12_OUTPUT_SHEET]["A1"].value == "Rubrique"
     values = comparison_map(expected)

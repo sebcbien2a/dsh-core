@@ -19,6 +19,7 @@ import hashlib
 import os
 import re
 import shutil
+import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
@@ -34,12 +35,38 @@ from services.email_inbox_bridge import (
     ImapMailClient,
     MailClient,
 )
-from services.folder_tree_service import ensure_tree
+from services.bank_reconciliation_service import (
+    contains_client_invoice_reference,
+    is_remise_encaissement,
+)
+from services.folder_tree_service import (
+    GED_AVOIRS_CLIENTS,
+    GED_AVOIRS_FOURNISSEURS,
+    GED_FACTURES_CLIENTS,
+    GED_FACTURES_FOURNISSEURS,
+    GED_LISTES_ET_BORDEREAUX,
+    GED_SUBDIRS,
+    ensure_tree,
+)
 from services.sqlite_accounting_store import SqliteAccountingStore
 
 GMAIL_HOST = "imap.gmail.com"
 GMAIL_PORT = 993
 DEFAULT_TENANT = "APD"
+MAIL_FACTURES_FOURNISSEURS = f"{APD_MAILBOX_PREFIX}FACTURES_FOURNISSEURS_TRAITEES"
+MAIL_FACTURES_CLIENTS = f"{APD_MAILBOX_PREFIX}FACTURES_CLIENTS_TRAITEES"
+MAIL_AVOIRS_FOURNISSEURS = f"{APD_MAILBOX_PREFIX}AVOIRS_FOURNISSEURS_TRAITES"
+MAIL_AVOIRS_CLIENTS = f"{APD_MAILBOX_PREFIX}AVOIRS_CLIENTS_TRAITES"
+MAIL_LISTES = f"{APD_MAILBOX_PREFIX}LISTES_TRAITEES"
+MAIL_PENDING = f"{APD_MAILBOX_PREFIX}02_A_COMPLETER"
+CLASSIFICATION_FOLDERS: dict[str, str] = {
+    GED_FACTURES_FOURNISSEURS: MAIL_FACTURES_FOURNISSEURS,
+    GED_FACTURES_CLIENTS: MAIL_FACTURES_CLIENTS,
+    GED_AVOIRS_FOURNISSEURS: MAIL_AVOIRS_FOURNISSEURS,
+    GED_AVOIRS_CLIENTS: MAIL_AVOIRS_CLIENTS,
+    GED_LISTES_ET_BORDEREAUX: MAIL_LISTES,
+}
+LOCAL_GED_FOLDERS = GED_SUBDIRS
 SPAM_FOLDERS: tuple[str, ...] = (
     "[Gmail]/Spam",
     "[Gmail]/Junk",
@@ -75,6 +102,7 @@ FOLDER_LIMITS = {
     "Spam": 10,
     "Junk": 10,
     f"{APD_MAILBOX_PREFIX}00_INBOX": DEFAULT_MESSAGE_LIMIT,
+    f"{APD_MAILBOX_PREFIX}02_A_COMPLETER": 30,
 }
 MISSING_PDF_INVOICES: tuple[tuple[str, str, str], ...] = (
     ("FA16339", "SALE-FA16339", "VENTES"),
@@ -158,6 +186,8 @@ class GmailImapSyncService:
         bridge: EmailInboxBridge | None = None,
         enabled: bool | None = None,
         message_limit: int | None = None,
+        classify_messages: bool = True,
+        ingest_for_classification: bool = False,
     ) -> None:
         self._tenant_id = tenant_id
         self._tree = ensure_tree(tenant_id, root)
@@ -171,6 +201,12 @@ class GmailImapSyncService:
         self._bridge = bridge
         self._enabled = enabled
         self._message_limit = self._resolve_message_limit(message_limit)
+        self._classify_messages = bool(classify_messages)
+        self._ingest_for_classification = bool(ingest_for_classification)
+        for subdir in LOCAL_GED_FOLDERS:
+            (self._tree.state_dir(FolderState.VALIDE_PRET_FEC) / subdir).mkdir(
+                parents=True, exist_ok=True
+            )
 
     @staticmethod
     def _resolve_message_limit(value: int | None) -> int:
@@ -217,6 +253,7 @@ class GmailImapSyncService:
             INBOX_FOLDER,
             *SPAM_FOLDERS,
             f"{APD_MAILBOX_PREFIX}00_INBOX",
+            MAIL_PENDING,
         )
 
     def _store_has_validated_digest(self, digest: str) -> bool:
@@ -243,20 +280,186 @@ class GmailImapSyncService:
         limit = FOLDER_LIMITS.get(folder, self._message_limit)
         limit = min(limit, self._message_limit)
         if isinstance(client, ImapMailClient):
-            return client.list_messages(folder, limit=limit)
+            try:
+                return client.list_messages(folder, limit=limit)
+            except Exception:
+                # Gmail throttles long sessions: reconnect once for this folder.
+                client.reset()
+                return client.list_messages(folder, limit=limit)
         return client.list_messages(folder)
+
+    def _ensure_classification_folders(self, client: MailClient) -> tuple[str, ...]:
+        folders = (*CLASSIFICATION_FOLDERS.values(), MAIL_PENDING)
+        for folder in folders:
+            try:
+                client.ensure_folder(folder)
+            except Exception:  # noqa: BLE001 - folder creation is best effort
+                continue
+        return folders
+
+    def _line_for_digest(self, digest: str) -> dict[str, Any] | None:
+        if self._store is None:
+            return None
+        try:
+            from services.acompleter_workbook_service import derive_document_id
+
+            return self._store.get_line(
+                self._tenant_id, derive_document_id(digest)
+            )
+        except Exception:  # noqa: BLE001 - classification is best effort
+            return None
+
+    @staticmethod
+    def _fold(value: Any) -> str:
+        text = unicodedata.normalize("NFKD", str(value or ""))
+        text = "".join(char for char in text if not unicodedata.combining(char))
+        return re.sub(r"\s+", " ", text).strip().casefold()
+
+    def _category_from_line(self, line: dict[str, Any] | None) -> str | None:
+        if line is None:
+            return None
+        document_type = str(line.get("document_type") or "").upper()
+        category = str(line.get("category") or "").upper()
+        invoice_number = str(line.get("invoice_id") or "")
+        label = str(line.get("label") or "")
+        if "AVOIR" in document_type or "CREDIT_NOTE" in document_type:
+            if category == DocumentCategory.VENTES_CLIENTS.value or contains_client_invoice_reference(
+                invoice_number, label
+            ):
+                return GED_AVOIRS_CLIENTS
+            return GED_AVOIRS_FOURNISSEURS
+        if category == DocumentCategory.BANQUE_FINANCE.value or document_type in {
+            "OFX",
+            "QFX",
+            "SOURCE_OFX",
+            "BORDEREAU",
+            "BORDEREAU_LCR",
+            "LCR_REMITTANCE",
+            "LCR_SUB_PAYMENT",
+            "SOURCE_SAGE",
+        }:
+            return GED_LISTES_ET_BORDEREAUX
+        if contains_client_invoice_reference(invoice_number, label):
+            return GED_FACTURES_CLIENTS
+        if category == DocumentCategory.VENTES_CLIENTS.value:
+            return GED_FACTURES_CLIENTS
+        return GED_FACTURES_FOURNISSEURS
+
+    def _category_from_name(self, name: str, subject: str = "") -> str:
+        text = self._fold(f"{subject} {name}")
+        if "avoir" in text:
+            if "client" in text or contains_client_invoice_reference(name, subject):
+                return GED_AVOIRS_CLIENTS
+            return GED_AVOIRS_FOURNISSEURS
+        if any(
+            marker in text
+            for marker in (
+                "factures client",
+                "facture client",
+                "factures clients",
+                "vente client",
+                "fa1",
+            )
+        ) or contains_client_invoice_reference(name, subject):
+            return GED_FACTURES_CLIENTS
+        if any(
+            marker in text
+            for marker in (
+                "import banque",
+                "releve",
+                "relevé",
+                "bordereau",
+                "lcr",
+                "remise",
+                "ofx",
+                "listing",
+                "liste",
+            )
+        ):
+            return GED_LISTES_ET_BORDEREAUX
+        if Path(name).suffix.casefold() in {".ofx", ".qfx", ".csv", ".xml"}:
+            return GED_LISTES_ET_BORDEREAUX
+        return GED_FACTURES_FOURNISSEURS
+
+    def _classify_message(
+        self, message: EmailMessage, staged_paths: tuple[Path, ...] = ()
+    ) -> tuple[str, bool]:
+        """Return ``(GED subdir, pending)`` for one mail and its attachments."""
+        pending = False
+        categories: list[str] = []
+        staged_by_name = {path.name.casefold(): path for path in staged_paths}
+        for attachment in message.attachments:
+            if attachment.suffix not in SUPPORTED_SUFFIXES:
+                continue
+            digest = hashlib.sha256(attachment.content).hexdigest()
+            line = self._line_for_digest(digest)
+            if line is None and staged_paths:
+                safe_name = _safe_filename(attachment.filename).casefold()
+                for name, path in staged_by_name.items():
+                    if name.startswith(Path(safe_name).stem.casefold()):
+                        if not path.is_file():
+                            continue
+                        line = self._line_for_digest(
+                            hashlib.sha256(path.read_bytes()).hexdigest()
+                        )
+                        break
+            if line is not None:
+                status = str(
+                    line.get("raw_status") or line.get("status") or ""
+                ).upper()
+                if status == DocumentStatus.EN_ATTENTE.value:
+                    pending = True
+                category = self._category_from_line(line)
+                if category:
+                    categories.append(category)
+            else:
+                categories.append(
+                    self._category_from_name(attachment.filename, message.subject)
+                )
+        if pending:
+            return MAIL_PENDING, True
+        if not categories:
+            if str(message.folder or "").strip().upper() == MAIL_PENDING.upper():
+                return MAIL_LISTES, False
+            return MAIL_PENDING, False
+        for preferred in (
+            GED_LISTES_ET_BORDEREAUX,
+            GED_AVOIRS_CLIENTS,
+            GED_AVOIRS_FOURNISSEURS,
+            GED_FACTURES_CLIENTS,
+            GED_FACTURES_FOURNISSEURS,
+        ):
+            if preferred in categories:
+                return CLASSIFICATION_FOLDERS[preferred], False
+        return CLASSIFICATION_FOLDERS[GED_FACTURES_FOURNISSEURS], False
+
+    def _ingest_staged_for_classification(self, paths: Iterable[Path]) -> None:
+        if self._store is None or not self._ingest_for_classification:
+            return
+        selected = [path for path in paths if path.is_file()]
+        if not selected:
+            return
+        try:
+            from services.inbox_ingestion_service import InboxIngestionService
+
+            InboxIngestionService(
+                self._tenant_id, self._store, self._tree.root
+            ).process_inbox(selected)
+        except Exception:  # noqa: BLE001 - classification is best effort
+            return
 
     def _stage_attachments(
         self, messages: Iterable[EmailMessage]
-    ) -> tuple[int, int, int, list[Path], set[str]]:
+    ) -> tuple[int, int, int, list[Path], dict[str, tuple[Path, ...]]]:
         staged = 0
         ignored = 0
         duplicates = 0
         paths: list[Path] = []
-        aspirated: set[str] = set()
+        staged_by_message: dict[str, tuple[Path, ...]] = {}
         seen_digests: set[str] = set()
         self._inbox.mkdir(parents=True, exist_ok=True)
         for message in messages:
+            message_paths: list[Path] = []
             for attachment in message.attachments:
                 if attachment.suffix not in SUPPORTED_SUFFIXES or not attachment.content:
                     ignored += 1
@@ -279,9 +482,11 @@ class GmailImapSyncService:
                     index += 1
                 target.write_bytes(attachment.content)
                 paths.append(target)
-                aspirated.add(message.message_id)
+                message_paths.append(target)
                 staged += 1
-        return staged, ignored, duplicates, paths, aspirated
+            if message_paths:
+                staged_by_message[message.message_id] = tuple(message_paths)
+        return staged, ignored, duplicates, paths, staged_by_message
 
     def _candidate_pdfs(self) -> list[Path]:
         candidates: list[Path] = []
@@ -345,46 +550,48 @@ class GmailImapSyncService:
         return tuple(attached), tuple(missing)
 
     def _sync_labels(
-        self, client: MailClient, messages: Iterable[EmailMessage]
-    ) -> tuple[int, int]:
-        """Label every aspirated mail, then archive it out of the INBOX.
+        self,
+        client: MailClient,
+        messages: Iterable[EmailMessage],
+        staged_by_message: dict[str, tuple[Path, ...]] | None = None,
+    ) -> tuple[int, int, list[tuple[str, str]]]:
+        """Move every processed mail into one of the 5 APD folders.
 
-        A Gmail ``MOVE`` from ``INBOX`` to ``APD/02_A_COMPLETER`` both adds the
-        destination label and removes ``\\Inbox`` in one round-trip, which keeps
-        the visible counter decreasing without an extra ``STORE/EXPUNGE``. Fake
-        clients used offline keep their historical ``move_message`` behaviour.
+        ``APD/02_A_COMPLETER`` is used only when at least one attachment is
+        still ``EN_ATTENTE``. Every other message is moved to its definitive
+        GED folder, which removes it from ``INBOX`` and from the temporary
+        ``APD/02_A_COMPLETER`` label through the IMAP ``MOVE`` / label-removal
+        fallback implemented by :class:`ImapMailClient`.
         """
         synced = 0
         archived = 0
+        moves: list[tuple[str, str]] = []
+        staged_by_message = staged_by_message or {}
+        if self._classify_messages:
+            self._ensure_classification_folders(client)
         for message in messages:
-            target = f"{APD_MAILBOX_PREFIX}02_A_COMPLETER"
+            staged = staged_by_message.get(message.message_id, ())
+            if self._classify_messages:
+                target, _pending = self._classify_message(message, staged)
+            else:
+                target = MAIL_PENDING
             source = str(message.folder or "").strip()
-            is_inbox = source.upper() == INBOX_FOLDER
-            apply_label = getattr(client, "apply_label", None)
+            if not target or target.casefold() == source.casefold():
+                continue
+            if not self._classify_messages and not staged:
+                continue
             try:
-                if is_inbox:
-                    client.move_message(message.message_id, source, target)
-                    synced += 1
-                    archived += 1
-                elif callable(apply_label):
-                    apply_label(message.message_id, source, target)
-                    synced += 1
-                else:
-                    client.move_message(message.message_id, source, target)
-                    synced += 1
-            except Exception:  # noqa: BLE001 - label sync is best effort
-                if not is_inbox:
-                    continue
-                archive = getattr(client, "archive_message", None)
-                if not callable(archive):
-                    continue
-                try:
-                    archive(message.message_id, source)
-                    synced += 1
-                    archived += 1
-                except Exception:  # noqa: BLE001
-                    continue
-        return synced, archived
+                client.move_message(message.message_id, source, target)
+            except Exception:  # noqa: BLE001 - one mail never blocks the sync
+                continue
+            synced += 1
+            if source.upper() in {
+                INBOX_FOLDER,
+                MAIL_PENDING.upper(),
+            }:
+                archived += 1
+            moves.append((source, target))
+        return synced, archived, moves
 
     def sync(self) -> GmailSyncReport:
         if self._message_limit == 0:
@@ -414,16 +621,26 @@ class GmailImapSyncService:
                 continue
             scanned_folders.append(folder)
             messages.extend(folder_messages)
-        staged, ignored, duplicates, _paths, aspirated = self._stage_attachments(
-            messages
+        staged, ignored, duplicates, staged_paths, staged_by_message = (
+            self._stage_attachments(messages)
         )
+        self._ingest_staged_for_classification(staged_paths)
         attached, missing = self._attach_missing_pdfs()
-        aspirated_messages = [
+        candidates = [
             message
             for message in messages
-            if message.message_id in aspirated
+            if message.message_id in staged_by_message
+            or any(
+                attachment.suffix in SUPPORTED_SUFFIXES
+                for attachment in message.attachments
+            )
+            or str(message.folder or "").strip().upper() == MAIL_PENDING.upper()
         ]
-        labels, archived = self._sync_labels(client, aspirated_messages)
+        if isinstance(client, ImapMailClient):
+            client.reset()
+        labels, archived, _moves = self._sync_labels(
+            client, candidates, staged_by_message
+        )
         return GmailSyncReport(
             connected=True,
             folders=tuple(scanned_folders),
@@ -440,10 +657,18 @@ class GmailImapSyncService:
 
 
 __all__ = [
+    "CLASSIFICATION_FOLDERS",
     "GMAIL_HOST",
     "GMAIL_PORT",
     "GmailImapSyncService",
     "GmailSyncReport",
+    "LOCAL_GED_FOLDERS",
+    "MAIL_AVOIRS_CLIENTS",
+    "MAIL_AVOIRS_FOURNISSEURS",
+    "MAIL_FACTURES_CLIENTS",
+    "MAIL_FACTURES_FOURNISSEURS",
+    "MAIL_LISTES",
+    "MAIL_PENDING",
     "MISSING_CREDENTIALS_WARNING",
     "MISSING_PDF_INVOICES",
     "SPAM_FOLDERS",
