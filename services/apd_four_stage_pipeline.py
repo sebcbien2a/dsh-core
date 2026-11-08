@@ -1165,12 +1165,24 @@ class ApdFourStagePipeline:
 
     def stage1_vision_and_mother_table(self) -> StageReport:
         from services.accounting_cleanup_service import run_cleanup
+        from services.apd_p27quinquies_repair_service import (
+            repair_p27quinquies,
+        )
         from services.boxtal_paintcar_repair_service import (
             repair_boxtal_and_paintcar,
         )
 
         try:
             repair_boxtal_and_paintcar(
+                self._store,
+                self._tenant_id,
+                self._tenant_dir,
+                self._export_dir,
+            )
+        except Exception:  # noqa: BLE001 - repair never blocks stage 1
+            pass
+        try:
+            repair_p27quinquies(
                 self._store,
                 self._tenant_id,
                 self._tenant_dir,
@@ -2161,6 +2173,19 @@ class ApdFourStagePipeline:
 
     def stage3_ventilation_and_coherence(self) -> StageReport:
         human_applied = self.apply_human_decisions()
+        try:
+            from services.apd_p27quinquies_repair_service import (
+                repair_p27quinquies,
+            )
+
+            repair_p27quinquies(
+                self._store,
+                self._tenant_id,
+                self._tenant_dir,
+                self._export_dir,
+            )
+        except Exception:  # noqa: BLE001 - repair never blocks stage 3
+            pass
         repaired = self._repair_piece_links()
         self._write_readable_views()
         workbooks = self._refresh_workbooks()

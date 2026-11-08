@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-11-08T17:24:14.219256+00:00",
+  "updated_at": "2026-11-08T21:46:49.562770+00:00",
   "groups": {
     "PAINTCAR": {
       "canonical": "PAINTCAR",
@@ -224,7 +224,12 @@
     "SHANGHAI_WOK": "RESTAURANTS_REPAS",
     "XIN_YI": "RESTAURANTS_REPAS",
     "O WOK": "O_WOK",
-    "TAO FUSION": "TAO_FUSION"
+    "TAO FUSION": "TAO_FUSION",
+    "NOVO RESINE": "OLIVIER_HOUALET",
+    "Novo Résine": "OLIVIER_HOUALET",
+    "Mairie de AFA": "MAIRIE_DE_AFA",
+    "GOOGLE*GOOGLE O": "GOOGLE_GOOGLE_O",
+    "UBER *EATS HELP": "UBER_EATS_HELP"
   },
   "suppliers": {
     "LIDL": {
@@ -1030,7 +1035,8 @@
       "category": "VENTES_CLIENTS",
       "subcategory": "",
       "aliases": [
-        "OLIVIER HOUALET"
+        "OLIVIER HOUALET",
+        "NOVO RESINE"
       ],
       "prefixes": [],
       "payment_method": "",
@@ -1213,6 +1219,51 @@
       "subcategory": "RESTAURATION",
       "aliases": [
         "TAO FUSION"
+      ],
+      "prefixes": [],
+      "payment_method": "",
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
+    },
+    "MAIRIE_DE_AFA": {
+      "canonical": "MAIRIE_DE_AFA",
+      "role": "CLIENT",
+      "category": "VENTES_CLIENTS",
+      "subcategory": "",
+      "aliases": [
+        "Mairie de AFA"
+      ],
+      "prefixes": [],
+      "payment_method": "",
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
+    },
+    "GOOGLE_GOOGLE_O": {
+      "canonical": "GOOGLE_GOOGLE_O",
+      "role": "FOURNISSEUR",
+      "category": "ACHATS_MARCHANDISES",
+      "subcategory": "",
+      "aliases": [
+        "GOOGLE*GOOGLE O"
+      ],
+      "prefixes": [],
+      "payment_method": "",
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
+    },
+    "UBER_EATS_HELP": {
+      "canonical": "UBER_EATS_HELP",
+      "role": "FOURNISSEUR",
+      "category": "FRAIS_GENERAUX",
+      "subcategory": "RESTAURATION",
+      "aliases": [
+        "UBER *EATS HELP"
       ],
       "prefixes": [],
       "payment_method": "",
@@ -1599,6 +1650,45 @@
       "report": "NON",
       "decision": "VALIDE",
       "learned_at": "2026-11-08T05:59:28.419408+00:00"
+    },
+    {
+      "counterparty": "Mairie de AFA",
+      "canonical": "MAIRIE_DE_AFA",
+      "document_number": "",
+      "category": "",
+      "payment_source": "",
+      "counterparty_account": "",
+      "fiscal_year_target": "",
+      "deferred_month": "",
+      "report": "",
+      "decision": "VALIDE",
+      "learned_at": "2026-11-08T20:58:36.841366+00:00"
+    },
+    {
+      "counterparty": "GOOGLE*GOOGLE O",
+      "canonical": "GOOGLE_GOOGLE_O",
+      "document_number": "",
+      "category": "",
+      "payment_source": "",
+      "counterparty_account": "",
+      "fiscal_year_target": "",
+      "deferred_month": "",
+      "report": "",
+      "decision": "VALIDE",
+      "learned_at": "2026-11-08T20:58:45.069855+00:00"
+    },
+    {
+      "counterparty": "UBER *EATS HELP",
+      "canonical": "RESTAURANTS_REPAS",
+      "document_number": "",
+      "category": "",
+      "payment_source": "",
+      "counterparty_account": "",
+      "fiscal_year_target": "",
+      "deferred_month": "",
+      "report": "",
+      "decision": "VALIDE",
+      "learned_at": "2026-11-08T20:58:51.751386+00:00"
     }
   ]
 }

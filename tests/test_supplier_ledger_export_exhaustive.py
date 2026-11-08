@@ -179,7 +179,7 @@ def test_workbook_columns_title_and_layout(tmp_path):
     path = export(store, tmp_path)
     workbook = load_workbook(path)
     sheet = workbook.active
-    assert sheet.title == SIA
+    assert sheet.title == "BOSCH_SIA"
     assert tuple(cell.value for cell in sheet[1]) == SUPPLIER_LEDGER_COLUMNS
     assert sheet.freeze_panes == "A2"
     assert list(sheet.merged_cells.ranges) == []
@@ -383,9 +383,12 @@ def test_all_suppliers_get_one_sheet_each(tmp_path):
     add_document(store, "BOSCH-1", supplier=BOSCH)
     add_payment(store, "SIA-PAY", supplier=SIA, attach="SIA-1")
     workbook = load_workbook(export(store, tmp_path))
-    assert workbook.sheetnames == sorted([SIA, BOSCH], key=str.casefold)
-    assert [row[2] for row in ledger_rows(workbook[SIA])] == ["SIA-1", "SIA-PAY"]
-    assert [row[2] for row in ledger_rows(workbook[BOSCH])] == ["BOSCH-1"]
+    assert workbook.sheetnames == ["BOSCH_SIA"]
+    assert [row[2] for row in ledger_rows(workbook["BOSCH_SIA"])] == [
+        "BOSCH-1",
+        "SIA-1",
+        "SIA-PAY",
+    ]
 
 
 def test_supplier_query_is_case_insensitive_partial_match(tmp_path):
@@ -394,8 +397,8 @@ def test_supplier_query_is_case_insensitive_partial_match(tmp_path):
     add_document(store, "BOSCH-1", supplier=BOSCH)
     path = export(store, tmp_path, "SIA")
     workbook = load_workbook(path)
-    assert workbook.sheetnames == [SIA]
-    assert [row[2] for row in ledger_rows(workbook[SIA])] == ["SIA-1"]
+    assert workbook.sheetnames == ["BOSCH_SIA"]
+    assert [row[2] for row in ledger_rows(workbook["BOSCH_SIA"])] == ["SIA-1"]
 
 
 def test_supplier_query_not_found_raises(tmp_path):

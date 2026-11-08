@@ -26,6 +26,13 @@ CLIENT_INVOICE_REFERENCE_PATTERN = re.compile(r"^FA\s*1\d{4,}", re.IGNORECASE)
 CLIENT_ROLE = "CLIENT"
 CLIENT_SALES_CATEGORY = DocumentCategory.VENTES_CLIENTS.value
 
+# P27-quinquies - a fully automatic invoice + credit-note combination may
+# never contain more than four pieces. Longer combinations become
+# statistically meaningless and wrongly letter large supplier LCRs against an
+# arbitrary mix of invoices. Explicit remittance bordereaux that list their
+# ``FA1*`` invoice numbers are not a subset-sum search and stay unrestricted.
+MAX_SUBSET_SUM_PIECES = 4
+
 CLIENTS_ENCAISSEMENT_GROUPE = "CLIENTS_ENCAISSEMENT_GROUPE"
 VIREMENT_A_QUALIFIER = "VIREMENT_A_QUALIFIER"
 INSTRUMENT_A_QUALIFIER = "INSTRUMENT_A_QUALIFIER"
@@ -180,6 +187,7 @@ __all__ = [
     "CLIENT_SALES_CATEGORY",
     "INSTRUMENT_A_QUALIFIER",
     "INVALID_TIER_NAMES",
+    "MAX_SUBSET_SUM_PIECES",
     "VIREMENT_A_QUALIFIER",
     "VIREMENT_A_QUALIFIER_SUGGESTION",
     "bank_tier_defaults",

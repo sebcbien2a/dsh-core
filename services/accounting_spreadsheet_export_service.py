@@ -50,6 +50,7 @@ from services.folder_tree_service import ensure_tree
 from services.apd_evidence_rules import NON_ACCOUNTABLE_DOCUMENT_TYPES
 from services.bank_reconciliation_service import (
     CLIENTS_ENCAISSEMENT_GROUPE,
+    MAX_SUBSET_SUM_PIECES,
     VIREMENT_A_QUALIFIER,
     bank_tier_defaults,
     clean_bank_tier_name,
@@ -213,6 +214,15 @@ class CategorySummaryExportError(ValueError):
 
 class PieceLink(str):
     """Marker for an actual relative PDF link (never a plain text cell)."""
+
+
+class LocalPieceFormula(str):
+    """An absolute ``=HYPERLINK("A:\\...")`` formula for sub-folder workbooks.
+
+    Excel running on a OneDrive-synchronised folder rewrites ``../..`` native
+    links into ``https://d.docs.live.net/...`` URLs. The absolute formula keeps
+    the click on the local ``A:`` drive and opens Foxit directly.
+    """
 
 
 class CategoryLineStore(Protocol):
@@ -450,9 +460,12 @@ def _summary_record(row: dict[str, Any]) -> dict[str, Any]:
         tva = (ttc - ht).quantize(_CENT)
     if ttc is None and ht is not None and tva is not None:
         ttc = (ht + tva).quantize(_CENT)
+    operation_date = row.get("operation_date") or _date_from_references(row)
     return {
-        "date": row.get("operation_date"),
-        "counterparty": row.get("counterparty") or row.get("label") or "",
+        "date": operation_date,
+        "counterparty": _canonical_counterparty(
+            row.get("counterparty") or row.get("label") or ""
+        ),
         "invoice_id": _piece_reference(
             row, row.get("invoice_id") or row.get("line_id") or ""
         ),
@@ -461,6 +474,11 @@ def _summary_record(row: dict[str, Any]) -> dict[str, Any]:
         "tva": tva,
         "ttc": ttc,
         "status": row.get("raw_status") or row.get("status") or "",
+        "reconciliation_status": row.get("reconciliation_status") or "",
+        "reconciliation_date": row.get("reconciliation_date") or "",
+        "payment_date": row.get("payment_date") or "",
+        "operation_date": row.get("operation_date") or "",
+        "already_paid_on_invoice": row.get("already_paid_on_invoice") or "",
     }
 
 
@@ -594,16 +612,49 @@ def _resolve_relative_candidate(
     return None
 
 
+def _pieces_root_for_workbook(workbook_path: Path) -> Path | None:
+    current = workbook_path.resolve().parent
+    for _ in range(6):
+        candidate = current / "PIECES_JOINTES"
+        if candidate.is_dir():
+            return candidate
+        if current.parent == current:
+            break
+        current = current.parent
+    return None
+
+
+def _local_piece_link(candidate: Path, workbook_path: Path) -> str:
+    """Return a clickable local link, never a OneDrive ``d.docs.live.net`` URL."""
+    relative = relative_link(candidate, Path(workbook_path).resolve())
+    if not relative.startswith("..") and not relative.startswith("/"):
+        return PieceLink(relative)
+    local_path = os.path.abspath(os.fspath(candidate)).replace("/", "\\")
+    display = Path(candidate).name.replace('"', "'")
+    return LocalPieceFormula(f'=HYPERLINK("{local_path}","{display}")')
+
+
 def _piece_link_for_row(
     workbook_path: Path, row: dict[str, Any]
 ) -> str | None:
-    for value in (row.get("invoice_url"), row.get("piece_pdf")):
+    workbook = Path(workbook_path)
+    pieces_root = _pieces_root_for_workbook(workbook)
+    if pieces_root is None:
+        return None
+    for value in (row.get("piece_pdf"), row.get("invoice_url")):
         stored = str(value or "").strip()
         if not stored:
             continue
-        candidate = _resolve_relative_candidate(workbook_path, stored)
-        if candidate is not None:
-            return PieceLink(relative_link(candidate, workbook_path))
+        normalized = stored.replace("\\", "/")
+        marker = "PIECES_JOINTES/"
+        if marker not in normalized:
+            # A ``03_VALIDE_PRET_FEC/...`` or ``../../`` path would make Excel
+            # open the OneDrive web viewer: it is never used for a link.
+            continue
+        relative = normalized.split(marker, 1)[1].lstrip("/")
+        candidate = pieces_root / relative
+        if candidate.is_file():
+            return _local_piece_link(candidate.resolve(), workbook)
     number = str(
         row.get("invoice_id")
         or row.get("piece_number")
@@ -612,25 +663,28 @@ def _piece_link_for_row(
         or ""
     )
     found = find_piece_for_document(
-        workbook_path.parent, number, side=_piece_side_for_row(row)
+        pieces_root.parent, number, side=_piece_side_for_row(row)
     )
     if found is None:
         return None
-    return PieceLink(
-        relative_link(Path(found).resolve(), Path(workbook_path).resolve())
-    )
+    return _local_piece_link(Path(found).resolve(), workbook)
 
 
 def _write_piece_link(
     cell: Any, value: Any, display_text: Any = None
 ) -> bool:
-    """Write a native relative ``cell.hyperlink`` to the local PDF.
+    """Write a native local hyperlink (relative child or absolute formula).
 
     The director confirmed that the native relative hyperlink used by
     ``_A_COMPLETER.xlsx`` opens the PDF in the local reader (Foxit/Adobe),
-    while the ``CELL("filename")`` formula fails. The link is kept relative
-    (``PIECES_JOINTES/...``) so Excel resolves it against the workbook folder.
+    while the ``CELL("filename")`` formula fails. Links are kept under
+    ``PIECES_JOINTES/`` (no ``..``) or use an absolute ``A:\\`` HYPERLINK
+    formula for workbooks stored in a sub-folder.
     """
+    if isinstance(value, LocalPieceFormula):
+        cell.value = str(value)
+        cell.font = Font(color="0563C1", underline="single")
+        return True
     if not isinstance(value, str) or not value.strip():
         return False
     normalized = value.replace("\\", "/")
@@ -639,6 +693,8 @@ def _write_piece_link(
     ):
         return False
     if normalized.startswith("/") or re.match(r"^[A-Za-z]:", normalized):
+        return False
+    if normalized.startswith(".."):
         return False
     base = Path(normalized).name
     suffix = Path(normalized).suffix.casefold()
@@ -661,7 +717,12 @@ def _write_piece_link(
 
 def _payment_date_cell(row: dict[str, Any]) -> Any:
     status = str(row.get("reconciliation_status") or "").upper()
-    paid = status in {"PAYEE_RAPPROCHEE", "PAYE", "SOLDEE"} or str(
+    paid = status in {
+        "PAYEE_RAPPROCHEE",
+        "PAYE",
+        "PAYE_PRELEVE",
+        "SOLDEE",
+    } or str(
         row.get("already_paid_on_invoice") or ""
     ).strip() in {"1", "true", "oui"}
     if not paid:
@@ -785,6 +846,62 @@ def _write_category_workbook(
     _atomic_save_workbook(workbook, output_path)
 
 
+def _category_display_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Drop a paid bank line when its invoice is already displayed.
+
+    The director wants one unified invoice + payment line per expense, never a
+    ``VALIDE`` invoice duplicated by a ``PENDING``/``PAYE`` OFX line carrying the
+    same TTC amount and third party (P27-quinquies).
+    """
+    rows = _dedupe_document_rows(rows)
+    document_keys: set[tuple[str, Decimal]] = set()
+    document_numbers: set[str] = set()
+    for row in rows:
+        if _is_bank_operation(row) or _is_technical_piece_row(row):
+            continue
+        record = _summary_record(row)
+        ttc = (record["ttc"] or Decimal("0.00")).quantize(_CENT)
+        if ttc == 0:
+            continue
+        document_keys.add((_fold(record["counterparty"]), abs(ttc)))
+        for value in (
+            _piece_number_from_row(row),
+            row.get("invoice_id"),
+            row.get("line_id"),
+        ):
+            text = _fold(value)
+            if text:
+                document_numbers.add(text)
+    kept: list[dict[str, Any]] = []
+    for row in rows:
+        if not _is_bank_operation(row) or _is_technical_piece_row(row):
+            kept.append(row)
+            continue
+        status = str(row.get("reconciliation_status") or "").upper()
+        if status not in _PAID_RECONCILIATION_STATUSES:
+            kept.append(row)
+            continue
+        record = _summary_record(row)
+        amount = abs((record["ttc"] or Decimal("0.00")).quantize(_CENT))
+        key = (_fold(record["counterparty"]), amount)
+        reference = _fold(
+            " ".join(
+                str(row.get(key_name) or "")
+                for key_name in (
+                    "invoice_id",
+                    "reconciliation_reference",
+                    "payment_reference",
+                )
+            )
+        )
+        if key in document_keys or any(
+            number and number in reference for number in document_numbers
+        ):
+            continue
+        kept.append(row)
+    return kept
+
+
 class CategorySummaryExporter:
     """Build the per-category analytic workbook from a durable line store."""
 
@@ -822,7 +939,9 @@ class CategorySummaryExporter:
                 "INVALID_TENANT_ID", repr(tenant_id)
             ) from None
         selected = _as_category(category)
-        rows = self._store.list_category_lines(tenant, selected)
+        rows = _category_display_rows(
+            self._store.list_category_lines(tenant, selected)
+        )
         target = (
             Path(output_path)
             if output_path is not None
@@ -1258,6 +1377,7 @@ def _build_supplier_ledger_entries(
     strict_tiers: bool = False,
     refund_as_credit: bool = True,
 ) -> list[SupplierLedgerEntry]:
+    rows = _dedupe_document_rows(rows)
     matched_invoice_ids = {
         str(row.get("decision_invoice_id"))
         for row in rows
@@ -1291,9 +1411,10 @@ def _build_supplier_ledger_entries(
         if tiers.is_internal(supplier_name):
             continue
         role = tiers.role_for(supplier_name)
+        sale_row = _is_sales_row(row)
         if strict_tiers and role not in {"FOURNISSEUR", "PRESTATAIRE"}:
             continue
-        if role == "CLIENT":
+        if role == "CLIENT" and not sale_row:
             continue
         if _is_bank_ledger_row(row):
             if action == "PERSONAL_EXPENSE" or raw_status == "BOOKED_PERSONAL":
@@ -1376,6 +1497,14 @@ def _build_supplier_ledger_entries(
             continue
         ttc = _ledger_amount_ttc(row)
         entry_type = _document_ledger_type(row)
+        cross_sale_to_supplier = sale_row and role in {
+            "FOURNISSEUR",
+            "PRESTATAIRE",
+        }
+        if cross_sale_to_supplier:
+            # An APD sale billed to a supplier is a credit reducing the debt:
+            # it is booked in the supplier's principal-role ledger as an avoir.
+            entry_type = SUPPLIER_LEDGER_TYPE_AVOIR
         personal = is_personal_expense(row)
         invoice_id = str(
             row.get("document_invoice_id")
@@ -1442,6 +1571,7 @@ def _build_supplier_ledger_entries(
                     or row.get("payment_method")
                     or ""
                 ),
+                piece_pdf=str(row.get("piece_pdf") or ""),
                 invoice_url=str(row.get("invoice_url") or ""),
                 piece_ht=piece_ht.quantize(_CENT),
                 piece_tva=piece_tva.quantize(_CENT),
@@ -1467,11 +1597,7 @@ def _group_supplier_entries(
             continue
         if tiers.is_internal(name):
             continue
-        canonical = (
-            tiers.canonical_name(name)
-            if strict_tiers and tiers.resolve(name) is not None
-            else name
-        ) or name
+        canonical = tiers.canonical_name(name) or name
         key = " ".join(canonical.casefold().split())
         if key not in groups:
             groups[key] = []
@@ -1532,7 +1658,7 @@ def _find_combination(
         combination = _mask_entries(left_mask, left_entries) + _mask_entries(
             right_mask, right_entries
         )
-        if combination:
+        if combination and len(combination) <= MAX_SUBSET_SUM_PIECES:
             return _Combination(True, tuple(combination), Decimal("0.00"), truncated)
 
     right_sums = sorted(right)
@@ -1549,7 +1675,7 @@ def _find_combination(
             combination = _mask_entries(left_mask, left_entries) + _mask_entries(
                 right[right_sum], right_entries
             )
-            if not combination:
+            if not combination or len(combination) > MAX_SUBSET_SUM_PIECES:
                 continue
             total = left_sum + right_sum
             key = (abs(target_cents - total), len(combination), total)
@@ -1623,7 +1749,7 @@ def _build_supplier_diagnostics(
             else:
                 message = "Écart nul"
         if result.truncated:
-            message += " (analyse limitée à 30 pièces)"
+            message += " (combinaison limitée à 4 pièces)"
         diagnostics.append(
             SupplierLedgerDiagnostic(
                 payment_id=payment.line_id,
@@ -1792,7 +1918,7 @@ def _write_supplier_ledger_sheet(
                     and (entry.bank_debit or entry.bank_credit)
                 ):
                     cell.fill = equilibrium_fill
-                    cell.comment = Comment("Point d'?quilibre", "DSH-Core")
+                    cell.comment = Comment("Point d'équilibre", "DSH-Core")
                     equilibrium_rows.append(index)
             elif column == 1:
                 cell.alignment = Alignment(
@@ -1817,9 +1943,9 @@ def _write_supplier_ledger_sheet(
     total_bank_row = last_data_row + 2
     gap_row = last_data_row + 3
     summary_labels = (
-        (total_pieces_row, "TOTAL PI?CES (FACTURES - AVOIRS)"),
-        (total_bank_row, "TOTAL BANQUE (OP?RATIONS)"),
-        (gap_row, "?CART ? JUSTIFIER (PI?CES TTC - D?CAISSEMENTS NETS)"),
+        (total_pieces_row, "TOTAL PIÈCES (FACTURES - AVOIRS)"),
+        (total_bank_row, "TOTAL BANQUE (OPÉRATIONS)"),
+        (gap_row, "ÉCART À JUSTIFIER (PIÈCES TTC - DÉCAISSEMENTS NETS)"),
     )
     for row_index, label in summary_labels:
         sheet.cell(row=row_index, column=1, value=label)
@@ -1860,7 +1986,7 @@ def _write_supplier_ledger_sheet(
     if entries and running == 0:
         balance_cell = sheet.cell(row=total_bank_row, column=11)
         balance_cell.fill = equilibrium_fill
-        balance_cell.comment = Comment("Point d'?quilibre", "DSH-Core")
+        balance_cell.comment = Comment("Point d'équilibre", "DSH-Core")
 
     diagnostic_start = gap_row + 2
 
@@ -2179,6 +2305,9 @@ def _client_invoice_date(row: dict[str, Any], record: dict[str, Any]) -> str:
         value = str(row.get(key) or "").strip()
         if value:
             return value
+    inferred = _date_from_references(row)
+    if inferred is not None:
+        return inferred.isoformat()
     invoice = str(row.get("invoice_id") or record.get("invoice_id") or "")
     match = re.search(r"FA(\d+)", invoice, re.IGNORECASE)
     if match and int(match.group(1)) < 16406:
@@ -2189,6 +2318,7 @@ def _client_invoice_date(row: dict[str, Any], record: dict[str, Any]) -> str:
 def _client_invoice_entries(
     rows: list[dict[str, Any]], *, strict_tiers: bool = False
 ) -> list[ClientLedgerEntry]:
+    rows = _dedupe_document_rows(rows)
     entries: list[ClientLedgerEntry] = []
     tiers = _tier_reference()
     memory = _learned_memory()
@@ -2277,6 +2407,90 @@ def _client_invoice_entries(
                 vat_regime=vat_regime_for_row(row),
             )
         )
+    # P27-quinquies: a one-off purchase made from a CLIENT keeps its entry in
+    # the client's principal-role ledger, with an inverted accounting sense
+    # (it reduces the receivable instead of creating a supplier debt).
+    seen_lines = {entry.line_id for entry in entries}
+    for row in rows:
+        if _is_sales_row(row):
+            continue
+        line_id = str(row.get("line_id") or "")
+        if not line_id or line_id in seen_lines:
+            continue
+        document_type = str(row.get("document_type") or "").strip().upper()
+        if document_type in {
+            "OFX",
+            "QFX",
+            "LCR_PAYMENT",
+            "LCR_REMITTANCE",
+            "LCR_SUB_PAYMENT",
+            "SOURCE_OFX",
+            "BORDEREAU_LCR",
+        }:
+            continue
+        if document_type not in {
+            "FACTURE",
+            "AVOIR",
+            "INVOICE",
+            "CREDIT_NOTE",
+            "RECEIPT",
+        }:
+            continue
+        record = _summary_record(row)
+        ttc = record["ttc"] or Decimal("0.00")
+        if ttc == 0:
+            continue
+        raw_client = str(record["counterparty"] or "").strip()
+        role = tiers.role_for(raw_client)
+        if role != "CLIENT":
+            continue
+        client = tiers.canonical_name(raw_client) or memory.canonical_name(
+            raw_client
+        )
+        if not client:
+            continue
+        is_client_credit_note = document_type in {
+            "AVOIR",
+            "CREDIT_NOTE",
+        } or ttc < 0
+        piece_ht, piece_tva, piece_ttc = _piece_values(row)
+        if is_client_credit_note:
+            piece_ht, piece_tva, piece_ttc = (
+                abs(piece_ht),
+                abs(piece_tva),
+                abs(piece_ttc),
+            )
+            debit, credit = abs(ttc).quantize(_CENT), Decimal("0.00")
+            entry_type = CLIENT_LEDGER_TYPE_FACTURE
+        else:
+            piece_ht, piece_tva, piece_ttc = (
+                -abs(piece_ht),
+                -abs(piece_tva),
+                -abs(piece_ttc),
+            )
+            debit, credit = Decimal("0.00"), abs(ttc).quantize(_CENT)
+            entry_type = CLIENT_LEDGER_TYPE_AVOIR
+        entries.append(
+            ClientLedgerEntry(
+                entry_type=entry_type,
+                operation_date=_client_invoice_date(row, record),
+                reference=str(record["invoice_id"] or line_id),
+                label=str(row.get("label") or record["invoice_id"] or ""),
+                debit=debit,
+                credit=credit,
+                status=_reconciliation_label(row),
+                line_id=line_id,
+                invoice_id=str(record["invoice_id"] or line_id),
+                client=client,
+                piece_pdf=str(row.get("piece_pdf") or "") or None,
+                invoice_url=str(row.get("invoice_url") or ""),
+                piece_ht=piece_ht,
+                piece_tva=piece_tva,
+                piece_ttc=piece_ttc,
+                vat_regime=vat_regime_for_row(row),
+            )
+        )
+        seen_lines.add(line_id)
     return entries
 
 
@@ -2294,7 +2508,11 @@ def _client_subset(
     def search(index: int, remaining: Decimal, chosen: list[ClientLedgerEntry]):
         if abs(remaining) < _CENT:
             return chosen
-        if index >= len(items) or remaining < 0:
+        if (
+            index >= len(items)
+            or remaining < 0
+            or len(chosen) >= MAX_SUBSET_SUM_PIECES
+        ):
             return None
         entry, amount = items[index]
         if amount <= remaining:
@@ -2482,6 +2700,7 @@ def _client_synthetic_payments(
                 lettered_client_amounts.add(entry.credit)
                 lettered_client_references.add(piece.upper())
     synthetic: list[ClientLedgerEntry] = []
+    tiers = _tier_reference()
     for row in invoices:
         status = str(row.get("reconciliation_status") or "").upper()
         if status not in _PAID_RECONCILIATION_STATUSES:
@@ -2493,7 +2712,14 @@ def _client_synthetic_payments(
         amount = amount.quantize(_CENT)
         if amount <= 0:
             continue
-        client = _learned_memory().canonical_name(record["counterparty"])
+        raw_client = str(record["counterparty"] or "").strip()
+        if tiers.role_for(raw_client) != "CLIENT":
+            # A supplier LCR / credit-card collection is never a customer
+            # payment: it must not create a synthetic client-ledger line.
+            continue
+        client = tiers.canonical_name(raw_client) or _learned_memory().canonical_name(
+            raw_client
+        )
         if not client:
             continue
         reference = _text_field(row, "reconciliation_reference", "fitid") or str(
@@ -2653,7 +2879,7 @@ def _write_client_ledger_sheet(
                     and (entry.bank_debit or entry.bank_credit)
                 ):
                     cell.fill = equilibrium_fill
-                    cell.comment = Comment("Solde client sold?", "DSH-Core")
+                    cell.comment = Comment("Solde client soldé", "DSH-Core")
             elif column == 1:
                 cell.alignment = Alignment(
                     horizontal="center", vertical="center"
@@ -2673,9 +2899,9 @@ def _write_client_ledger_sheet(
     total_bank_row = last_data_row + 2
     gap_row = last_data_row + 3
     summary_labels = (
-        (total_pieces_row, "TOTAL PI?CES (FACTURES - AVOIRS)"),
-        (total_bank_row, "TOTAL BANQUE (OP?RATIONS)"),
-        (gap_row, "?CART ? JUSTIFIER (PI?CES TTC - D?CAISSEMENTS NETS)"),
+        (total_pieces_row, "TOTAL PIÈCES (FACTURES - AVOIRS)"),
+        (total_bank_row, "TOTAL BANQUE (OPÉRATIONS)"),
+        (gap_row, "ÉCART À JUSTIFIER (PIÈCES TTC - DÉCAISSEMENTS NETS)"),
     )
     for row_index, label in summary_labels:
         sheet.cell(row=row_index, column=1, value=label)
@@ -2776,6 +3002,10 @@ class ClientLedgerExporter:
                 "CLIENT_DIVERS",
                 CLIENTS_ENCAISSEMENT_GROUPE,
             }
+            and (
+                not self._strict_tiers
+                or _tier_reference().role_for(client) == "CLIENT"
+            )
         }
         target = (
             self._export_dir
@@ -3035,6 +3265,44 @@ def _parse_iso_date(value: Any) -> date_cls | None:
         except ValueError:
             return None
     return None
+
+
+_REFERENCE_DATE_COMPACT = re.compile(
+    r"(?<!\d)(20\d{2})(\d{2})(\d{2})(?!\d)"
+)
+_REFERENCE_DATE_ISO = re.compile(
+    r"(?<!\d)(20\d{2})[-_.](0[1-9]|1[0-2])[-_.](0[1-9]|[12]\d|3[01])(?!\d)"
+)
+
+
+def _date_from_references(row: dict[str, Any]) -> date_cls | None:
+    """Infer the piece date from a filename such as ``..._20260107_...``."""
+    for key in ("invoice_url", "piece_pdf", "label", "invoice_id", "line_id"):
+        text = str(row.get(key) or "")
+        if not text:
+            continue
+        for pattern in (_REFERENCE_DATE_ISO, _REFERENCE_DATE_COMPACT):
+            for match in pattern.finditer(text):
+                try:
+                    return date_cls(
+                        int(match.group(1)),
+                        int(match.group(2)),
+                        int(match.group(3)),
+                    )
+                except ValueError:
+                    continue
+    return None
+
+
+def _canonical_counterparty(value: Any) -> str:
+    """Canonicalise a tier name insensitive to case (``Boxtal`` -> BOXTAL)."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    record = _tier_reference().resolve(text)
+    if record is not None:
+        return record.canonical
+    return _learned_memory().canonical_name(text) or text
 
 
 def _text_field(row: dict[str, Any], *keys: str) -> str:
@@ -3411,6 +3679,9 @@ class ExpenseSubCategoryExporter:
         grouped: dict[ExpenseSubCategory, list[tuple[Any, ...]]] = {
             subcategory: [] for subcategory in ExpenseSubCategory
         }
+        grouped_rows: dict[ExpenseSubCategory, list[dict[str, Any]]] = {
+            subcategory: [] for subcategory in ExpenseSubCategory
+        }
         unclassified: list[dict[str, Any]] = []
         for row in rows:
             record = _summary_record(row)
@@ -3421,6 +3692,7 @@ class ExpenseSubCategoryExporter:
             grouped[subcategory].append(
                 _expense_row_values(subcategory, row, record)
             )
+            grouped_rows[subcategory].append(row)
 
         subtable_paths: dict[ExpenseSubCategory, Path] = {}
         subfolders: dict[ExpenseSubCategory, tuple[Path, Path]] = {}
@@ -3439,11 +3711,20 @@ class ExpenseSubCategoryExporter:
             path = target_dir / EXPENSE_SUBTABLE_FILENAME.format(
                 subcategory=subcategory.value
             )
+            linked_values = [
+                (*value, _piece_link_for_row(path, row))
+                for value, row in zip(
+                    values, grouped_rows[subcategory], strict=False
+                )
+            ]
             _write_p17_workbook(
                 path,
                 title=f"TABLEAU_{subcategory.value}",
-                headers=EXPENSE_SUBCATEGORY_HEADERS[subcategory],
-                rows=values,
+                headers=(
+                    *EXPENSE_SUBCATEGORY_HEADERS[subcategory],
+                    PIECE_LINK_HEADER,
+                ),
+                rows=linked_values,
             )
             subtable_paths[subcategory] = path
             subfolders[subcategory] = (subfolder_03, subfolder_04)
@@ -3778,7 +4059,7 @@ def compute_fiscal_totals(
 
 
 _PAID_RECONCILIATION_STATUSES = frozenset(
-    {"PAYEE_RAPPROCHEE", "PAYE", "SOLDEE"}
+    {"PAYEE_RAPPROCHEE", "PAYE", "PAYE_PRELEVE", "SOLDEE"}
 )
 
 
@@ -3841,6 +4122,7 @@ def _master_rows(store: Any, tenant_id: str) -> list[dict[str, Any]]:
         for row in _all_master_rows(store, tenant_id)
         if not _is_sales_row(row)
         and not _is_bank_operation(row)
+        and not _is_technical_piece_row(row)
         and str(row.get("document_type") or "").strip().upper()
         not in NON_ACCOUNTABLE_DOCUMENT_TYPES
     ]
@@ -4046,12 +4328,108 @@ def _piece_sort_key(row: dict[str, Any]) -> tuple[Any, int, str, str]:
     )
 
 
+_TECHNICAL_DOCUMENT_TYPES = frozenset(
+    {
+        "SOURCE_OFX",
+        "BORDEREAU_LCR",
+        "LCR_REMITTANCE",
+        "LCR_PAYMENT",
+        "LCR_SUB_PAYMENT",
+    }
+)
+_BATCH_PIECE_PREFIXES = (
+    "factures clients",
+    "facture client yucel",
+    "facture carrosserie yucel",
+    "bordereau_remise",
+    "bordereau remise",
+    "detailremise",
+    "detail_remise",
+)
+
+
+def _is_technical_piece_row(row: dict[str, Any]) -> bool:
+    """Return ``True`` for OFX statements, remittance slips and batch PDFs.
+
+    These files are technical containers (or already-split multi-invoice
+    batches), never a unit invoice line of the mother table.
+    """
+    document_type = str(row.get("document_type") or "").strip().upper()
+    if document_type in _TECHNICAL_DOCUMENT_TYPES:
+        return True
+    for key in ("invoice_url", "piece_pdf", "label"):
+        raw = str(row.get(key) or "").strip()
+        if not raw:
+            continue
+        name = raw.replace("\\", "/").rsplit("/", 1)[-1].casefold()
+        if name.endswith((".ofx", ".qfx")):
+            return True
+        folded = _fold(name).replace("_", " ").replace("-", " ")
+        folded = re.sub(r"\s+", " ", folded).strip()
+        if any(folded.startswith(prefix) for prefix in _BATCH_PIECE_PREFIXES):
+            return True
+        if "data " in folded and "archived" in folded:
+            return True
+    return False
+
+
+def _dedupe_document_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep one row per physical piece, preferring the clean local PDF copy."""
+    chosen: dict[tuple[str, str, Decimal], dict[str, Any]] = {}
+    for row in rows:
+        if _is_bank_operation(row) or _is_technical_piece_row(row):
+            continue
+        key = _dedup_key(row, _summary_record(row))
+        if key is None:
+            continue
+        current = chosen.get(key)
+        if current is None or _piece_preference(row) > _piece_preference(current):
+            chosen[key] = row
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        if _is_bank_operation(row):
+            result.append(row)
+            continue
+        if _is_technical_piece_row(row):
+            continue
+        key = _dedup_key(row, _summary_record(row))
+        if key is None:
+            result.append(row)
+            continue
+        best = chosen.get(key)
+        if best is not None and str(best.get("line_id") or "") == str(
+            row.get("line_id") or ""
+        ):
+            result.append(row)
+    return result
+
+
+def _piece_preference(row: dict[str, Any]) -> int:
+    score = 0
+    reference = _fold(
+        f"{row.get('invoice_url') or ''} {row.get('piece_pdf') or ''}"
+    )
+    if "y16v_sd_invoice" in reference or "data_" in reference:
+        score -= 3
+    if str(row.get("piece_pdf") or "").replace("\\", "/").startswith(
+        "PIECES_JOINTES/"
+    ):
+        score += 2
+    if str(row.get("operation_date") or "").strip():
+        score += 1
+    if str(row.get("amount_ttc") or "").strip() not in {"", "0", "0.0", "0.00"}:
+        score += 1
+    return score
+
+
 def _piece_rows(store: Any, tenant_id: str) -> list[dict[str, Any]]:
-    """All document pieces (customer sales + supplier purchases/fees)."""
+    """All unit document pieces (customer sales + supplier purchases/fees)."""
     pieces: list[dict[str, Any]] = []
     seen: set[str] = set()
     for row in _all_master_rows(store, tenant_id):
         if _is_bank_operation(row):
+            continue
+        if _is_technical_piece_row(row):
             continue
         if (
             str(row.get("document_type") or "").strip().upper()
@@ -4075,7 +4453,20 @@ def _piece_rows(store: Any, tenant_id: str) -> list[dict[str, Any]]:
             continue
         seen.add(identifier)
         pieces.append(row)
-    return sorted(pieces, key=_piece_sort_key)
+    pieces = sorted(pieces, key=_piece_sort_key)
+    # P27-quinquies: the same physical piece ingested twice (clean filename +
+    # raw ``Y16V_SD_INVOICE`` twin) must produce a single mother-table line.
+    deduped: dict[tuple[str, str, Decimal], dict[str, Any]] = {}
+    unkeyed: list[dict[str, Any]] = []
+    for row in pieces:
+        key = _dedup_key(row, _summary_record(row))
+        if key is None:
+            unkeyed.append(row)
+            continue
+        current = deduped.get(key)
+        if current is None or _piece_preference(row) > _piece_preference(current):
+            deduped[key] = row
+    return sorted((*deduped.values(), *unkeyed), key=_piece_sort_key)
 
 
 def _bank_operations(store: Any, tenant_id: str) -> list[dict[str, Any]]:
@@ -4146,11 +4537,15 @@ def _subset_for_amount(
     visited: set[tuple[int, str]] = set()
 
     def search(
-        index: int, remaining: Decimal
+        index: int, remaining: Decimal, count: int = 0
     ) -> list[dict[str, Any]] | None:
         if abs(remaining) < _CENT:
             return []
-        if index >= len(items) or remaining < Decimal("0.00"):
+        if (
+            index >= len(items)
+            or remaining < Decimal("0.00")
+            or count >= MAX_SUBSET_SUM_PIECES
+        ):
             return None
         if len(visited) > 50_000:
             return None
@@ -4160,10 +4555,12 @@ def _subset_for_amount(
         visited.add(marker)
         document, amount = items[index]
         if amount <= remaining:
-            tail = search(index + 1, (remaining - amount).quantize(_CENT))
+            tail = search(
+                index + 1, (remaining - amount).quantize(_CENT), count + 1
+            )
             if tail is not None:
                 return [document, *tail]
-        return search(index + 1, remaining)
+        return search(index + 1, remaining, count)
 
     return search(0, target.quantize(_CENT))
 
@@ -4316,7 +4713,7 @@ def _bank_counterparty_display(
             if label_value:
                 names.append(label_value)
             natures.append("CLIENT" if _is_sales_row(document) else "FOURNISSEUR")
-        name = memory.canonical_name(names[0]) if names else raw
+        name = _canonical_counterparty(names[0]) if names else raw
         nature = "CLIENT" if "CLIENT" in natures else "FOURNISSEUR"
     label_text = " ".join(
         (
@@ -4329,7 +4726,7 @@ def _bank_counterparty_display(
         name = (
             memory.match_reference(label_text)
             or memory.match_reference(raw)
-            or memory.canonical_name(raw)
+            or _canonical_counterparty(raw)
         )
     folded = _fold(f"{raw} {label_text}")
     if not name or _fold(name) == _fold(label_text):
@@ -4345,7 +4742,7 @@ def _bank_counterparty_display(
         else:
             name = raw or name
             nature = nature or ("FOURNISSEUR" if name else "")
-    canonical = memory.canonical_name(name) or name
+    canonical = _canonical_counterparty(name) or name
     if not canonical or is_invalid_tier_name(canonical):
         return VIREMENT_A_QUALIFIER
     return f"{canonical} [{nature}]" if nature else canonical
@@ -4461,6 +4858,10 @@ def _bank_mirror_rows(
             link = _piece_link_for_row(workbook_path, document)
             if link:
                 links.append(link)
+        if not links:
+            bank_link = _piece_link_for_row(workbook_path, row)
+            if bank_link:
+                links.append(bank_link)
         display = " + ".join(dict.fromkeys(numbers)) or "NON RAPPROCHEE"
         debit = _decimal(row.get("debit_amount")) or Decimal("0.00")
         credit = _decimal(row.get("credit_amount")) or Decimal("0.00")

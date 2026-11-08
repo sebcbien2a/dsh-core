@@ -239,7 +239,7 @@ def test_yucel_opening_statement_balance_is_8234_28(tmp_path):
         for value in labels
     )
     assert any(
-        isinstance(value, str) and value.startswith("?CART")
+        isinstance(value, str) and value.startswith("ÉCART À JUSTIFIER")
         for value in labels
     )
 

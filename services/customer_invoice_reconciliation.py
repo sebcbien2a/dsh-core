@@ -40,6 +40,7 @@ from services.ofx_bank_statement_parser import (
     parse_ofx_statement,
 )
 from schemas.payment_method_schema import normalize_counterparty_name
+from services.bank_reconciliation_service import MAX_SUBSET_SUM_PIECES
 from services.sqlite_accounting_store import validate_tenant_id
 
 _CENT = Decimal("0.01")
@@ -347,7 +348,7 @@ def find_exact_invoice_combination(
             if right_combo is None:
                 continue
             combo = left_combo + tuple(index + midpoint for index in right_combo)
-            if not combo:
+            if not combo or len(combo) > MAX_SUBSET_SUM_PIECES:
                 continue
             selected = tuple(pending[index] for index in sorted(combo))
             total = sum((item.amount for item in selected), Decimal("0.00"))

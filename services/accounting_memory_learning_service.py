@@ -283,13 +283,17 @@ class AccountingMemoryLearningService:
         if group:
             return group
         rules = self.load()
+        text_tokens = set(_name_tokens(text))
         for alias, canonical in rules["aliases"].items():
             alias_folded = _fold(alias)
-            if alias_folded and (
+            alias_tokens = set(_name_tokens(alias))
+            if not alias_folded:
+                continue
+            if (
                 alias_folded == folded
                 or alias_folded in folded
                 or folded in alias_folded
-                or set(_name_tokens(alias)) <= set(_name_tokens(text))
+                or (alias_tokens and alias_tokens <= text_tokens)
             ):
                 return str(canonical)
         return text

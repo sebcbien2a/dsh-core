@@ -20,6 +20,7 @@ from decimal import Decimal
 from typing import Any, Iterable
 
 from schemas.folder_state_schema import DocumentCategory
+from services.bank_reconciliation_service import MAX_SUBSET_SUM_PIECES
 from services.sqlite_accounting_store import SqliteAccountingStore
 from services.tier_reference_service import is_payment_instrument_label
 
@@ -101,7 +102,7 @@ def _subset_sum(
     candidates: list[tuple[dict[str, Any], Decimal]],
     target: Decimal,
     *,
-    max_items: int = 3,
+    max_items: int = MAX_SUBSET_SUM_PIECES,
 ) -> list[dict[str, Any]] | None:
     items = sorted(candidates, key=lambda item: item[1], reverse=True)[
         :_MAX_CANDIDATES
@@ -174,8 +175,9 @@ def _match_invoices(
         return exact
     if len(exact) > 1:
         return []
-    # Subset-sum is only trusted inside one counterparty and for at most three
-    # invoices, otherwise a large LCR would match an arbitrary mix of suppliers.
+    # Subset-sum is only trusted inside one counterparty and for at most
+    # four invoices (P27-quinquies), otherwise a large LCR would match an
+    # arbitrary mix of suppliers.
     by_counterparty: dict[str, list[dict[str, Any]]] = {}
     for row in candidates:
         name = str(row.get("counterparty") or "").strip().casefold()

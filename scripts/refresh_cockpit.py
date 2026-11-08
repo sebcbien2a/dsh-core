@@ -37,6 +37,9 @@ from services.accounting_spreadsheet_export_service import (  # noqa: E402
     SupplierLedgerExporter,
 )
 from services.apd_four_stage_pipeline import ApdFourStagePipeline  # noqa: E402
+from services.apd_p27quinquies_repair_service import (  # noqa: E402
+    repair_p27quinquies,
+)
 from services.boxtal_paintcar_repair_service import (  # noqa: E402
     repair_boxtal_and_paintcar,
 )
@@ -281,6 +284,15 @@ def refresh_cockpit(
         pass
     try:
         repair_boxtal_and_paintcar(
+            store,
+            tenant,
+            tree.root / tenant,
+            base_export / tenant,
+        )
+    except Exception:  # noqa: BLE001 - repair never blocks the cockpit
+        pass
+    try:
+        repair_p27quinquies(
             store,
             tenant,
             tree.root / tenant,

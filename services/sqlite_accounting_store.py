@@ -823,6 +823,10 @@ class SqliteAccountingStore:
             " l.piece_pdf, l.already_paid_on_invoice,"
             " l.origin_document_number, l.origin_document_date,"
             " l.is_refacturation_pair,"
+            " l.reconciliation_status, l.reconciliation_date,"
+            " l.reconciliation_reference, l.reconciliation_amount,"
+            " l.balance_due, l.fitid, l.payment_reference,"
+            " l.remittance_reference,"
             f" {raw_status} AS raw_status, d.action AS decision_action,"
             " d.invoice_id AS decision_invoice_id, d.debit_account, d.credit_account"
         )
