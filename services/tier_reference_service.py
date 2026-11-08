@@ -342,6 +342,28 @@ SEED_TIERS: tuple[TierRecord, ...] = (
         payment_method="VIREMENT",
     ),
     TierRecord(
+        "SONIA_ATIA",
+        "FOURNISSEUR",
+        "FRAIS_GENERAUX",
+        "HONORAIRES_JURIDIQUES",
+        aliases=(
+            "EI - ATIA SONIA / TALENT&CO",
+            "ATIA SONIA",
+            "TALENT&CO",
+            "SONIA ATIA",
+            "SONIA ALTIA",
+        ),
+        payment_method="VIREMENT",
+    ),
+    TierRecord(
+        "OPENROUTER",
+        "FOURNISSEUR",
+        "FRAIS_GENERAUX",
+        "INFORMATIQUE_WEB",
+        aliases=("OpenRouter, Inc", "OPENROUTER", "OPENROUTER.AI"),
+        payment_method="CARTE_BANCAIRE",
+    ),
+    TierRecord(
         "AMAZON",
         "FOURNISSEUR",
         "FRAIS_GENERAUX",
@@ -477,11 +499,28 @@ class TierReferenceService:
         records: dict[str, TierRecord] = {
             record.canonical: record for record in SEED_TIERS
         }
+        workbook_paths: list[Path] = []
         if self._path.is_file():
-            for record in self._read_workbook():
+            workbook_paths.append(self._path)
+        root_path = ROOT_TIER_REFERENCE_PATH
+        if (
+            root_path.is_file()
+            and root_path.resolve() != self._path.resolve()
+        ):
+            workbook_paths.append(root_path)
+        for workbook_path in workbook_paths:
+            for record in self._read_workbook(workbook_path):
                 base = records.get(record.canonical)
                 if base is not None and not record.prefixes:
                     record = replace(record, prefixes=base.prefixes)
+                existing = records.get(record.canonical)
+                if existing is not None:
+                    record = replace(
+                        record,
+                        aliases=tuple(
+                            dict.fromkeys((*existing.aliases, *record.aliases))
+                        ),
+                    )
                 records[record.canonical] = record
         if self._store is not None:
             for record in self._read_store():
@@ -838,12 +877,15 @@ class TierReferenceService:
         finally:
             temporary.unlink(missing_ok=True)
 
-    def _read_workbook(self) -> tuple[TierRecord, ...]:
+    def _read_workbook(
+        self, path: Path | None = None
+    ) -> tuple[TierRecord, ...]:
         from openpyxl import load_workbook
 
-        if not self.path.is_file():
+        source = path or self.path
+        if not source.is_file():
             return ()
-        workbook = load_workbook(self.path, data_only=True)
+        workbook = load_workbook(source, data_only=True)
         sheet = workbook.active
         records: list[TierRecord] = []
         try:

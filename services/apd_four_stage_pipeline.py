@@ -686,7 +686,9 @@ class ApdFourStagePipeline:
             read_readable_decisions,
         )
 
-        decisions = read_readable_decisions(self.readable_path)
+        decisions = read_readable_decisions(
+            self.readable_path, tier_reference=self._tier_reference
+        )
         applied = 0
         for decision in decisions:
             if decision.filename.startswith("TIER__") and decision.filename.endswith(".tier"):
@@ -1020,6 +1022,30 @@ class ApdFourStagePipeline:
         except Exception:  # noqa: BLE001 - mirror is best effort
             return
 
+    def _sync_gmail(self) -> dict[str, Any]:
+        """Pull the director's Gmail attachments before any calculation."""
+        try:
+            from services.gmail_imap_sync_service import GmailImapSyncService
+
+            service = GmailImapSyncService(
+                self._tenant_id,
+                store=self._store,
+                root=self._tree.root,
+            )
+            report = service.sync()
+            return {
+                "connected": report.connected,
+                "messages_scanned": report.messages_scanned,
+                "attachments_staged": report.attachments_staged,
+                "pdf_attached": list(report.pdf_attached),
+                "pdf_missing": list(report.pdf_missing),
+                "labels_synced": report.labels_synced,
+                "errors": list(report.errors),
+                "skipped": list(report.skipped),
+            }
+        except Exception as exc:  # noqa: BLE001 - Gmail never blocks the pipeline
+            return {"error": f"{type(exc).__name__}: {exc}"}
+
     def run_stage(self, stage: int) -> StageReport:
         if stage not in STAGE_NAMES:
             raise ApdPipelineError("INVALID_STAGE", repr(stage))
@@ -1029,6 +1055,8 @@ class ApdFourStagePipeline:
             3: self.stage3_ventilation_and_coherence,
             4: self.stage4_simulations,
         }
+        if stage == 1:
+            self._sync_gmail()
         self._tier_reference.bootstrap()
         self._apply_tier_reference()
         report = dispatch[stage]()
@@ -1043,6 +1071,8 @@ class ApdFourStagePipeline:
     ) -> tuple[StageReport, ...]:
         reports: list[StageReport] = []
         selected = tuple(stages)
+        if 1 not in selected:
+            self._sync_gmail()
         for index, stage in enumerate(selected):
             reports.append(self.run_stage(stage))
             if pause is not None and index < len(selected) - 1:

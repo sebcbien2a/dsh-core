@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-11-07T21:09:59.274069+00:00",
+  "updated_at": "2026-11-08T03:43:28.198646+00:00",
   "groups": {
     "PAINTCAR": {
       "canonical": "PAINTCAR",
@@ -172,7 +172,18 @@
     "ANG PEINTURES": "ANG_PEINTURE",
     "SOCIETE DISTRIB": "SOCIETE_DISTRIB",
     "NORMANDIE FILTRE FACTOR": "NORMANDIE_FILTRE",
-    "NORMANDIE FILTRE": "NORMANDIE_FILTRE"
+    "NORMANDIE FILTRE": "NORMANDIE_FILTRE",
+    "EI - ATIA SONIA / TALENT&CO": "SONIA_ATIA",
+    "ATIA SONIA": "SONIA_ATIA",
+    "TALENT&CO": "SONIA_ATIA",
+    "SONIA ATIA": "SONIA_ATIA",
+    "SONIA ALTIA": "SONIA_ATIA",
+    "OpenRouter, Inc": "OPENROUTER",
+    "OPENROUTER": "OPENROUTER",
+    "OPENROUTER.AI": "OPENROUTER",
+    "SONIA_ATIA": "SONIA_ATIA",
+    "OpenRouter": "OPENROUTER",
+    "Inc": "OPENROUTER"
   },
   "suppliers": {
     "LIDL": {
@@ -706,6 +717,42 @@
       "siren": "",
       "siret": "",
       "iban": []
+    },
+    "SONIA_ATIA": {
+      "canonical": "SONIA_ATIA",
+      "role": "FOURNISSEUR",
+      "category": "FRAIS_GENERAUX",
+      "subcategory": "HONORAIRES_JURIDIQUES",
+      "aliases": [
+        "EI - ATIA SONIA / TALENT&CO",
+        "ATIA SONIA",
+        "TALENT&CO",
+        "SONIA ATIA",
+        "SONIA ALTIA"
+      ],
+      "prefixes": [],
+      "payment_method": "VIREMENT",
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
+    },
+    "OPENROUTER": {
+      "canonical": "OPENROUTER",
+      "role": "FOURNISSEUR",
+      "category": "FRAIS_GENERAUX",
+      "subcategory": "INFORMATIQUE_WEB",
+      "aliases": [
+        "OpenRouter, Inc",
+        "OPENROUTER",
+        "OPENROUTER.AI"
+      ],
+      "prefixes": [],
+      "payment_method": "CARTE_BANCAIRE",
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
     }
   },
   "decisions": [
@@ -981,6 +1028,58 @@
       "report": "2026-08-02 00:00:00",
       "decision": "VALIDE",
       "learned_at": "2026-11-06T01:01:51.289450+00:00"
+    },
+    {
+      "counterparty": "SONIA_ATIA",
+      "canonical": "SONIA_ATIA",
+      "document_number": "F-2026-037",
+      "category": "DIVERS_A_CLASSER",
+      "payment_source": "BANQUE_PRO",
+      "counterparty_account": "622600",
+      "fiscal_year_target": "2026",
+      "deferred_month": "",
+      "report": "NON",
+      "decision": "VALIDE",
+      "learned_at": "2026-11-08T02:59:50.754168+00:00"
+    },
+    {
+      "counterparty": "OPENROUTER",
+      "canonical": "OPENROUTER",
+      "document_number": "Invoice-GENMCYCQ-0001",
+      "category": "DIVERS_A_CLASSER",
+      "payment_source": "BANQUE_PRO",
+      "counterparty_account": "622600",
+      "fiscal_year_target": "2026",
+      "deferred_month": "",
+      "report": "NON",
+      "decision": "VALIDE",
+      "learned_at": "2026-11-08T02:59:50.796339+00:00"
+    },
+    {
+      "counterparty": "OPENROUTER",
+      "canonical": "OPENROUTER",
+      "document_number": "Receipt-2136-4590",
+      "category": "DIVERS_A_CLASSER",
+      "payment_source": "BANQUE_PRO",
+      "counterparty_account": "622600",
+      "fiscal_year_target": "2026",
+      "deferred_month": "",
+      "report": "NON",
+      "decision": "VALIDE",
+      "learned_at": "2026-11-08T02:59:50.835169+00:00"
+    },
+    {
+      "counterparty": "OpenRouter, Inc",
+      "canonical": "OPENROUTER",
+      "document_number": "Invoice-GENMCYCQ-0002",
+      "category": "DIVERS_A_CLASSER",
+      "payment_source": "BANQUE_PRO",
+      "counterparty_account": "622600",
+      "fiscal_year_target": "2026",
+      "deferred_month": "",
+      "report": "NON",
+      "decision": "VALIDE",
+      "learned_at": "2026-11-08T03:09:38.105074+00:00"
     }
   ]
 }

@@ -242,9 +242,9 @@ def _alias_choices() -> tuple[str, ...]:
     try:
         from services.tier_reference_service import TierReferenceService
 
-        return TierReferenceService().bootstrap(
-            write_missing=False
-        ).alias_targets()
+        service = TierReferenceService()
+        service.bootstrap(write_missing=False)
+        return service.alias_targets()
     except Exception:  # noqa: BLE001
         return (
             "CREER_NOUVEAU_FOURNISSEUR",
@@ -447,19 +447,74 @@ def write_readable_workbook(
     return written
 
 
-def read_readable_decisions(
-    output_path: str | os.PathLike[str],
-) -> tuple[ReadableDecision, ...]:
-    """Read the human edits of the readable workbook (priority over AI)."""
+_DECISION_KEYWORDS: tuple[str, ...] = (
+    "frais generaux",
+    "informatique",
+    "saas",
+    "honoraires",
+    "juridique",
+    "exercice 2026",
+    "exercice 2025",
+    "valide",
+    "ok",
+    "note de frais",
+    "accepter",
+)
+
+
+def _tier_reference() -> Any:
+    try:
+        from services.tier_reference_service import TierReferenceService
+
+        service = TierReferenceService()
+        service.bootstrap(write_missing=False)
+        return service
+    except Exception:  # noqa: BLE001 - tier reference is optional
+        return None
+
+
+def _is_human_decided(
+    values: dict[str, str], tier_reference: Any = None
+) -> bool:
+    """Return ``True`` as soon as the director touched one decision column."""
+    observed_category = values.get("Catégorie Proposée", "")
+    ai_category = values.get("Catégorie IA", "")
+    alias = values.get("Rattacher comme ALIAS de (ou NOUVEAU_TIERS)", "")
+    action = values.get("Action / Décision", "")
+    action_ia = values.get("Action IA", "")
+    supplier = values.get("Fournisseur / Tiers", "")
+    if alias.strip():
+        return True
+    if ai_category:
+        if _normalize_label(observed_category) != _normalize_label(ai_category):
+            return True
+    elif observed_category and observed_category.strip().upper() != "DIVERS_A_CLASSER":
+        return True
+    if action and action_ia and _normalize_label(action) != _normalize_label(action_ia):
+        folded = _normalize_label(action)
+        if any(keyword in folded for keyword in _DECISION_KEYWORDS):
+            return True
+    if tier_reference is not None and supplier:
+        try:
+            record = tier_reference.resolve(supplier)
+        except Exception:  # noqa: BLE001
+            record = None
+        if record is not None and getattr(record, "authorized", False):
+            return True
+    return False
+
+
+def _read_decisions_from_workbook(
+    path: Path, tier_reference: Any = None
+) -> list[ReadableDecision]:
     from openpyxl import load_workbook
 
-    path = Path(output_path)
     if not path.is_file():
-        return ()
+        return []
     try:
         workbook = load_workbook(path, data_only=True)
     except (OSError, PermissionError):
-        return ()
+        return []
     sheet = workbook.active
     try:
         headers = {
@@ -495,6 +550,8 @@ def read_readable_decisions(
             if status is None and category is not None and ai_category:
                 if _normalize_label(observed_category) != _normalize_label(ai_category):
                     status = DocumentStatus.VALIDE.value
+            if status is None and _is_human_decided(values, tier_reference):
+                status = DocumentStatus.VALIDE.value
             if status is None:
                 status = DocumentStatus.EN_ATTENTE.value
             decisions.append(
@@ -523,9 +580,63 @@ def read_readable_decisions(
                     action=action,
                 )
             )
-        return tuple(decisions)
+        return decisions
     finally:
         workbook.close()
+
+
+def _decision_paths(output_path: str | os.PathLike[str]) -> list[Path]:
+    path = Path(output_path)
+    if path.is_dir():
+        directory = path
+    else:
+        directory = path.parent
+    candidates: list[Path] = []
+    if path.is_file():
+        candidates.append(path)
+    for pattern in (
+        "_A_COMPLETER.xlsx",
+        "_A_COMPLETER_MIS_A_JOUR*.xlsx",
+        "_A_COMPLETER__*.xlsx",
+    ):
+        candidates.extend(directory.glob(pattern))
+    unique = sorted(
+        dict.fromkeys(candidates),
+        key=lambda item: item.stat().st_mtime if item.is_file() else 0,
+        reverse=True,
+    )
+    return unique
+
+
+def read_readable_decisions(
+    output_path: str | os.PathLike[str],
+    *,
+    tier_reference: Any = None,
+) -> tuple[ReadableDecision, ...]:
+    """Read and merge every human edit, newest workbook first.
+
+    The director's edits are never overwritten: a line is considered decided
+    as soon as the category, the alias column, the action or the tier
+    reference changed. ``_A_COMPLETER_MIS_A_JOUR*.xlsx`` files are merged and
+    then deleted.
+    """
+    reference = tier_reference if tier_reference is not None else _tier_reference()
+    merged: dict[str, ReadableDecision] = {}
+    for path in _decision_paths(output_path):
+        for decision in _read_decisions_from_workbook(path, reference):
+            key = decision.sha256 or decision.filename
+            if not key:
+                continue
+            current = merged.get(key)
+            if current is None or (
+                current.status != DocumentStatus.VALIDE.value
+                and decision.status == DocumentStatus.VALIDE.value
+            ):
+                merged[key] = decision
+    for path in _decision_paths(output_path):
+        if "_MIS_A_JOUR" in path.name:
+            path.unlink(missing_ok=True)
+    return tuple(merged.values())
 
 
 def _explicit_status(value: Any) -> str | None:

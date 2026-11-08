@@ -349,6 +349,16 @@ def _clean_piece_number(value: Any) -> str:
     return text
 
 
+_CARD_FACT_DATE = re.compile(r"\bFACT\s+(\d{6})\b", re.IGNORECASE)
+
+
+def _is_card_fact_date_token(candidate: str, text: str) -> bool:
+    """``CB Boxtal FACT 060326`` is a purchase date, never an invoice number."""
+    if not re.fullmatch(r"\d{6}", candidate or ""):
+        return False
+    return bool(_CARD_FACT_DATE.search(text or ""))
+
+
 def _piece_number_from_text(value: Any) -> str:
     """Extract a supplier piece number from a label or from metadata."""
     text = str(value or "").strip()
@@ -356,7 +366,8 @@ def _piece_number_from_text(value: Any) -> str:
         return ""
     candidate = _clean_piece_number(text)
     if candidate and not any(character.isspace() for character in candidate):
-        return candidate
+        if not _is_card_fact_date_token(candidate, text):
+            return candidate
     stem = re.sub(
         r"\.(?:pdf|jpe?g|png|tiff?|xml|xlsx?|csv)$",
         "",
@@ -366,11 +377,11 @@ def _piece_number_from_text(value: Any) -> str:
     for source in (text, stem):
         for match in _PIECE_HINT.finditer(source):
             candidate = _clean_piece_number(match.group(1))
-            if candidate:
+            if candidate and not _is_card_fact_date_token(candidate, source):
                 return candidate
         for match in _PIECE_TOKEN.finditer(source):
             candidate = _clean_piece_number(match.group(1))
-            if candidate:
+            if candidate and not _is_card_fact_date_token(candidate, source):
                 return candidate
     return ""
 
@@ -506,6 +517,33 @@ def _display_length(value: Any) -> int:
     return len(str(value))
 
 
+def merge_pieces_folders(export_dir: str | os.PathLike[str]) -> int:
+    """Merge the legacy ``PIECES JOINTES`` folder into ``PIECES_JOINTES``."""
+    base = Path(export_dir)
+    spaced = base / "PIECES JOINTES"
+    underscored = base / "PIECES_JOINTES"
+    if not spaced.is_dir():
+        return 0
+    underscored.mkdir(parents=True, exist_ok=True)
+    moved = 0
+    for source in spaced.rglob("*"):
+        if not source.is_file():
+            continue
+        relative = source.relative_to(spaced)
+        target = underscored / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        index = 1
+        while target.exists():
+            target = underscored / relative.with_name(
+                f"{relative.stem}__{index}{relative.suffix}"
+            )
+            index += 1
+        shutil.move(str(source), str(target))
+        moved += 1
+    shutil.rmtree(spaced, ignore_errors=True)
+    return moved
+
+
 def _piece_side_for_row(row: dict[str, Any]) -> str:
     category = str(row.get("category") or "").upper()
     return SALES_SUBDIR if category == DocumentCategory.VENTES_CLIENTS.value else PURCHASES_SUBDIR
@@ -546,26 +584,20 @@ def _piece_link_for_row(
 def _write_piece_link(
     cell: Any, value: Any, display_text: Any = None
 ) -> bool:
-    """Write a local ``HYPERLINK`` formula so Excel opens the PDF in Foxit.
+    """Write a native relative ``cell.hyperlink`` to the local PDF.
 
-    A plain ``cell.hyperlink`` is rewritten by OneDrive/Excel into a
-    ``https://onedrive.live.com/...`` URL that opens in the browser. The
-    ``CELL("filename")`` formula keeps the link relative to the workbook
-    folder, so the default local PDF reader opens the file.
+    The director confirmed that the native relative hyperlink used by
+    ``_A_COMPLETER.xlsx`` opens the PDF in the local reader (Foxit/Adobe),
+    while the ``CELL("filename")`` formula fails. The link is kept relative
+    (``PIECES_JOINTES/...``) so Excel resolves it against the workbook folder.
     """
     if not isinstance(value, str) or not value.strip():
         return False
     normalized = value.replace("\\", "/")
     if not normalized.startswith("PIECES_JOINTES/"):
         return False
-    windows_path = normalized.replace("/", "\\")
-    display = str(display_text or Path(normalized).name).replace('"', "'")
-    formula = (
-        '=IFERROR(HYPERLINK(LEFT(CELL("filename",A1),'
-        'FIND("[",CELL("filename",A1))-1)'
-        f'&"{windows_path}","{display}"),"{windows_path}")'
-    )
-    cell.value = formula
+    cell.value = str(display_text or Path(normalized).name)
+    cell.hyperlink = normalized
     cell.font = Font(color="0563C1", underline="single")
     return True
 
@@ -1879,6 +1911,7 @@ class SupplierLedgerExporter:
             )
         )
         _validate_output_path(target)
+        merge_pieces_folders(target.parent)
         _write_supplier_ledger_workbook(
             groups,
             diagnostics,
@@ -2513,6 +2546,7 @@ class ClientLedgerExporter:
             / CLIENT_LEDGER_FILENAME
         )
         _validate_output_path(target)
+        merge_pieces_folders(target.parent)
         workbook = Workbook()
         used_titles: set[str] = set()
         first = True
@@ -4033,6 +4067,7 @@ class MasterTableExporter:
             else tree.state_dir(FolderState.EXPORT_COMPTA) / tenant
         )
         output_dir.mkdir(parents=True, exist_ok=True)
+        merge_pieces_folders(output_dir)
         pieces_path = output_dir / MASTER_PIECES_FILENAME
         banque_path = output_dir / MASTER_BANQUE_TVA_FILENAME
         rows = _master_rows(self._store, tenant)

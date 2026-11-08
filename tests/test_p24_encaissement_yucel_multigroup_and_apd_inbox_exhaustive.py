@@ -411,7 +411,7 @@ def test_readable_workbook_has_official_dropdowns_and_hidden_trace(tmp_path):
             ReadableRow(
                 sha256="a" * 64,
                 filename="SAAS.pdf",
-                supplier="OPENROUTER",
+                supplier="FOURNISSEUR INCONNU",
                 document_number="SAAS-1",
                 document_date=date(2026, 4, 2),
                 amount_ht=Decimal("100.00"),

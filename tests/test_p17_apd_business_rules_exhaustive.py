@@ -952,8 +952,8 @@ def test_p23_bank_mirror_letters_sales_piece_and_links_pdf(tmp_path):
     assert rows[0][7] == 200.0
     assert rows[0][8] == 0.0
     link_cell = sheet(report.banque_tva_path).cell(row=2, column=7)
-    assert str(link_cell.value).startswith("=IFERROR(HYPERLINK(")
-    assert "FA2001.pdf" in str(link_cell.value)
+    assert link_cell.hyperlink is not None
+    assert "FA2001.pdf" in str(link_cell.hyperlink.target)
 
 
 def test_p23_atomic_save_falls_back_to_copy_on_rename_lock(

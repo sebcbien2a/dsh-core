@@ -279,11 +279,11 @@ def test_pdf_links_use_local_hyperlink_formula(tmp_path):
     payment = next(
         row for row in sheet.iter_rows(min_row=2) if row[1].value == "PAIEMENT"
     )
-    formula = str(payment[9].value)
-    assert formula.startswith("=IFERROR(HYPERLINK(")
-    assert "CELL(\"filename\",A1)" in formula
-    assert "PIECES_JOINTES\\VENTES\\FA16423_2026-01-31_CARROSSERIE_YUCELL.pdf" in formula
-    assert payment[9].hyperlink is None
+    assert payment[9].hyperlink is not None
+    assert (
+        "PIECES_JOINTES/VENTES/FA16423_2026-01-31_CARROSSERIE_YUCELL.pdf"
+        in str(payment[9].hyperlink.target)
+    )
 
 
 # -- 5. OneDrive bridge disabled -------------------------------------------

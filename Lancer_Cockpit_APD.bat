@@ -1,4 +1,4 @@
-﻿@echo off
+@echo off
 chcp 65001 >nul
 title Cockpit APD - Pipeline P27 (4 etapes)
 cd /d A:\dsh-core
