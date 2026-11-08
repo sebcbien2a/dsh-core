@@ -38,7 +38,7 @@ import re
 import shutil
 import unicodedata
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -77,11 +77,18 @@ from services.customer_invoice_batch_importer import (
     import_customer_invoices,
     parse_multi_invoice_pdf,
 )
+from services.bank_reconciliation_service import (
+    CLIENT_SALES_CATEGORY,
+    contains_client_invoice_reference,
+    is_client_invoice_reference,
+)
 from services.folder_tree_service import (
     ensure_tree,
+    ged_subdir_for_document,
     migrate_default_to_apd,
     resolve_flow_root,
     validate_tenant_id,
+    validated_destination,
 )
 from services.hotel_expense_parser import parse_hotel_evening_stage
 from services.invoice_producer_protocol import PdfInvoiceProducer
@@ -385,6 +392,15 @@ def _category_from_payload(
     supplier_name: str | None = None,
     category_hint: DocumentCategory | str | None = None,
 ) -> DocumentCategory:
+    if contains_client_invoice_reference(
+        source_name,
+        supplier_name,
+        payload.get("invoice_number"),
+        payload.get("numero_piece"),
+        payload.get("label"),
+        payload.get("raw_text"),
+    ):
+        return DocumentCategory.VENTES_CLIENTS
     hinted = _category_value(category_hint)
     if hinted is not None:
         return hinted
@@ -552,12 +568,19 @@ def extracted_from_invoice(
             source_name=source_name,
             supplier_name=supplier_name,
         )
+    client_sale = contains_client_invoice_reference(
+        invoice.reference.invoice_number, source_name
+    )
+    if client_sale:
+        category = DocumentCategory.VENTES_CLIENTS
     payment_source = _payload_value(payload, "payment_source")
     if payment_source is None:
         payment_source = metadata.get("payment_source")
     expense_subcategory = _payload_value(payload, "expense_subcategory")
     if expense_subcategory is None:
         expense_subcategory = metadata.get("expense_subcategory")
+    if client_sale:
+        expense_subcategory = None
     hotel_fields = {
         key: _payload_value(payload, key)
         for key in (
@@ -830,7 +853,7 @@ class InboxIngestionService:
             if (
                 digest in archived_hashes
                 or digest in claimed
-                or self._store_has_document(digest)
+                or self._store_has_validated_document(digest)
             ):
                 self._archive(path, acc, "DUPLICATE_SHA256", sha256=digest)
                 continue
@@ -1043,6 +1066,15 @@ class InboxIngestionService:
             )
             return
 
+        if contains_client_invoice_reference(
+            extracted.invoice_number, extracted.supplier_name, working.name
+        ):
+            extracted = replace(
+                extracted,
+                category=DocumentCategory.VENTES_CLIENTS,
+                expense_subcategory=None,
+            )
+
         missing = extracted.missing_fields
         high_confidence = extracted.confidence >= self._confidence_threshold
         if extracted.is_complete and high_confidence:
@@ -1099,7 +1131,7 @@ class InboxIngestionService:
                 continue
             attachment_digest = hashlib.sha256(attachment.content).hexdigest()
             if (
-                self._store_has_document(attachment_digest)
+                self._store_has_validated_document(attachment_digest)
                 or attachment_digest in self._archived_hashes()
             ):
                 self._archive(
@@ -1284,6 +1316,10 @@ class InboxIngestionService:
         acc: _Accumulator,
     ) -> None:
         category = decision.category
+        if contains_client_invoice_reference(
+            decision.document_number, decision.supplier, source.name
+        ):
+            category = DocumentCategory.VENTES_CLIENTS
         side = SALES_SUBDIR if category is DocumentCategory.VENTES_CLIENTS else PURCHASES_SUBDIR
         piece = copy_unit_piece(
             source,
@@ -1307,8 +1343,14 @@ class InboxIngestionService:
             expense_subcategory=decision.expense_subcategory,
         )
         destination = _unique_dest(
-            self._tree.category_dir(FolderState.VALIDE_PRET_FEC, category)
-            / source.name
+            validated_destination(
+                self._tree,
+                source.name,
+                category=category,
+                document_type=decision.document_type,
+                invoice_number=decision.document_number,
+                label=decision.supplier,
+            )
         )
         rel_path = destination.relative_to(
             self._tree.root / self._tenant_id
@@ -1461,6 +1503,11 @@ class InboxIngestionService:
         expense_subcategory: str | None = None,
     ) -> None:
         """Move a source batch to ``03_`` without double-counting its amounts."""
+        if contains_client_invoice_reference(
+            invoice_number, supplier_name, source.name
+        ):
+            category = DocumentCategory.VENTES_CLIENTS
+            expense_subcategory = None
         extracted = ExtractedInvoice(
             invoice_number=invoice_number,
             supplier_name=supplier_name,
@@ -1474,8 +1521,14 @@ class InboxIngestionService:
             expense_subcategory=expense_subcategory,
         )
         destination = _unique_dest(
-            self._tree.category_dir(FolderState.VALIDE_PRET_FEC, category)
-            / source.name
+            validated_destination(
+                self._tree,
+                source.name,
+                category=category,
+                document_type=document_type,
+                invoice_number=invoice_number,
+                label=supplier_name,
+            )
         )
         nom_fichier = destination.name
         rel_path = destination.relative_to(
@@ -1526,7 +1579,14 @@ class InboxIngestionService:
     ) -> None:
         category = _category_value(extracted.category) or DocumentCategory.DIVERS_A_CLASSER
         destination = _unique_dest(
-            self._tree.category_dir(FolderState.VALIDE_PRET_FEC, category) / source.name
+            validated_destination(
+                self._tree,
+                source.name,
+                category=category,
+                document_type=extracted.document_type,
+                invoice_number=extracted.invoice_number,
+                label=extracted.supplier_name,
+            )
         )
         nom_fichier = destination.name
         rel_path = destination.relative_to(self._tree.root / self._tenant_id).as_posix()
@@ -1728,11 +1788,21 @@ class InboxIngestionService:
         }
         return self._store.upsert_document_line(self._tenant_id, document_id, line)
 
+    def _store_document_status(self, digest: str) -> str | None:
+        line = self._store.get_line(self._tenant_id, derive_document_id(digest))
+        if line is None:
+            return None
+        return str(line.get("raw_status") or line.get("status") or "").upper() or None
+
     def _store_has_document(self, digest: str) -> bool:
         return (
             self._store.get_line(self._tenant_id, derive_document_id(digest))
             is not None
         )
+
+    def _store_has_validated_document(self, digest: str) -> bool:
+        """Only a ``VALIDE`` row may skip OCR; pending rows are re-processed."""
+        return self._store_document_status(digest) == DocumentStatus.VALIDE.value
 
     # -- archive / traces ------------------------------------------------
 

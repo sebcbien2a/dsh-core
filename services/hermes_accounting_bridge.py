@@ -40,7 +40,12 @@ from services.apd_four_stage_pipeline import (
     DEFAULT_TENANT,
     DEFAULT_YEAR,
 )
-from services.folder_tree_service import ensure_tree, validate_tenant_id
+from services.folder_tree_service import (
+    GED_SUBDIRS,
+    ensure_tree,
+    validate_tenant_id,
+    validated_destination,
+)
 from services.pdf_splitter_and_linker import PURCHASES_SUBDIR, SALES_SUBDIR, relative_link
 from services.sqlite_accounting_store import DEFAULT_DB_PATH, SqliteAccountingStore
 
@@ -583,6 +588,8 @@ class HermesAccountingBridge:
                 self._tree.category_dir(FolderState.VALIDE_PRET_FEC, category)
                 / row.nom_fichier
             )
+        for subdir in GED_SUBDIRS:
+            candidates.append(self._tree.ged_dir(subdir) / row.nom_fichier)
         candidates.append(self._tree.state_dir(FolderState.ARCHIVE_ERREUR) / row.nom_fichier)
         for candidate in candidates:
             if candidate.is_file():
@@ -611,9 +618,14 @@ class HermesAccountingBridge:
             selected = DocumentCategory(category)
         except ValueError:
             selected = DocumentCategory.DIVERS_A_CLASSER
-        return self._tree.category_dir(FolderState.VALIDE_PRET_FEC, selected) / Path(
-            filename
-        ).name
+        return validated_destination(
+            self._tree,
+            Path(filename).name,
+            category=selected,
+            document_type="FACTURE",
+            invoice_number=Path(filename).stem,
+            label=Path(filename).stem,
+        )
 
     def _update_store_status(
         self,

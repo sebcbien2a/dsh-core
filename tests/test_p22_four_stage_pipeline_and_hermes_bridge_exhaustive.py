@@ -442,13 +442,13 @@ def test_stage1_validates_evidence_moves_files_and_updates_readable_workbook(tmp
     assert not (tree.state_dir(FolderState.A_COMPLETER) / free_pdf.name).exists()
     assert not holding_pdf.exists()
     validated = list(
-        (tree.state_dir(FolderState.VALIDE_PRET_FEC) / "FRAIS_GENERAUX").glob(
+        (tree.state_dir(FolderState.VALIDE_PRET_FEC) / "FACTURES_FOURNISSEURS").glob(
             "Facture_Free_*.pdf"
         )
     )
     assert validated
     assert list(
-        (tree.state_dir(FolderState.VALIDE_PRET_FEC) / "FRAIS_GENERAUX").glob(
+        (tree.state_dir(FolderState.VALIDE_PRET_FEC) / "FACTURES_FOURNISSEURS").glob(
             "facture creation holding.pdf"
         )
     )

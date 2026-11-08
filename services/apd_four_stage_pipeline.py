@@ -65,10 +65,21 @@ from services.balance_simulation_service import (
     BALANCE_FILENAME,
     BalanceSimulationService,
 )
+from services.bank_reconciliation_service import (
+    CLIENTS_ENCAISSEMENT_GROUPE,
+    CLIENT_SALES_CATEGORY,
+    INSTRUMENT_A_QUALIFIER,
+    VIREMENT_A_QUALIFIER,
+    VIREMENT_A_QUALIFIER_SUGGESTION,
+    bank_tier_defaults,
+    contains_client_invoice_reference,
+    is_remise_encaissement,
+)
 from services.folder_tree_service import (
     ensure_tree,
     migrate_default_to_apd,
     validate_tenant_id,
+    validated_destination,
 )
 from services.ofx_bank_statement_parser import (
     import_ofx_statement,
@@ -865,6 +876,14 @@ class ApdFourStagePipeline:
             category = DocumentCategory(category_text)
         except ValueError:
             category = DocumentCategory.DIVERS_A_CLASSER
+        if contains_client_invoice_reference(
+            updated.get("invoice_id"),
+            updated.get("counterparty"),
+            row.nom_fichier,
+        ):
+            category = DocumentCategory.VENTES_CLIENTS
+            updated["category"] = category.value
+            updated["expense_subcategory"] = None
         candidates = [
             self._a_completer_dir / row.nom_fichier,
             self._tenant_dir / row.nom_fichier,
@@ -880,8 +899,16 @@ class ApdFourStagePipeline:
         try:
             destination = _move(
                 source,
-                self._tree.category_dir(FolderState.VALIDE_PRET_FEC, category)
-                / source.name,
+                validated_destination(
+                    self._tree,
+                    source.name,
+                    category=category,
+                    document_type=str(updated.get("document_type") or "FACTURE"),
+                    invoice_number=str(
+                        updated.get("invoice_id") or source.stem
+                    ),
+                    label=str(updated.get("counterparty") or ""),
+                ),
             )
         except OSError:
             return
@@ -945,15 +972,50 @@ class ApdFourStagePipeline:
                 row.get("counterparty") or row.get("supplier") or ""
             ).strip()
             label = str(row.get("label") or "").strip()
-            record = tiers.resolve(name) or tiers.resolve(label)
-            if record is None:
-                continue
+            invoice_id = str(row.get("invoice_id") or "").strip()
+            document_type = str(row.get("document_type") or "").strip()
+            invoice_url = str(row.get("invoice_url") or "").strip()
+            piece_pdf = str(row.get("piece_pdf") or "").strip()
             line = self._store.get_line(self._tenant_id, line_id)
             if line is None:
                 continue
             updated = dict(line)
             updated.pop("line_id", None)
-            if record.role == "INTERNE_EXCLUS":
+            is_bank = document_type.upper() in {"OFX", "QFX"} or line_id.upper().startswith(
+                "OFX-"
+            )
+            client_sale = contains_client_invoice_reference(
+                name, label, invoice_id, invoice_url, piece_pdf
+            )
+            record = tiers.resolve(name) or tiers.resolve(label)
+            if client_sale:
+                canonical = (
+                    record.canonical
+                    if record is not None and record.role == "CLIENT"
+                    else name
+                )
+                updated["counterparty"] = canonical or name
+                updated["category"] = CLIENT_SALES_CATEGORY
+                updated["expense_subcategory"] = None
+                updated["is_classified_marker"] = (
+                    f"TIER:{canonical or 'CLIENT'}:CLIENT"
+                )
+            elif is_bank and is_remise_encaissement(label):
+                updated["counterparty"] = CLIENTS_ENCAISSEMENT_GROUPE
+                updated["category"] = CLIENT_SALES_CATEGORY
+                updated["expense_subcategory"] = None
+                updated["is_classified_marker"] = (
+                    f"TIER:{CLIENTS_ENCAISSEMENT_GROUPE}:CLIENT"
+                )
+            elif is_bank and (
+                bank_tier_defaults(label=label, counterparty=name)[0]
+                == VIREMENT_A_QUALIFIER
+            ):
+                updated["counterparty"] = VIREMENT_A_QUALIFIER
+                updated["is_classified_marker"] = "A_QUALIFIER"
+            elif record is None:
+                continue
+            elif record.role == "INTERNE_EXCLUS":
                 updated["category"] = DocumentCategory.DIVERS_A_CLASSER.value
                 updated["is_classified_marker"] = "INTERNE_EXCLUS"
             else:
@@ -1245,9 +1307,18 @@ class ApdFourStagePipeline:
         decision: EvidenceDecision,
     ) -> tuple[str, str | None]:
         category = decision.category
-        destination_dir = self._tree.category_dir(
-            FolderState.VALIDE_PRET_FEC, category
-        )
+        if contains_client_invoice_reference(
+            decision.document_number, decision.supplier, source.name
+        ):
+            category = DocumentCategory.VENTES_CLIENTS
+        destination_dir = validated_destination(
+            self._tree,
+            source.name,
+            category=category,
+            document_type=decision.document_type,
+            invoice_number=decision.document_number,
+            label=decision.supplier,
+        ).parent
         destination = destination_dir / source.name
         source_resolved = source.resolve()
         try:
@@ -1639,6 +1710,8 @@ class ApdFourStagePipeline:
         for name, line in self._tier_reference.unknown_tier_entries(
             self._store.list_master_lines(self._tenant_id)
         ):
+            if str(name).strip().upper() == VIREMENT_A_QUALIFIER:
+                continue
             safe_name = str(name).replace("/", "_").replace("\\", "_").strip()
             if not safe_name:
                 continue
@@ -1665,6 +1738,21 @@ class ApdFourStagePipeline:
                 amount_ttc = _parse_decimal(
                     line.get("debit_amount") or line.get("credit_amount")
                 )
+            is_transfer = str(name).strip().upper() == VIREMENT_A_QUALIFIER
+            reason = (
+                "Virement par internet sans tiers identifiable : qualifier "
+                "l'opération en trésorerie interne ou compte courant associé."
+                if is_transfer
+                else (
+                    "Tiers inconnu du référentiel verrouillé : aucun onglet "
+                    "ne sera créé avant autorisation."
+                )
+            )
+            action = (
+                f"Qualifier : {VIREMENT_A_QUALIFIER_SUGGESTION}"
+                if is_transfer
+                else "Choisir un rattachement ALIAS ou créer un nouveau tiers."
+            )
             rows.append(
                 ReadableRow(
                     sha256=digest,
@@ -1684,15 +1772,68 @@ class ApdFourStagePipeline:
                         line.get("category")
                         or DocumentCategory.DIVERS_A_CLASSER.value
                     ),
-                    reason=(
-                        "Tiers inconnu du référentiel verrouillé : aucun onglet "
-                        "ne sera créé avant autorisation."
-                    ),
-                    action=(
-                        "Choisir un rattachement ALIAS ou créer un nouveau tiers."
-                    ),
+                    reason=reason,
+                    action=action,
                     status=DocumentStatus.EN_ATTENTE,
                     piece_pdf=piece_pdf,
+                    extra={
+                        "payment_source": "BANQUE_PRO",
+                        "counterparty_account": "622600",
+                        "fiscal_year_target": str(self._year),
+                        "deferred_month": "NON",
+                        "report": "NON",
+                        "tier_alias_target": "",
+                    },
+                )
+            )
+        for line in self._store.list_master_lines(self._tenant_id):
+            if str(line.get("counterparty") or "").strip().upper() != VIREMENT_A_QUALIFIER:
+                continue
+            line_id = str(line.get("line_id") or "")
+            filename = f"TIER__{VIREMENT_A_QUALIFIER}__{line_id}.tier"
+            if filename in known:
+                continue
+            digest = hashlib.sha256(
+                f"virement-a-qualifier:{line_id}".encode("utf-8")
+            ).hexdigest()
+            document_date = None
+            raw_date = str(line.get("operation_date") or "")[:10]
+            if raw_date:
+                try:
+                    document_date = date.fromisoformat(raw_date)
+                except ValueError:
+                    document_date = None
+            amount_ttc = _parse_decimal(line.get("amount_ttc"))
+            if amount_ttc is None:
+                amount_ttc = _parse_decimal(
+                    line.get("debit_amount") or line.get("credit_amount")
+                )
+            rows.append(
+                ReadableRow(
+                    sha256=digest,
+                    filename=filename,
+                    supplier=VIREMENT_A_QUALIFIER,
+                    document_number=str(
+                        line.get("label")
+                        or line.get("invoice_id")
+                        or line_id
+                    ),
+                    document_date=document_date,
+                    amount_ht=_parse_decimal(line.get("amount_ht")),
+                    amount_tva=_parse_decimal(line.get("amount_tva")),
+                    amount_ttc=amount_ttc,
+                    category=str(
+                        line.get("category")
+                        or DocumentCategory.DIVERS_A_CLASSER.value
+                    ),
+                    reason=(
+                        "Virement par internet sans tiers identifiable : "
+                        "qualifier l'opération en trésorerie interne ou compte "
+                        "courant associé."
+                    ),
+                    action=f"Qualifier : {VIREMENT_A_QUALIFIER_SUGGESTION}",
+                    status=DocumentStatus.EN_ATTENTE,
+                    piece_pdf=None,
                     extra={
                         "payment_source": "BANQUE_PRO",
                         "counterparty_account": "622600",
@@ -1717,17 +1858,27 @@ class ApdFourStagePipeline:
                     document_date = date.fromisoformat(raw_date)
                 except ValueError:
                     document_date = None
+            remise = is_remise_encaissement(instrument.label)
+            supplier = (
+                CLIENTS_ENCAISSEMENT_GROUPE
+                if remise
+                else INSTRUMENT_A_QUALIFIER
+            )
             rows.append(
                 ReadableRow(
                     sha256=digest,
                     filename=filename,
-                    supplier="INSTRUMENT DE PAIEMENT",
+                    supplier=supplier,
                     document_number=instrument.label,
                     document_date=document_date,
                     amount_ht=None,
                     amount_tva=None,
                     amount_ttc=instrument.amount,
-                    category=DocumentCategory.DIVERS_A_CLASSER,
+                    category=(
+                        DocumentCategory.VENTES_CLIENTS
+                        if remise
+                        else DocumentCategory.DIVERS_A_CLASSER
+                    ),
                     reason=(
                         f"LCR / Chèque de {instrument.amount} € du "
                         f"{instrument.operation_date} sans facture "
@@ -1741,7 +1892,9 @@ class ApdFourStagePipeline:
                     status=DocumentStatus.EN_ATTENTE,
                     extra={
                         "payment_source": "BANQUE_PRO",
-                        "counterparty_account": "622600",
+                        "counterparty_account": (
+                            "411000" if remise else "622600"
+                        ),
                         "fiscal_year_target": str(self._year),
                         "deferred_month": "NON",
                         "report": "NON",

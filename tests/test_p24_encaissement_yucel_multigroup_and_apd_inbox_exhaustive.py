@@ -299,7 +299,7 @@ def test_readable_arbitration_columns_are_prefilled_and_applied(
     line = store.get_line(TENANT, derive_document_id(digest))
     assert line is not None and line["status"] == "VALIDE"
     assert not (pending_dir / pdf.name).exists()
-    validated = tree.category_dir(FolderState.VALIDE_PRET_FEC, DocumentCategory.FRAIS_GENERAUX)
+    validated = tree.ged_dir("FACTURES_FOURNISSEURS")
     assert any(path.name == pdf.name for path in validated.glob("*.pdf"))
 
 

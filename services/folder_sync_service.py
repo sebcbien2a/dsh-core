@@ -37,7 +37,15 @@ from services.acompleter_workbook_service import (
     AcompleterWorkbook,
     derive_document_id,
 )
-from services.folder_tree_service import ensure_tree, validate_tenant_id
+from services.folder_tree_service import (
+    GED_AVOIRS_CLIENTS,
+    GED_FACTURES_CLIENTS,
+    GED_SUBDIRS,
+    ensure_tree,
+    ged_subdir_for_document,
+    validate_tenant_id,
+    validated_destination,
+)
 from services.vault_accounting_bridge import (
     STATUS_PARTIAL,
     STATUS_WRITTEN,
@@ -269,10 +277,22 @@ class FolderSyncService:
 
     def _validated_index(self) -> dict[str, tuple[Path, DocumentCategory]]:
         index: dict[str, tuple[Path, DocumentCategory]] = {}
-        for category in DocumentCategory:
-            directory = self._tree.category_dir(
-                FolderState.VALIDE_PRET_FEC, category
+        directories: list[tuple[Path, DocumentCategory | None]] = [
+            (self._tree.category_dir(FolderState.VALIDE_PRET_FEC, category), category)
+            for category in DocumentCategory
+        ]
+        directories.extend(
+            (
+                self._tree.ged_dir(subdir),
+                (
+                    DocumentCategory.VENTES_CLIENTS
+                    if subdir in {GED_FACTURES_CLIENTS, GED_AVOIRS_CLIENTS}
+                    else None
+                ),
             )
+            for subdir in GED_SUBDIRS
+        )
+        for directory, folder_category in directories:
             if not directory.is_dir():
                 continue
             for path in sorted(directory.iterdir(), key=lambda p: p.name):
@@ -282,7 +302,17 @@ class FolderSyncService:
                     digest = _file_sha256(path)
                 except OSError:
                     continue
-                index.setdefault(digest, (path, category))
+                category = folder_category
+                line = self._store_line(digest)
+                if line is not None:
+                    try:
+                        category = DocumentCategory(str(line.get("category") or ""))
+                    except ValueError:
+                        pass
+                index.setdefault(
+                    digest,
+                    (path, category or DocumentCategory.DIVERS_A_CLASSER),
+                )
         return index
 
     def _archive(self, path: Path, acc: _Acc, reason: str) -> None:
@@ -386,13 +416,21 @@ class FolderSyncService:
             acc.skipped_invalid += 1
             acc.traces.append(f"{digest}:SKIPPED_INVALID_CATEGORY")
             return
-        dest_dir = self._tree.category_dir(FolderState.VALIDE_PRET_FEC, category)
-        dest = dest_dir / source.name
+        line = self._store_line(digest)
+        destination = validated_destination(
+            self._tree,
+            source.name,
+            category=category,
+            document_type=str((line or {}).get("document_type") or ""),
+            invoice_number=str((line or {}).get("invoice_id") or source.stem),
+            label=str((line or {}).get("counterparty") or ""),
+        )
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        dest = destination
         if dest.exists():
             self._archive(source, acc, "DEST_EXISTS")
             return
         rel_path = dest.relative_to(self._tenant_dir()).as_posix()
-        line = self._store_line(digest)
         self._persist(digest, source.name, _STATUT_VALIDE, rel_path, category)
         os.replace(source, dest)
         acc.moved_to_03 += 1

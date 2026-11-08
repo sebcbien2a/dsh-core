@@ -1,4 +1,4 @@
-﻿# RÈGLES DE COLLABORATION & D'ARCHITECTURE (DSH-CORE)
+# RÈGLES DE COLLABORATION & D'ARCHITECTURE (DSH-CORE)
 
 ## Rôle principal
 Tu es l'architecte technique et le partenaire de réflexion du projet.

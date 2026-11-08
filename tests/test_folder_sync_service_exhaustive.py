@@ -123,8 +123,7 @@ def test_valide_moves_file_persists_and_traces(tmp_path):
     assert report.moved_to_03 == 1
     assert report.archived == 0
     dest = (
-        tree.state_dir(FolderState.VALIDE_PRET_FEC)
-        / "ACHATS_MARCHANDISES"
+        tree.ged_dir("FACTURES_FOURNISSEURS")
         / "facture.pdf"
     )
     assert dest.is_file()
@@ -132,7 +131,10 @@ def test_valide_moves_file_persists_and_traces(tmp_path):
     line = store.get_line(TENANT, derive_document_id(sha))
     assert line["label"] == "facture.pdf"
     assert line["invoice_id"] == derive_document_id(sha)
-    assert line["invoice_url"] == "03_VALIDE_PRET_FEC/ACHATS_MARCHANDISES/facture.pdf"
+    assert (
+        line["invoice_url"]
+        == "03_VALIDE_PRET_FEC/FACTURES_FOURNISSEURS/facture.pdf"
+    )
     assert line["raw_status"] == "VALIDE"
     assert any(t.startswith(f"{sha}:02_A_COMPLETER->03_") for t in report.traces)
 
@@ -146,7 +148,11 @@ def test_valide_moves_despite_other_missing_fields(tmp_path):
     edit_row(service, sha, statut="VALIDE")
     report = service.sync_human_to_pipeline()
     assert report.moved_to_03 == 1
-    assert (tree.state_dir(FolderState.VALIDE_PRET_FEC) / "FRAIS_GENERAUX" / "facture.pdf").is_file()
+    assert (
+        tree.state_dir(FolderState.VALIDE_PRET_FEC)
+        / "FACTURES_FOURNISSEURS"
+        / "facture.pdf"
+    ).is_file()
 
 
 def test_valide_with_categorie_still_missing_is_skipped(tmp_path):
@@ -178,7 +184,7 @@ def test_valide_with_invalid_category_is_skipped(tmp_path):
 def test_valide_destination_name_conflict_archives_source(tmp_path):
     tree, store, service, inbox = build(tmp_path)
     sha = put(inbox, "facture.pdf", b"original")
-    cat_dir = tree.category_dir(FolderState.VALIDE_PRET_FEC, DocumentCategory.FRAIS_GENERAUX)
+    cat_dir = tree.ged_dir("FACTURES_FOURNISSEURS")
     (cat_dir / "facture.pdf").write_bytes(b"autre contenu")
     service.workbook.upsert(sha, "facture.pdf", [], DocumentCategory.FRAIS_GENERAUX)
     edit_row(service, sha, statut="VALIDE")

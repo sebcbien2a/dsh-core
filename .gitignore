@@ -55,3 +55,8 @@ workspace/*.html
 
 # Pytest working directory
 .pytest_tmp/
+
+# Artefacts locaux temporaires (upload Drive, binaires Ollama, notes Obsidian)
+.tmp.driveupload/
+Ollama
+Sans titre.base

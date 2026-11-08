@@ -48,6 +48,15 @@ from schemas.folder_state_schema import (
 )
 from services.folder_tree_service import ensure_tree
 from services.apd_evidence_rules import NON_ACCOUNTABLE_DOCUMENT_TYPES
+from services.bank_reconciliation_service import (
+    CLIENTS_ENCAISSEMENT_GROUPE,
+    VIREMENT_A_QUALIFIER,
+    bank_tier_defaults,
+    clean_bank_tier_name,
+    contains_client_invoice_reference,
+    is_invalid_tier_name,
+    is_remise_encaissement,
+)
 from services.accounting_memory_learning_service import (
     AccountingMemoryLearningService,
     normalize_counterparty_name,
@@ -197,6 +206,10 @@ class CategorySummaryExportError(ValueError):
     def __init__(self, code: str, message: str = "") -> None:
         super().__init__(f"{code}: {message}" if message else code)
         self.code = code
+
+
+class PieceLink(str):
+    """Marker for an actual relative PDF link (never a plain text cell)."""
 
 
 class CategoryLineStore(Protocol):
@@ -545,25 +558,49 @@ def merge_pieces_folders(export_dir: str | os.PathLike[str]) -> int:
 
 
 def _piece_side_for_row(row: dict[str, Any]) -> str:
-    category = str(row.get("category") or "").upper()
-    return SALES_SUBDIR if category == DocumentCategory.VENTES_CLIENTS.value else PURCHASES_SUBDIR
+    if str(row.get("category") or "").upper() == DocumentCategory.VENTES_CLIENTS.value:
+        return SALES_SUBDIR
+    if contains_client_invoice_reference(
+        row.get("invoice_id"),
+        row.get("label"),
+        row.get("invoice_url"),
+        row.get("piece_pdf"),
+        row.get("counterparty"),
+    ):
+        return SALES_SUBDIR
+    return PURCHASES_SUBDIR
+
+
+def _resolve_relative_candidate(
+    workbook_path: Path, value: str
+) -> Path | None:
+    normalized = value.replace("\\", "/").strip()
+    if not normalized or normalized.startswith("/") or re.match(r"^[A-Za-z]:", normalized):
+        return None
+    bases: list[Path] = []
+    current = workbook_path.parent
+    for _ in range(5):
+        bases.append(current)
+        if current.parent == current:
+            break
+        current = current.parent
+    for base in bases:
+        candidate = Path(base) / normalized
+        if candidate.is_file():
+            return candidate.resolve()
+    return None
 
 
 def _piece_link_for_row(
     workbook_path: Path, row: dict[str, Any]
 ) -> str | None:
-    stored = str(row.get("piece_pdf") or "").strip()
-    if stored:
-        normalized = stored.replace("\\", "/")
-        if normalized.startswith("PIECES_JOINTES/"):
-            candidate = workbook_path.parent / normalized
-            if candidate.is_file():
-                return normalized
-        candidate = Path(stored)
-        if not candidate.is_absolute():
-            candidate = workbook_path.parent / candidate
-        if candidate.is_file():
-            return relative_link(candidate, workbook_path)
+    for value in (row.get("invoice_url"), row.get("piece_pdf")):
+        stored = str(value or "").strip()
+        if not stored:
+            continue
+        candidate = _resolve_relative_candidate(workbook_path, stored)
+        if candidate is not None:
+            return PieceLink(relative_link(candidate, workbook_path))
     number = str(
         row.get("invoice_id")
         or row.get("piece_number")
@@ -576,8 +613,8 @@ def _piece_link_for_row(
     )
     if found is None:
         return None
-    return relative_link(
-        Path(found).resolve(), Path(workbook_path).resolve()
+    return PieceLink(
+        relative_link(Path(found).resolve(), Path(workbook_path).resolve())
     )
 
 
@@ -594,9 +631,26 @@ def _write_piece_link(
     if not isinstance(value, str) or not value.strip():
         return False
     normalized = value.replace("\\", "/")
-    if not normalized.startswith("PIECES_JOINTES/"):
+    if not isinstance(value, PieceLink) and not normalized.startswith(
+        "PIECES_JOINTES/"
+    ):
         return False
-    cell.value = str(display_text or Path(normalized).name)
+    if normalized.startswith("/") or re.match(r"^[A-Za-z]:", normalized):
+        return False
+    base = Path(normalized).name
+    suffix = Path(normalized).suffix.casefold()
+    gede = "/03_VALIDE_PRET_FEC/" in f"/{normalized}" or normalized.startswith(
+        "03_VALIDE_PRET_FEC/"
+    )
+    if suffix not in {".pdf", ".jpg", ".jpeg", ".png", ".xlsx"}:
+        return False
+    if not (
+        normalized.startswith("PIECES_JOINTES/")
+        or gede
+        or normalized.startswith("../")
+    ):
+        return False
+    cell.value = str(display_text or base)
     cell.hyperlink = normalized
     cell.font = Font(color="0563C1", underline="single")
     return True
@@ -973,6 +1027,7 @@ class SupplierLedgerEntry:
     payment_date: str = ""
     payment_method: str = ""
     piece_pdf: str = ""
+    invoice_url: str = ""
 
     @property
     def signed_amount(self) -> Decimal:
@@ -1173,6 +1228,10 @@ def _build_supplier_ledger_entries(
         raw_status = str(row.get("raw_status") or row.get("status") or "PENDING")
         action = str(row.get("decision_action") or "")
         supplier_name = _ledger_supplier(row)
+        if is_invalid_tier_name(supplier_name) or is_remise_encaissement(
+            row.get("label")
+        ):
+            continue
         tiers = _tier_reference()
         if tiers.is_internal(supplier_name):
             continue
@@ -1236,6 +1295,7 @@ def _build_supplier_ledger_entries(
                         or row.get("label")
                     ),
                     piece_pdf=piece_pdf,
+                    invoice_url=str(row.get("invoice_url") or ""),
                 )
             )
             continue
@@ -1289,6 +1349,7 @@ def _build_supplier_ledger_entries(
                     or row.get("payment_method")
                     or ""
                 ),
+                invoice_url=str(row.get("invoice_url") or ""),
             )
         )
     return entries
@@ -1305,6 +1366,8 @@ def _group_supplier_entries(
     tiers = _tier_reference()
     for entry in entries:
         name = entry.supplier.strip() or "NON_AFFECTE"
+        if is_invalid_tier_name(name):
+            continue
         if tiers.is_internal(name):
             continue
         canonical = (
@@ -1565,6 +1628,7 @@ def _write_supplier_ledger_sheet(
                     "invoice_id": link_invoice,
                     "category": DocumentCategory.ACHATS_MARCHANDISES.value,
                     "piece_pdf": entry.piece_pdf,
+                    "invoice_url": entry.invoice_url,
                 },
             )
             if workbook_path is not None
@@ -1986,6 +2050,7 @@ class ClientLedgerEntry:
     invoice_id: str | None
     client: str
     piece_pdf: str | None = None
+    invoice_url: str = ""
     matched_pieces: str = ""
     payment_date: str = ""
     payment_method: str = ""
@@ -2010,7 +2075,7 @@ def _client_invoice_entries(
     tiers = _tier_reference()
     memory = _learned_memory()
     for row in rows:
-        if str(row.get("category") or "") != DocumentCategory.VENTES_CLIENTS.value:
+        if not _is_sales_row(row):
             continue
         document_type = str(row.get("document_type") or "").strip().upper()
         line_id = str(row.get("line_id") or "")
@@ -2067,6 +2132,7 @@ def _client_invoice_entries(
                 invoice_id=str(record["invoice_id"] or line_id),
                 client=client,
                 piece_pdf=str(row.get("piece_pdf") or "") or None,
+                invoice_url=str(row.get("invoice_url") or ""),
                 matched_pieces=reconciliation_reference if paid else "",
                 payment_date=(
                     str(row.get("reconciliation_date") or "") if paid else ""
@@ -2206,6 +2272,7 @@ def _client_payment_entries(
                 line_id=str(row.get("line_id") or ""),
                 invoice_id=None,
                 client=client,
+                invoice_url=str(row.get("invoice_url") or ""),
                 matched_pieces=" + ".join(matched_pieces),
             )
         )
@@ -2328,6 +2395,7 @@ def _client_synthetic_payments(
                 line_id=str(row.get("line_id") or ""),
                 invoice_id=None,
                 client=client,
+                invoice_url=str(row.get("invoice_url") or ""),
             )
         )
     return synthetic
@@ -2399,6 +2467,7 @@ def _write_client_ledger_sheet(
                 "invoice_id": link_invoice,
                 "category": DocumentCategory.VENTES_CLIENTS.value,
                 "piece_pdf": entry.piece_pdf,
+                "invoice_url": entry.invoice_url,
             },
         )
         matched_display = _client_matched_display(entry)
@@ -2538,7 +2607,12 @@ class ClientLedgerExporter:
             for client, entries in grouped.items()
             if len(entries) >= CLIENT_LEDGER_MIN_OPERATIONS
             and client.upper()
-            not in {"CLIENTS_CHEQUES", "CLIENTS_LCR", "CLIENT_DIVERS"}
+            not in {
+                "CLIENTS_CHEQUES",
+                "CLIENTS_LCR",
+                "CLIENT_DIVERS",
+                CLIENTS_ENCAISSEMENT_GROUPE,
+            }
         }
         target = (
             self._export_dir
@@ -2884,6 +2958,14 @@ def _hotel_vat_from_row(
 
 
 def _infer_expense_subcategory(row: dict[str, Any]) -> ExpenseSubCategory | None:
+    if _is_sales_row(row) or contains_client_invoice_reference(
+        row.get("invoice_id"),
+        row.get("label"),
+        row.get("invoice_url"),
+        row.get("piece_pdf"),
+        row.get("counterparty"),
+    ):
+        return None
     explicit = str(row.get("expense_subcategory") or "").strip()
     if explicit:
         try:
@@ -3576,7 +3658,17 @@ def _is_bank_operation(row: dict[str, Any]) -> bool:
 
 
 def _is_sales_row(row: dict[str, Any]) -> bool:
-    return str(row.get("category") or "") == DocumentCategory.VENTES_CLIENTS.value
+    if str(row.get("category") or "") == DocumentCategory.VENTES_CLIENTS.value:
+        return True
+    if contains_client_invoice_reference(
+        row.get("invoice_id"),
+        row.get("label"),
+        row.get("invoice_url"),
+        row.get("piece_pdf"),
+        row.get("counterparty"),
+    ):
+        return True
+    return False
 
 
 def _master_rows(store: Any, tenant_id: str) -> list[dict[str, Any]]:
@@ -3854,6 +3946,14 @@ def _bank_counterparty_display(
     """Identify the third party of one bank line (P24 accountant column)."""
     memory = _learned_memory()
     raw = _text_field(row, "counterparty", "supplier")
+    label = _text_field(row, "label")
+    if is_remise_encaissement(label):
+        return f"{CLIENTS_ENCAISSEMENT_GROUPE} [CLIENT]"
+    tier, role, _category = bank_tier_defaults(
+        label=label, counterparty=raw
+    )
+    if tier == VIREMENT_A_QUALIFIER:
+        return VIREMENT_A_QUALIFIER
     nature = ""
     name = ""
     if matched:
@@ -3861,15 +3961,15 @@ def _bank_counterparty_display(
         natures: list[str] = []
         for document in matched:
             record = _summary_record(document)
-            label = str(record["counterparty"] or "").strip()
-            if label:
-                names.append(label)
+            label_value = str(record["counterparty"] or "").strip()
+            if label_value:
+                names.append(label_value)
             natures.append("CLIENT" if _is_sales_row(document) else "FOURNISSEUR")
         name = memory.canonical_name(names[0]) if names else raw
         nature = "CLIENT" if "CLIENT" in natures else "FOURNISSEUR"
     label_text = " ".join(
         (
-            _text_field(row, "label"),
+            label,
             _text_field(row, "payment_reference"),
             _text_field(row, "remittance_reference"),
         )
@@ -3895,8 +3995,8 @@ def _bank_counterparty_display(
             name = raw or name
             nature = nature or ("FOURNISSEUR" if name else "")
     canonical = memory.canonical_name(name) or name
-    if not canonical:
-        return "NON IDENTIFIE"
+    if not canonical or is_invalid_tier_name(canonical):
+        return VIREMENT_A_QUALIFIER
     return f"{canonical} [{nature}]" if nature else canonical
 
 

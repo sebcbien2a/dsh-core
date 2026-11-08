@@ -158,9 +158,7 @@ def test_ingest_inbox_aspirates_the_onedrive_mirror(tmp_path, monkeypatch):
     assert list(inbox.iterdir()) == []
     assert any(trace == "MIRRORED:mobile.pdf" for trace in report.traces)
     assert (
-        tree.category_dir(
-            FolderState.VALIDE_PRET_FEC, DocumentCategory.FRAIS_GENERAUX
-        )
+        tree.ged_dir("FACTURES_FOURNISSEURS")
         / "mobile.pdf"
     ).is_file()
 
@@ -199,9 +197,7 @@ def test_mirror_permission_error_is_deferred_then_retried(
     assert second.moved_to_03 == 1
     assert (mirror / "mobile.pdf").exists() is False
     assert (
-        tree.category_dir(
-            FolderState.VALIDE_PRET_FEC, DocumentCategory.FRAIS_GENERAUX
-        )
+        tree.ged_dir("FACTURES_FOURNISSEURS")
         / "mobile.pdf"
     ).is_file()
 
@@ -360,7 +356,7 @@ def test_complete_high_confidence_routes_to_03_and_persists_store(tmp_path):
     report = service.ingest_inbox()
 
     destination = (
-        tree.category_dir(FolderState.VALIDE_PRET_FEC, DocumentCategory.FRAIS_GENERAUX)
+        tree.ged_dir("FACTURES_FOURNISSEURS")
         / "facture-acme.pdf"
     )
     assert destination.is_file()
@@ -380,7 +376,7 @@ def test_complete_high_confidence_routes_to_03_and_persists_store(tmp_path):
     assert line["currency"] == "EUR"
     assert (
         line["invoice_url"]
-        == "03_VALIDE_PRET_FEC/FRAIS_GENERAUX/facture-acme.pdf"
+        == "03_VALIDE_PRET_FEC/FACTURES_FOURNISSEURS/facture-acme.pdf"
     )
     document = report.documents[0]
     assert document.outcome == OUTCOME_VALIDE
@@ -416,7 +412,7 @@ def test_extractor_may_return_invoice_schema(tmp_path):
 
     assert report.moved_to_03 == 1
     assert (
-        tree.category_dir(FolderState.VALIDE_PRET_FEC, DocumentCategory.FRAIS_GENERAUX)
+        tree.ged_dir("FACTURES_FOURNISSEURS")
         / "facture.pdf"
     ).is_file()
     line = store.get_line(TENANT, derive_document_id(digest))
@@ -450,16 +446,14 @@ def test_extractor_may_return_canonical_mapping(tmp_path):
     assert line["label"] == "FA-010"
     assert line["raw_status"] == "VALIDE"
     assert (
-        tree.category_dir(FolderState.VALIDE_PRET_FEC, DocumentCategory.FRAIS_GENERAUX)
+        tree.ged_dir("FACTURES_FOURNISSEURS")
         / "facture.pdf"
     ).is_file()
 
 
 def test_name_collision_in_03_gets_unique_name_and_store_path(tmp_path):
     tree, store, service, inbox, _tenant = build(tmp_path, constant(complete()))
-    category_dir = tree.category_dir(
-        FolderState.VALIDE_PRET_FEC, DocumentCategory.FRAIS_GENERAUX
-    )
+    category_dir = tree.ged_dir("FACTURES_FOURNISSEURS")
     (category_dir / "facture.pdf").write_bytes(b"other document")
     digest = put(inbox, "facture.pdf")
 
@@ -707,9 +701,7 @@ def test_duplicate_within_same_inbox_pass(tmp_path):
     assert report.scanned == 2
     assert report.moved_to_03 == 1
     assert report.duplicates == 1
-    category_dir = tree.category_dir(
-        FolderState.VALIDE_PRET_FEC, DocumentCategory.FRAIS_GENERAUX
-    )
+    category_dir = tree.ged_dir("FACTURES_FOURNISSEURS")
     assert (category_dir / "a.pdf").is_file()
     assert (
         tree.state_dir(FolderState.ARCHIVE_ERREUR) / "b.pdf"
@@ -754,7 +746,7 @@ def test_two_documents_are_routed_independently(tmp_path):
     assert report.moved_to_02 == 1
     assert report.rows_written == 1
     assert (
-        tree.category_dir(FolderState.VALIDE_PRET_FEC, DocumentCategory.FRAIS_GENERAUX)
+        tree.ged_dir("FACTURES_FOURNISSEURS")
         / "complete.pdf"
     ).is_file()
     assert (tree.state_dir(FolderState.A_COMPLETER) / "pending.pdf").is_file()

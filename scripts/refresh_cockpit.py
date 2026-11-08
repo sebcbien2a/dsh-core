@@ -50,7 +50,10 @@ from services.document_flow_watcher import (  # noqa: E402
     DEFAULT_TENANT,
     DocumentFlowWatcher,
 )
-from services.folder_tree_service import ensure_tree  # noqa: E402
+from services.folder_tree_service import (  # noqa: E402
+    ensure_tree,
+    migrate_validated_to_ged,
+)
 from services.inbox_ingestion_service import (  # noqa: E402
     UNIFIED_TENANT_IDS,
     InboxIngestionService,
@@ -269,6 +272,10 @@ def refresh_cockpit(
         else tree.state_dir(FolderState.EXPORT_COMPTA)
     )
     store = SqliteAccountingStore(db_path or DEFAULT_DB_PATH)
+    try:
+        migrate_validated_to_ged(tenant, root, store=store)
+    except Exception:  # noqa: BLE001 - migration never blocks the cockpit
+        pass
     for unified_tenant in UNIFIED_TENANT_IDS:
         try:
             ensure_tree(unified_tenant, root)

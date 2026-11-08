@@ -191,10 +191,8 @@ def test_file_still_growing_is_ignored_until_stabilised(tmp_path):
     assert third.ingestion is not None
     assert third.ingestion.moved_to_03 == 1
     destination = (
-        tree.category_dir(
-            FolderState.VALIDE_PRET_FEC, DocumentCategory.FRAIS_GENERAUX
-        )
-        / "facture.pdf"
+            tree.ged_dir("FACTURES_FOURNISSEURS")
+            / "facture.pdf"
     )
     assert destination.is_file()
 
@@ -258,10 +256,8 @@ def test_onedrive_mirror_is_stabilised_aspirated_then_ingested(tmp_path):
     assert any(trace == "MIRRORED:mobile.pdf" for trace in second.traces)
     assert (mirror / "mobile.pdf").exists() is False
     assert (
-        tree.category_dir(
-            FolderState.VALIDE_PRET_FEC, DocumentCategory.FRAIS_GENERAUX
-        )
-        / "mobile.pdf"
+            tree.ged_dir("FACTURES_FOURNISSEURS")
+            / "mobile.pdf"
     ).is_file()
 
 
@@ -301,10 +297,8 @@ def test_mirror_permission_error_is_retried_on_the_next_cycle(
     assert retried.ingestion.moved_to_03 == 1
     assert (mirror / "mobile.pdf").exists() is False
     assert (
-        tree.category_dir(
-            FolderState.VALIDE_PRET_FEC, DocumentCategory.FRAIS_GENERAUX
-        )
-        / "mobile.pdf"
+            tree.ged_dir("FACTURES_FOURNISSEURS")
+            / "mobile.pdf"
     ).is_file()
 
 
@@ -334,15 +328,11 @@ def test_run_once_chains_inbox_ingestion_then_workbook_sync(tmp_path):
     assert report.ingestion is not None and report.ingestion.moved_to_03 == 1
     assert report.sync is not None and report.sync.moved_to_03 == 1
     assert (
-        tree.category_dir(
-            FolderState.VALIDE_PRET_FEC, DocumentCategory.FRAIS_GENERAUX
-        )
+        tree.ged_dir("FACTURES_FOURNISSEURS")
         / "new.pdf"
     ).is_file()
     assert (
-        tree.category_dir(
-            FolderState.VALIDE_PRET_FEC, DocumentCategory.FRAIS_GENERAUX
-        )
+        tree.ged_dir("FACTURES_FOURNISSEURS")
         / "old.pdf"
     ).is_file()
 
@@ -558,10 +548,8 @@ def test_auto_export_errors_do_not_block_document_flow(tmp_path, monkeypatch):
     assert any(trace.startswith("EXPORT:LEDGER:") for trace in report.exports)
     assert "EXPORT:COCKPIT:created" in report.exports
     destination = (
-        tree.category_dir(
-            FolderState.VALIDE_PRET_FEC, DocumentCategory.FRAIS_GENERAUX
-        )
-        / "facture.pdf"
+            tree.ged_dir("FACTURES_FOURNISSEURS")
+            / "facture.pdf"
     )
     assert destination.is_file()
 

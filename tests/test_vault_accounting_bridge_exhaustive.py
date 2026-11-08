@@ -377,9 +377,7 @@ def test_inbox_validation_enriches_vault_and_keeps_store_line(tmp_path):
     report = service.ingest_inbox()
 
     destination = (
-        tree.category_dir(
-            FolderState.VALIDE_PRET_FEC, DocumentCategory.FRAIS_GENERAUX
-        )
+        tree.ged_dir("FACTURES_FOURNISSEURS")
         / "facture-acme.pdf"
     )
     assert destination.is_file()
@@ -425,9 +423,7 @@ def test_inbox_vault_crash_keeps_sqlite_and_file_move(tmp_path, monkeypatch):
     report = service.ingest_inbox()
 
     destination = (
-        tree.category_dir(
-            FolderState.VALIDE_PRET_FEC, DocumentCategory.FRAIS_GENERAUX
-        )
+        tree.ged_dir("FACTURES_FOURNISSEURS")
         / "facture-acme.pdf"
     )
     assert destination.is_file()
@@ -436,7 +432,7 @@ def test_inbox_vault_crash_keeps_sqlite_and_file_move(tmp_path, monkeypatch):
     assert any(":VAULT:failed" in trace for trace in report.traces)
     line = store.get_line(TENANT, derive_document_id(digest))
     assert line["raw_status"] == DocumentStatus.VALIDE.value
-    assert line["invoice_url"].startswith("03_VALIDE_PRET_FEC/FRAIS_GENERAUX/")
+    assert line["invoice_url"].startswith("03_VALIDE_PRET_FEC/FACTURES_FOURNISSEURS/")
 
 
 def test_inbox_survives_a_bridge_that_raises(tmp_path):
@@ -452,9 +448,7 @@ def test_inbox_survives_a_bridge_that_raises(tmp_path):
     report = service.ingest_inbox()
 
     destination = (
-        tree.category_dir(
-            FolderState.VALIDE_PRET_FEC, DocumentCategory.FRAIS_GENERAUX
-        )
+        tree.ged_dir("FACTURES_FOURNISSEURS")
         / "facture-acme.pdf"
     )
     assert destination.is_file()
@@ -484,9 +478,7 @@ def test_folder_sync_valide_notifies_vault_with_supplier_from_store(tmp_path):
     assert report.moved_to_03 == 1
     assert report.vault_events == 1
     destination = (
-        tree.category_dir(
-            FolderState.VALIDE_PRET_FEC, DocumentCategory.FRAIS_GENERAUX
-        )
+        tree.ged_dir("FACTURES_FOURNISSEURS")
         / "facture-acme.pdf"
     )
     assert destination.is_file()
@@ -517,9 +509,7 @@ def test_folder_sync_manual_move_notifies_vault(tmp_path):
         },
     )
     target = (
-        tree.category_dir(
-            FolderState.VALIDE_PRET_FEC, DocumentCategory.FRAIS_GENERAUX
-        )
+        tree.ged_dir("FACTURES_FOURNISSEURS")
         / "facture-acme.pdf"
     )
     target.write_bytes(DATA)
@@ -556,9 +546,7 @@ def test_folder_sync_vault_crash_keeps_sqlite_and_file_move(tmp_path, monkeypatc
     report = sync.sync_human_to_pipeline()
 
     destination = (
-        tree.category_dir(
-            FolderState.VALIDE_PRET_FEC, DocumentCategory.FRAIS_GENERAUX
-        )
+        tree.ged_dir("FACTURES_FOURNISSEURS")
         / "facture-acme.pdf"
     )
     assert destination.is_file()
@@ -567,7 +555,7 @@ def test_folder_sync_vault_crash_keeps_sqlite_and_file_move(tmp_path, monkeypatc
     assert any(":VAULT:failed" in trace for trace in report.traces)
     line = store.get_line(TENANT, derive_document_id(digest))
     assert line["raw_status"] == "VALIDE"
-    assert line["invoice_url"].startswith("03_VALIDE_PRET_FEC/FRAIS_GENERAUX/")
+    assert line["invoice_url"].startswith("03_VALIDE_PRET_FEC/FACTURES_FOURNISSEURS/")
 
 
 def test_folder_sync_rejection_does_not_notify_vault(tmp_path):

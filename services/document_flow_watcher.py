@@ -26,6 +26,7 @@ the cycle report and never block the watcher.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import math
@@ -39,6 +40,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from schemas.folder_state_schema import DocumentCategory, DocumentStatus, FolderState
+from services.acompleter_workbook_service import derive_document_id
 from services.accounting_spreadsheet_export_service import (
     CategorySummaryExporter,
     PersonalExpenseNoteExporter,
@@ -46,7 +48,13 @@ from services.accounting_spreadsheet_export_service import (
     collect_supplier_diagnostics,
 )
 from services.folder_sync_service import FolderSyncService, SyncReport
-from services.folder_tree_service import ensure_tree, validate_tenant_id
+from services.folder_tree_service import (
+    GED_AVOIRS_CLIENTS,
+    GED_FACTURES_CLIENTS,
+    GED_SUBDIRS,
+    ensure_tree,
+    validate_tenant_id,
+)
 from services.inbox_ingestion_service import (
     OUTCOME_A_COMPLETER,
     OUTCOME_DUPLICATE,
@@ -666,12 +674,27 @@ class DocumentFlowWatcher:
         self,
     ) -> list[tuple[DocumentCategory, list[tuple[str, str]]]]:
         root = self._tree.state_dir(FolderState.VALIDE_PRET_FEC)
-        latest: list[tuple[DocumentCategory, list[tuple[str, str]]]] = []
-        for category in DocumentCategory:
-            directory = root / category.value
+        grouped: dict[DocumentCategory, list[tuple[int, str, float]]] = {}
+        directories: list[tuple[Path, DocumentCategory | None]] = [
+            (root / category.value, category) for category in DocumentCategory
+        ]
+        directories.extend(
+            (
+                root / subdir,
+                (
+                    DocumentCategory.VENTES_CLIENTS
+                    if subdir in {GED_FACTURES_CLIENTS, GED_AVOIRS_CLIENTS}
+                    else None
+                ),
+            )
+            for subdir in GED_SUBDIRS
+        )
+        for directory, folder_category in directories:
             if not directory.is_dir():
                 continue
-            candidates: list[tuple[int, str, float]] = []
+            candidates = grouped.setdefault(
+                folder_category or DocumentCategory.DIVERS_A_CLASSER, []
+            )
             try:
                 for path in directory.iterdir():
                     if not path.is_file():
@@ -680,11 +703,32 @@ class DocumentFlowWatcher:
                         stat = path.stat()
                     except OSError:
                         continue
-                    candidates.append(
-                        (stat.st_mtime_ns, path.name, stat.st_mtime)
+                    category = folder_category
+                    if self._store is not None:
+                        try:
+                            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+                            line = self._store.get_line(
+                                self._tenant_id, derive_document_id(digest)
+                            )
+                            if line is not None and line.get("category"):
+                                category = DocumentCategory(
+                                    str(line.get("category"))
+                                )
+                        except Exception:  # noqa: BLE001
+                            category = folder_category
+                    target = grouped.setdefault(
+                        category or DocumentCategory.DIVERS_A_CLASSER, []
                     )
+                    target.append((stat.st_mtime_ns, path.name, stat.st_mtime))
+                    if candidates is not target:
+                        candidates[:] = [
+                            item for item in candidates if item[1] != path.name
+                        ]
             except OSError:
                 continue
+        latest: list[tuple[DocumentCategory, list[tuple[str, str]]]] = []
+        for category in DocumentCategory:
+            candidates = grouped.get(category) or []
             if not candidates:
                 continue
             candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)

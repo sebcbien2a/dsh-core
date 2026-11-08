@@ -24,6 +24,14 @@ from schemas.accounting_choices import (
     SUBCATEGORY_CHOICES,
     excel_list,
 )
+from services.bank_reconciliation_service import (
+    CLIENTS_ENCAISSEMENT_GROUPE,
+    CLIENT_INVOICE_PATTERN,
+    CLIENT_INVOICE_REFERENCE_PATTERN,
+    INVALID_TIER_NAMES,
+    is_remise_cheques,
+    is_remise_encaissement,
+)
 
 TIER_REFERENCE_FILENAME = "REFERENTIEL_TIERS_APD.xlsx"
 TIER_REFERENCE_ENV = "DSH_TIER_REFERENCE_PATH"
@@ -147,9 +155,6 @@ PAYMENT_INSTRUMENT_PREFIXES: tuple[str, ...] = (
     "CHQ ",
     "REMISE ",
 )
-CLIENT_INVOICE_PATTERN = re.compile(r"^FA\s*1\d{4,}", re.IGNORECASE)
-
-
 def is_payment_instrument_label(value: Any) -> bool:
     """Return ``True`` for ``LCR ...`` / ``CHEQUE ...`` bank instruments."""
     text = str(value or "").strip().upper()
@@ -158,15 +163,15 @@ def is_payment_instrument_label(value: Any) -> bool:
 
 def is_client_invoice_reference(value: Any) -> bool:
     """Return ``True`` for the APD customer numbering ``FA1xxxxx``."""
-    return bool(CLIENT_INVOICE_PATTERN.match(str(value or "").strip()))
+    return bool(CLIENT_INVOICE_REFERENCE_PATTERN.match(str(value or "").strip()))
 
 
 def is_invalid_tier_noise(value: Any) -> bool:
-    """Return ``True`` for generic OCR words that are never a real tier."""
+    """Return ``True`` for generic OCR / bank words that are never a real tier."""
     text = re.sub(r"\s+", " ", str(value or "")).strip().upper()
     if not text:
         return True
-    if text in INVALID_TIER_NOISE:
+    if text in INVALID_TIER_NAMES or text in INVALID_TIER_NOISE:
         return True
     if is_payment_instrument_label(text):
         return True
@@ -208,9 +213,37 @@ class TierRecord:
         text = _fold(value)
         if not text:
             return False
-        candidates = [_fold(self.canonical), *( _fold(alias) for alias in self.aliases)]
-        if any(candidate and (candidate == text or candidate in text) for candidate in candidates):
+        if self.canonical == CLIENTS_ENCAISSEMENT_GROUPE and (
+            is_remise_encaissement(value) or is_remise_cheques(value)
+        ):
             return True
+        prefix_match = any(
+            re.search(
+                rf"(?<![A-Z0-9]){re.escape(prefix)}[A-Z0-9]*",
+                str(value),
+                re.IGNORECASE,
+            )
+            for prefix in self.prefixes
+            if prefix
+        )
+        if prefix_match:
+            return True
+        if is_invalid_tier_noise(value):
+            return False
+        candidates = [_fold(self.canonical), *(_fold(alias) for alias in self.aliases)]
+        for candidate in candidates:
+            if not candidate:
+                continue
+            if candidate == text:
+                return True
+            if len(candidate) <= 5 and re.fullmatch(r"[a-z0-9]+", candidate):
+                if re.search(
+                    rf"(?<![a-z0-9]){re.escape(candidate)}(?![a-z0-9])", text
+                ):
+                    return True
+                continue
+            if candidate in text:
+                return True
         digits = _digits(value)
         if self.siren and len(self.siren) >= 9 and self.siren in digits:
             return True
@@ -246,6 +279,20 @@ SEED_TIERS: tuple[TierRecord, ...] = (
         "VENTES_CLIENTS",
         aliases=("CARROSSERIE YUCELL", "SARL CARROSSERIE YUCE", "YUCEL"),
         payment_method="VIREMENT",
+    ),
+    TierRecord(
+        "YDES_AUTO_ACCESSOIRES",
+        "CLIENT",
+        "VENTES_CLIENTS",
+        aliases=("YDES AUTO ACCESSOIRES", "Ydes Auto Accessoires GP15"),
+        payment_method="VIREMENT",
+    ),
+    TierRecord(
+        CLIENTS_ENCAISSEMENT_GROUPE,
+        "CLIENT",
+        "VENTES_CLIENTS",
+        aliases=("CLIENTS LCR", "CLIENTS CHEQUES"),
+        payment_method="LCR",
     ),
     TierRecord(
         "SOLTA_LR_COLOR",
@@ -508,8 +555,10 @@ class TierReferenceService:
             and root_path.resolve() != self._path.resolve()
         ):
             workbook_paths.append(root_path)
+        workbook_canonicals: set[str] = set()
         for workbook_path in workbook_paths:
             for record in self._read_workbook(workbook_path):
+                workbook_canonicals.add(record.canonical)
                 base = records.get(record.canonical)
                 if base is not None and not record.prefixes:
                     record = replace(record, prefixes=base.prefixes)
@@ -522,6 +571,11 @@ class TierReferenceService:
                         ),
                     )
                 records[record.canonical] = record
+        missing_seed = [
+            record.canonical
+            for record in SEED_TIERS
+            if record.canonical not in workbook_canonicals
+        ]
         if self._store is not None:
             for record in self._read_store():
                 records.setdefault(record.canonical, record)
@@ -534,6 +588,8 @@ class TierReferenceService:
             if write_missing:
                 self.save_workbook()
         elif self._is_legacy_workbook():
+            self.save_workbook()
+        elif write_missing and missing_seed:
             self.save_workbook()
         self.apply_alias_merges()
         self._sync()
@@ -1096,8 +1152,10 @@ __all__ = [
     "ALIAS_TARGET_RESTAURANTS",
     "ALIAS_TARGET_TOLLS",
     "CLIENT_INVOICE_PATTERN",
+    "CLIENT_INVOICE_REFERENCE_PATTERN",
     "COLUMNS",
     "DEFAULT_TIER_REFERENCE_PATH",
+    "INVALID_TIER_NAMES",
     "INVALID_TIER_NOISE",
     "LEGACY_COLUMNS",
     "P26_COLUMNS",

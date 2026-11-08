@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-11-08T03:43:28.198646+00:00",
+  "updated_at": "2026-11-08T07:26:29.692337+00:00",
   "groups": {
     "PAINTCAR": {
       "canonical": "PAINTCAR",
@@ -140,7 +140,7 @@
     "CHOLLET": "CHOLLET",
     "MISE SUR ORBITE": "MISE SUR ORBITE",
     "HABITAT AUTOMATISME / SAS DIFFAM": "SAS_DIFFAM",
-    "YASMIN CONSULTING": "YASMIN CONSULTING",
+    "YASMIN CONSULTING": "SONIA_ATIA",
     "EM'A Les Emaux de l'Atlantique": "EM'A Les Emaux de l'Atlantique",
     "ROBERT BOSCH - SIA ABRASIVES": "BOSCH_SIA",
     "SOLTA": "SOLTA_LR_COLOR",
@@ -183,7 +183,39 @@
     "OPENROUTER.AI": "OPENROUTER",
     "SONIA_ATIA": "SONIA_ATIA",
     "OpenRouter": "OPENROUTER",
-    "Inc": "OPENROUTER"
+    "Inc": "OPENROUTER",
+    "sonia ATIA": "SONIA_ATIA",
+    "AS CONSULTING": "SONIA_ATIA",
+    "ASCONSULTING": "SONIA_ATIA",
+    "asconsulting": "SONIA_ATIA",
+    "GP Auto 36": "GP_AUTO_36_DP2C",
+    "DP2C": "GP_AUTO_36_DP2C",
+    "GP Auto 58": "GP_AUTO_NEVERS",
+    "SPPV": "SPPV",
+    "Calandre 18": "CALANDRE_18",
+    "CARS 18": "CARS_18",
+    "GP Auto 36, DP2C": "GP_AUTO_36_DP2C",
+    "GP auto nevers": "GP_AUTO_NEVERS",
+    "SOLFA CARBURANT": "SOLFA_CARBURANT",
+    "FREE TELECOM _ FREE MOBILE": "FREE_TELECOM_FREE_MOBILE",
+    "INTERMARCHE": "INTERMARCHE",
+    "SAGE": "SAGE",
+    "MC DO SANILHAC": "MC_DO_SANILHAC",
+    "SHANGHAI WOK": "SHANGHAI_WOK",
+    "LE SAFARI": "LE_SAFARI",
+    "OLIVIER HOUALET": "OLIVIER_HOUALET",
+    "Carrosserie Chantereau Stephano": "CARROSSERIE_CHANTEREAU_STEPHANO",
+    "CARROSSERIE RIGAL": "CARROSSERIE_RIGAL",
+    "GP AUTO - 03100": "GP_AUTO_03100",
+    "SCTI": "SCTI",
+    "Techni wheel": "TECHNI_WHEEL",
+    "XIN YI": "XIN_YI",
+    "Techni wheel Ostwald": "TECHNI_WHEEL_OSTWALD",
+    "CARROSSERIE VINOLIENNE": "CARROSSERIE_VINOLIENNE",
+    "YDES AUTO ACCESSOIRES": "YDES_AUTO_ACCESSOIRES",
+    "Ydes Auto Accessoires GP15": "YDES_AUTO_ACCESSOIRES",
+    "CLIENTS LCR": "CLIENTS_ENCAISSEMENT_GROUPE",
+    "CLIENTS CHEQUES": "CLIENTS_ENCAISSEMENT_GROUPE"
   },
   "suppliers": {
     "LIDL": {
@@ -728,7 +760,12 @@
         "ATIA SONIA",
         "TALENT&CO",
         "SONIA ATIA",
-        "SONIA ALTIA"
+        "SONIA ALTIA",
+        "sonia ATIA",
+        "AS CONSULTING",
+        "ASCONSULTING",
+        "asconsulting",
+        "YASMIN CONSULTING"
       ],
       "prefixes": [],
       "payment_method": "VIREMENT",
@@ -745,10 +782,392 @@
       "aliases": [
         "OpenRouter, Inc",
         "OPENROUTER",
-        "OPENROUTER.AI"
+        "OPENROUTER.AI",
+        "OpenRouter",
+        "Inc"
       ],
       "prefixes": [],
       "payment_method": "CARTE_BANCAIRE",
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
+    },
+    "GP Auto 36, DP2C": {
+      "canonical": "GP Auto 36, DP2C",
+      "role": "CLIENT",
+      "category": "VENTES_CLIENTS",
+      "subcategory": "",
+      "aliases": [
+        "GP Auto 36",
+        "DP2C"
+      ],
+      "prefixes": [],
+      "payment_method": "LCR",
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
+    },
+    "GP auto nevers": {
+      "canonical": "GP auto nevers",
+      "role": "CLIENT",
+      "category": "VENTES_CLIENTS",
+      "subcategory": "",
+      "aliases": [
+        "GP Auto 58"
+      ],
+      "prefixes": [],
+      "payment_method": "LCR",
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
+    },
+    "SPPV": {
+      "canonical": "SPPV",
+      "role": "CLIENT",
+      "category": "VENTES_CLIENTS",
+      "subcategory": "",
+      "aliases": [
+        "SPPV"
+      ],
+      "prefixes": [],
+      "payment_method": "",
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
+    },
+    "CALANDRE_18": {
+      "canonical": "CALANDRE_18",
+      "role": "CLIENT",
+      "category": "VENTES_CLIENTS",
+      "subcategory": "",
+      "aliases": [
+        "Calandre 18"
+      ],
+      "prefixes": [],
+      "payment_method": "",
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
+    },
+    "CARS_18": {
+      "canonical": "CARS_18",
+      "role": "CLIENT",
+      "category": "VENTES_CLIENTS",
+      "subcategory": "",
+      "aliases": [
+        "CARS 18"
+      ],
+      "prefixes": [],
+      "payment_method": "",
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
+    },
+    "GP_AUTO_36_DP2C": {
+      "canonical": "GP_AUTO_36_DP2C",
+      "role": "CLIENT",
+      "category": "VENTES_CLIENTS",
+      "subcategory": "",
+      "aliases": [
+        "GP Auto 36",
+        "DP2C"
+      ],
+      "prefixes": [],
+      "payment_method": "",
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
+    },
+    "GP_AUTO_NEVERS": {
+      "canonical": "GP_AUTO_NEVERS",
+      "role": "CLIENT",
+      "category": "VENTES_CLIENTS",
+      "subcategory": "",
+      "aliases": [
+        "GP auto nevers",
+        "GP Auto 58"
+      ],
+      "prefixes": [],
+      "payment_method": "",
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
+    },
+    "SOLFA_CARBURANT": {
+      "canonical": "SOLFA_CARBURANT",
+      "role": "CLIENT",
+      "category": "VENTES_CLIENTS",
+      "subcategory": "",
+      "aliases": [
+        "SOLFA CARBURANT"
+      ],
+      "prefixes": [],
+      "payment_method": "",
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
+    },
+    "FREE_TELECOM_FREE_MOBILE": {
+      "canonical": "FREE_TELECOM_FREE_MOBILE",
+      "role": "FOURNISSEUR",
+      "category": "ACHATS_MARCHANDISES",
+      "subcategory": "",
+      "aliases": [
+        "FREE TELECOM _ FREE MOBILE"
+      ],
+      "prefixes": [],
+      "payment_method": "",
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
+    },
+    "INTERMARCHE": {
+      "canonical": "INTERMARCHE",
+      "role": "FOURNISSEUR",
+      "category": "ACHATS_MARCHANDISES",
+      "subcategory": "",
+      "aliases": [
+        "INTERMARCHE"
+      ],
+      "prefixes": [],
+      "payment_method": "",
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
+    },
+    "SAGE": {
+      "canonical": "SAGE",
+      "role": "FOURNISSEUR",
+      "category": "ACHATS_MARCHANDISES",
+      "subcategory": "",
+      "aliases": [
+        "SAGE"
+      ],
+      "prefixes": [],
+      "payment_method": "",
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
+    },
+    "MC_DO_SANILHAC": {
+      "canonical": "MC_DO_SANILHAC",
+      "role": "FOURNISSEUR",
+      "category": "FRAIS_GENERAUX",
+      "subcategory": "RESTAURATION",
+      "aliases": [
+        "MC DO SANILHAC"
+      ],
+      "prefixes": [],
+      "payment_method": "",
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
+    },
+    "SHANGHAI_WOK": {
+      "canonical": "SHANGHAI_WOK",
+      "role": "FOURNISSEUR",
+      "category": "FRAIS_GENERAUX",
+      "subcategory": "RESTAURATION",
+      "aliases": [
+        "SHANGHAI WOK"
+      ],
+      "prefixes": [],
+      "payment_method": "",
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
+    },
+    "LE_SAFARI": {
+      "canonical": "LE_SAFARI",
+      "role": "FOURNISSEUR",
+      "category": "FRAIS_GENERAUX",
+      "subcategory": "RESTAURATION",
+      "aliases": [
+        "LE SAFARI"
+      ],
+      "prefixes": [],
+      "payment_method": "",
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
+    },
+    "OLIVIER_HOUALET": {
+      "canonical": "OLIVIER_HOUALET",
+      "role": "CLIENT",
+      "category": "VENTES_CLIENTS",
+      "subcategory": "",
+      "aliases": [
+        "OLIVIER HOUALET"
+      ],
+      "prefixes": [],
+      "payment_method": "",
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
+    },
+    "CARROSSERIE_CHANTEREAU_STEPHANO": {
+      "canonical": "CARROSSERIE_CHANTEREAU_STEPHANO",
+      "role": "CLIENT",
+      "category": "VENTES_CLIENTS",
+      "subcategory": "",
+      "aliases": [
+        "Carrosserie Chantereau Stephano"
+      ],
+      "prefixes": [],
+      "payment_method": "",
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
+    },
+    "CARROSSERIE_RIGAL": {
+      "canonical": "CARROSSERIE_RIGAL",
+      "role": "CLIENT",
+      "category": "VENTES_CLIENTS",
+      "subcategory": "",
+      "aliases": [
+        "CARROSSERIE RIGAL"
+      ],
+      "prefixes": [],
+      "payment_method": "",
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
+    },
+    "GP_AUTO_03100": {
+      "canonical": "GP_AUTO_03100",
+      "role": "CLIENT",
+      "category": "VENTES_CLIENTS",
+      "subcategory": "",
+      "aliases": [
+        "GP AUTO - 03100"
+      ],
+      "prefixes": [],
+      "payment_method": "",
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
+    },
+    "SCTI": {
+      "canonical": "SCTI",
+      "role": "CLIENT",
+      "category": "VENTES_CLIENTS",
+      "subcategory": "",
+      "aliases": [
+        "SCTI"
+      ],
+      "prefixes": [],
+      "payment_method": "",
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
+    },
+    "TECHNI_WHEEL": {
+      "canonical": "TECHNI_WHEEL",
+      "role": "CLIENT",
+      "category": "VENTES_CLIENTS",
+      "subcategory": "",
+      "aliases": [
+        "Techni wheel"
+      ],
+      "prefixes": [],
+      "payment_method": "",
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
+    },
+    "XIN_YI": {
+      "canonical": "XIN_YI",
+      "role": "FOURNISSEUR",
+      "category": "FRAIS_GENERAUX",
+      "subcategory": "RESTAURATION",
+      "aliases": [
+        "XIN YI"
+      ],
+      "prefixes": [],
+      "payment_method": "",
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
+    },
+    "TECHNI_WHEEL_OSTWALD": {
+      "canonical": "TECHNI_WHEEL_OSTWALD",
+      "role": "CLIENT",
+      "category": "VENTES_CLIENTS",
+      "subcategory": "",
+      "aliases": [
+        "Techni wheel Ostwald"
+      ],
+      "prefixes": [],
+      "payment_method": "",
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
+    },
+    "CARROSSERIE_VINOLIENNE": {
+      "canonical": "CARROSSERIE_VINOLIENNE",
+      "role": "CLIENT",
+      "category": "VENTES_CLIENTS",
+      "subcategory": "",
+      "aliases": [
+        "CARROSSERIE VINOLIENNE"
+      ],
+      "prefixes": [],
+      "payment_method": "",
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
+    },
+    "YDES_AUTO_ACCESSOIRES": {
+      "canonical": "YDES_AUTO_ACCESSOIRES",
+      "role": "CLIENT",
+      "category": "VENTES_CLIENTS",
+      "subcategory": "",
+      "aliases": [
+        "YDES AUTO ACCESSOIRES",
+        "Ydes Auto Accessoires GP15"
+      ],
+      "prefixes": [],
+      "payment_method": "VIREMENT",
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
+    },
+    "CLIENTS_ENCAISSEMENT_GROUPE": {
+      "canonical": "CLIENTS_ENCAISSEMENT_GROUPE",
+      "role": "CLIENT",
+      "category": "VENTES_CLIENTS",
+      "subcategory": "",
+      "aliases": [
+        "CLIENTS LCR",
+        "CLIENTS CHEQUES"
+      ],
+      "prefixes": [],
+      "payment_method": "LCR",
       "status": "AUTORISE",
       "siren": "",
       "siret": "",
@@ -1080,6 +1499,58 @@
       "report": "NON",
       "decision": "VALIDE",
       "learned_at": "2026-11-08T03:09:38.105074+00:00"
+    },
+    {
+      "counterparty": "YASMIN CONSULTING",
+      "canonical": "SONIA_ATIA",
+      "document_number": "",
+      "category": "",
+      "payment_source": "",
+      "counterparty_account": "",
+      "fiscal_year_target": "",
+      "deferred_month": "",
+      "report": "",
+      "decision": "VALIDE",
+      "learned_at": "2026-11-08T04:50:56.058409+00:00"
+    },
+    {
+      "counterparty": "SPPV",
+      "canonical": "OPENROUTER",
+      "document_number": "",
+      "category": "",
+      "payment_source": "",
+      "counterparty_account": "",
+      "fiscal_year_target": "",
+      "deferred_month": "",
+      "report": "",
+      "decision": "VALIDE",
+      "learned_at": "2026-11-08T04:50:58.179844+00:00"
+    },
+    {
+      "counterparty": "FREE TELECOM _ FREE MOBILE",
+      "canonical": "FREE TELECOM / FREE MOBILE",
+      "document_number": "",
+      "category": "",
+      "payment_source": "",
+      "counterparty_account": "",
+      "fiscal_year_target": "",
+      "deferred_month": "",
+      "report": "",
+      "decision": "VALIDE",
+      "learned_at": "2026-11-08T04:51:13.582945+00:00"
+    },
+    {
+      "counterparty": "OpenRouter, Inc",
+      "canonical": "OPENROUTER",
+      "document_number": "Invoice-GENMCYCQ-0002__1",
+      "category": "DIVERS_A_CLASSER",
+      "payment_source": "BANQUE_PRO",
+      "counterparty_account": "622600",
+      "fiscal_year_target": "2026",
+      "deferred_month": "",
+      "report": "NON",
+      "decision": "VALIDE",
+      "learned_at": "2026-11-08T05:59:28.419408+00:00"
     }
   ]
 }

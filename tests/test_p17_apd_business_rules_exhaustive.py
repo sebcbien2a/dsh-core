@@ -324,7 +324,7 @@ def test_manual_fetch_triggers_pipeline_and_valide_mail_mirror(tmp_path):
         tmp_path
         / TENANT
         / "03_VALIDE_PRET_FEC"
-        / "FRAIS_GENERAUX"
+        / "FACTURES_FOURNISSEURS"
         / "facture.pdf"
     ).is_file()
     line = store.get_line(TENANT, derive_document_id(digest))

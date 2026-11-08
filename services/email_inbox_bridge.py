@@ -252,7 +252,9 @@ class MailClient(Protocol):
 
     def ensure_folder(self, folder: str) -> None: ...
 
-    def list_messages(self, folder: str) -> list[EmailMessage]: ...
+    def list_messages(
+        self, folder: str, *, limit: int | None = None
+    ) -> list[EmailMessage]: ...
 
     def move_message(
         self, message_id: str, source_folder: str, target_folder: str
@@ -405,7 +407,9 @@ class ImapMailClient:
         except imaplib.IMAP4.error:
             return
 
-    def list_messages(self, folder: str) -> list[EmailMessage]:
+    def list_messages(
+        self, folder: str, *, limit: int | None = None
+    ) -> list[EmailMessage]:
         # BODY.PEEK keeps the \Seen flag untouched: a dry-run must never mark
         # a Gmail message as read. The client also never issues DELETE/EXPUNGE.
         status, _ = self.connection.select(folder, readonly=True)
@@ -414,8 +418,11 @@ class ImapMailClient:
         status, data = self.connection.search(None, "ALL")
         if status != "OK":
             return []
+        uids = data[0].split()
+        if limit is not None and limit >= 0:
+            uids = uids[-limit:] if limit else []
         messages: list[EmailMessage] = []
-        for uid in data[0].split():
+        for uid in uids:
             status, payload = self.connection.fetch(uid, "(BODY.PEEK[])")
             if status != "OK" or not payload:
                 continue
@@ -454,6 +461,54 @@ class ImapMailClient:
             raise EmailInboxBridgeError(
                 "MAIL_MOVE_FAILED", f"{message_id}:{source_folder}"
             )
+
+    def apply_label(
+        self, message_id: str, source_folder: str, target_folder: str
+    ) -> None:
+        """Copy one UID into another Gmail label (``UID COPY``)."""
+        self.ensure_folder(target_folder)
+        status, _ = self.connection.select(source_folder, readonly=True)
+        if status != "OK":
+            raise EmailInboxBridgeError(
+                "MAIL_FOLDER_UNAVAILABLE", source_folder
+            )
+        status, _ = self.connection.uid(
+            "COPY", message_id.encode("ascii"), target_folder
+        )
+        if status != "OK":
+            raise EmailInboxBridgeError(
+                "MAIL_LABEL_FAILED", f"{message_id}:{target_folder}"
+            )
+
+    def archive_message(
+        self, message_id: str, source_folder: str = INBOX_FOLDER
+    ) -> None:
+        """Remove the ``\\Inbox`` label so the Gmail counter decreases.
+
+        Gmail exposes ``-X-GM-LABELS``; on a server refusing that extension we
+        fall back to the explicitly allowed ``STORE +FLAGS \\Deleted`` then
+        ``EXPUNGE`` archive sequence. The mail stays in ``All Mail`` (archived),
+        it is never purged from the mailbox.
+        """
+        status, _ = self.connection.select(source_folder)
+        if status != "OK":
+            raise EmailInboxBridgeError(
+                "MAIL_FOLDER_UNAVAILABLE", source_folder
+            )
+        uid = message_id.encode("ascii")
+        status, _ = self.connection.uid(
+            "STORE", uid, "-X-GM-LABELS", r"(\Inbox)"
+        )
+        if status == "OK":
+            return
+        status, _ = self.connection.uid(
+            "STORE", uid, "+FLAGS", r"(\Deleted)"
+        )
+        if status != "OK":
+            raise EmailInboxBridgeError(
+                "MAIL_ARCHIVE_FAILED", message_id
+            )
+        self.connection.expunge()
 
 
 def _part_text(part: Message) -> str:

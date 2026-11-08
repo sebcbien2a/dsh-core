@@ -15,6 +15,7 @@ line and copying the PDF into ``PIECES_JOINTES``.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import shutil
@@ -22,7 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
 
-from schemas.folder_state_schema import DocumentCategory, FolderState
+from schemas.folder_state_schema import DocumentCategory, DocumentStatus, FolderState
 from services.email_inbox_bridge import (
     APD_MAILBOX_PREFIX,
     INBOX_FOLDER,
@@ -47,8 +48,34 @@ SPAM_FOLDERS: tuple[str, ...] = (
     "Junk",
 )
 SUPPORTED_SUFFIXES = frozenset(
-    {".pdf", ".jpg", ".jpeg", ".png", ".xlsx", ".xlsm", ".csv", ".ofx", ".qfx"}
+    {
+        ".pdf",
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".xlsx",
+        ".xlsm",
+        ".csv",
+        ".ofx",
+        ".qfx",
+        ".xml",
+    }
 )
+MISSING_CREDENTIALS_WARNING = (
+    "AVERTISSEMENT: GMAIL_APP_PASSWORD absent de .env - releve Gmail ignore, "
+    "le reste du pipeline continue."
+)
+DEFAULT_MESSAGE_LIMIT = 10
+MESSAGE_LIMIT_ENV = "GMAIL_MAX_MESSAGES"
+FOLDER_LIMITS = {
+    INBOX_FOLDER: DEFAULT_MESSAGE_LIMIT,
+    "[Gmail]/Spam": 10,
+    "[Gmail]/Junk": 10,
+    "Junk Email": 10,
+    "Spam": 10,
+    "Junk": 10,
+    f"{APD_MAILBOX_PREFIX}00_INBOX": DEFAULT_MESSAGE_LIMIT,
+}
 MISSING_PDF_INVOICES: tuple[tuple[str, str, str], ...] = (
     ("FA16339", "SALE-FA16339", "VENTES"),
     ("FA16347", "SALE-FA16347", "VENTES"),
@@ -75,6 +102,8 @@ class GmailSyncReport:
     messages_scanned: int = 0
     attachments_staged: int = 0
     attachments_ignored: int = 0
+    duplicates_skipped: int = 0
+    messages_archived: int = 0
     pdf_attached: tuple[str, ...] = ()
     pdf_missing: tuple[str, ...] = ()
     labels_synced: int = 0
@@ -128,6 +157,7 @@ class GmailImapSyncService:
         client: MailClient | None = None,
         bridge: EmailInboxBridge | None = None,
         enabled: bool | None = None,
+        message_limit: int | None = None,
     ) -> None:
         self._tenant_id = tenant_id
         self._tree = ensure_tree(tenant_id, root)
@@ -140,6 +170,20 @@ class GmailImapSyncService:
         self._client = client
         self._bridge = bridge
         self._enabled = enabled
+        self._message_limit = self._resolve_message_limit(message_limit)
+
+    @staticmethod
+    def _resolve_message_limit(value: int | None) -> int:
+        if value is None:
+            raw = os.environ.get(MESSAGE_LIMIT_ENV, "").strip()
+            if raw:
+                try:
+                    value = int(raw)
+                except ValueError:
+                    value = DEFAULT_MESSAGE_LIMIT
+            else:
+                value = DEFAULT_MESSAGE_LIMIT
+        return max(0, int(value))
 
     @property
     def inbox(self) -> Path:
@@ -175,17 +219,55 @@ class GmailImapSyncService:
             f"{APD_MAILBOX_PREFIX}00_INBOX",
         )
 
+    def _store_has_validated_digest(self, digest: str) -> bool:
+        if self._store is None:
+            return False
+        try:
+            from services.acompleter_workbook_service import derive_document_id
+
+            line = self._store.get_line(
+                self._tenant_id, derive_document_id(digest)
+            )
+        except Exception:  # noqa: BLE001 - dedup never blocks the sync
+            return False
+        if line is None:
+            return False
+        return (
+            str(line.get("raw_status") or line.get("status") or "").upper()
+            == DocumentStatus.VALIDE.value
+        )
+
+    def _list_folder_messages(
+        self, client: MailClient, folder: str
+    ) -> list[EmailMessage]:
+        limit = FOLDER_LIMITS.get(folder, self._message_limit)
+        limit = min(limit, self._message_limit)
+        if isinstance(client, ImapMailClient):
+            return client.list_messages(folder, limit=limit)
+        return client.list_messages(folder)
+
     def _stage_attachments(
         self, messages: Iterable[EmailMessage]
-    ) -> tuple[int, int, list[Path]]:
+    ) -> tuple[int, int, int, list[Path], set[str]]:
         staged = 0
         ignored = 0
+        duplicates = 0
         paths: list[Path] = []
+        aspirated: set[str] = set()
+        seen_digests: set[str] = set()
         self._inbox.mkdir(parents=True, exist_ok=True)
         for message in messages:
             for attachment in message.attachments:
                 if attachment.suffix not in SUPPORTED_SUFFIXES or not attachment.content:
                     ignored += 1
+                    continue
+                digest = hashlib.sha256(attachment.content).hexdigest()
+                if digest in seen_digests:
+                    duplicates += 1
+                    continue
+                seen_digests.add(digest)
+                if self._store_has_validated_digest(digest):
+                    duplicates += 1
                     continue
                 target = self._inbox / _safe_filename(attachment.filename)
                 index = 1
@@ -197,8 +279,9 @@ class GmailImapSyncService:
                     index += 1
                 target.write_bytes(attachment.content)
                 paths.append(target)
+                aspirated.add(message.message_id)
                 staged += 1
-        return staged, ignored, paths
+        return staged, ignored, duplicates, paths, aspirated
 
     def _candidate_pdfs(self) -> list[Path]:
         candidates: list[Path] = []
@@ -263,24 +346,60 @@ class GmailImapSyncService:
 
     def _sync_labels(
         self, client: MailClient, messages: Iterable[EmailMessage]
-    ) -> int:
+    ) -> tuple[int, int]:
+        """Label every aspirated mail, then archive it out of the INBOX.
+
+        A Gmail ``MOVE`` from ``INBOX`` to ``APD/02_A_COMPLETER`` both adds the
+        destination label and removes ``\\Inbox`` in one round-trip, which keeps
+        the visible counter decreasing without an extra ``STORE/EXPUNGE``. Fake
+        clients used offline keep their historical ``move_message`` behaviour.
+        """
         synced = 0
+        archived = 0
         for message in messages:
             target = f"{APD_MAILBOX_PREFIX}02_A_COMPLETER"
+            source = str(message.folder or "").strip()
+            is_inbox = source.upper() == INBOX_FOLDER
+            apply_label = getattr(client, "apply_label", None)
             try:
-                client.move_message(message.message_id, message.folder, target)
-                synced += 1
+                if is_inbox:
+                    client.move_message(message.message_id, source, target)
+                    synced += 1
+                    archived += 1
+                elif callable(apply_label):
+                    apply_label(message.message_id, source, target)
+                    synced += 1
+                else:
+                    client.move_message(message.message_id, source, target)
+                    synced += 1
             except Exception:  # noqa: BLE001 - label sync is best effort
-                continue
-        return synced
+                if not is_inbox:
+                    continue
+                archive = getattr(client, "archive_message", None)
+                if not callable(archive):
+                    continue
+                try:
+                    archive(message.message_id, source)
+                    synced += 1
+                    archived += 1
+                except Exception:  # noqa: BLE001
+                    continue
+        return synced, archived
 
     def sync(self) -> GmailSyncReport:
+        if self._message_limit == 0:
+            return GmailSyncReport(
+                connected=False, skipped=("GMAIL_MESSAGE_LIMIT_ZERO",)
+            )
         if not self._is_enabled():
+            if gmail_credentials() is None and self._client is None:
+                print(MISSING_CREDENTIALS_WARNING, flush=True)
             return GmailSyncReport(
                 connected=False, skipped=("GMAIL_CREDENTIALS_MISSING",)
             )
         client = self._mail_client()
         if client is None:
+            print(MISSING_CREDENTIALS_WARNING, flush=True)
             return GmailSyncReport(
                 connected=False, skipped=("GMAIL_CREDENTIALS_MISSING",)
             )
@@ -289,21 +408,30 @@ class GmailImapSyncService:
         scanned_folders: list[str] = []
         for folder in self._folders():
             try:
-                folder_messages = client.list_messages(folder)
+                folder_messages = self._list_folder_messages(client, folder)
             except Exception as exc:  # noqa: BLE001 - one folder never blocks
                 errors.append(f"{folder}:{type(exc).__name__}")
                 continue
             scanned_folders.append(folder)
             messages.extend(folder_messages)
-        staged, ignored, _paths = self._stage_attachments(messages)
+        staged, ignored, duplicates, _paths, aspirated = self._stage_attachments(
+            messages
+        )
         attached, missing = self._attach_missing_pdfs()
-        labels = self._sync_labels(client, messages)
+        aspirated_messages = [
+            message
+            for message in messages
+            if message.message_id in aspirated
+        ]
+        labels, archived = self._sync_labels(client, aspirated_messages)
         return GmailSyncReport(
             connected=True,
             folders=tuple(scanned_folders),
             messages_scanned=len(messages),
             attachments_staged=staged,
             attachments_ignored=ignored,
+            duplicates_skipped=duplicates,
+            messages_archived=archived,
             pdf_attached=attached,
             pdf_missing=missing,
             labels_synced=labels,
@@ -312,9 +440,13 @@ class GmailImapSyncService:
 
 
 __all__ = [
+    "GMAIL_HOST",
+    "GMAIL_PORT",
     "GmailImapSyncService",
     "GmailSyncReport",
+    "MISSING_CREDENTIALS_WARNING",
     "MISSING_PDF_INVOICES",
     "SPAM_FOLDERS",
+    "SUPPORTED_SUFFIXES",
     "gmail_credentials",
 ]
