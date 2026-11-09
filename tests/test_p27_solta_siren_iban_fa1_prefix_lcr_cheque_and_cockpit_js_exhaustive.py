@@ -341,7 +341,7 @@ def test_lcr_without_invoice_is_reported_with_real_date_and_amount(tmp_path):
     assert unmatched.amount == Decimal("2644.69")
 
 
-def test_lcr_subset_sum_stays_inside_one_counterparty(tmp_path):
+def test_lcr_never_combines_two_positive_invoices(tmp_path):
     store = make_store(tmp_path)
     install_temp_tiers(tmp_path, store)
     add_invoice(
@@ -376,8 +376,40 @@ def test_lcr_subset_sum_stays_inside_one_counterparty(tmp_path):
         debit="150.00",
     )
     report = reconcile_payment_instruments(store, TENANT)
+    assert not report.matched
+    assert len(report.unmatched) == 1
+
+
+def test_lcr_matches_one_invoice_minus_one_credit_note(tmp_path):
+    store = make_store(tmp_path)
+    install_temp_tiers(tmp_path, store)
+    add_invoice(
+        store,
+        "P-1",
+        day="2026-05-01",
+        ttc="200.00",
+        counterparty="PAINTCAR",
+        category=DocumentCategory.ACHATS_MARCHANDISES,
+    )
+    add_invoice(
+        store,
+        "A-1",
+        day="2026-05-01",
+        ttc="-50.00",
+        counterparty="PAINTCAR",
+        category=DocumentCategory.ACHATS_MARCHANDISES,
+        document_type="AVOIR",
+    )
+    add_bank(
+        store,
+        "OFX-LCR-3",
+        day="2026-05-02",
+        label="LCR 754190 RLV 00000377",
+        debit="150.00",
+    )
+    report = reconcile_payment_instruments(store, TENANT)
     assert len(report.matched) == 1
-    assert set(report.matched[0].invoice_ids) == {"P-1", "P-2"}
+    assert set(report.matched[0].invoice_ids) == {"P-1", "A-1"}
     assert report.matched[0].counterparty == "PAINTCAR"
 
 

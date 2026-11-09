@@ -36,6 +36,7 @@ ONEDRIVE_BRIDGE_ENV = "APD_ONEDRIVE_BRIDGE"
 SHARED_DIR_NAME = "APD_COMPTA_PARTAGE"
 PILOTAGE_DIR_NAME = "01_PILOTAGE_DIRIGEANT_ET_PERE"
 EXPERT_DIR_NAME = "02_CONSULTATION_EXPERT_COMPTABLE"
+TABLEAUX_COMPTABLES_DIR_NAME = "Tableaux_Comptables"
 READABLE_FILENAME = "_A_COMPLETER.xlsx"
 TIER_REFERENCE_FILENAME = "REFERENTIEL_TIERS_APD.xlsx"
 PIECES_DIR_NAME = "PIECES_JOINTES"
@@ -140,24 +141,53 @@ class OneDriveAccountingBridge:
         self._enabled = (
             onedrive_bridge_enabled() if enabled is None else bool(enabled)
         )
+        # Tests and side workspaces pass an explicit ``root``. They must never
+        # overwrite the director's real OneDrive folder: only the production
+        # workspace (``root=None``) or an explicit ``onedrive_dir`` may sync.
+        if self._enabled and onedrive_dir is None and root is not None:
+            self._enabled = False
         self._onedrive_root = (
             resolve_onedrive_root(onedrive_dir) if self._enabled else None
         )
+        # P27-sexies - when the director points APD_ONEDRIVE_DIR at the real
+        # ``Compta_APD\Tableaux_Comptables`` folder, publish directly at its
+        # root (no intermediate 01_PILOTAGE / 02_CONSULTATION sub-folder).
+        self._direct_mode = bool(
+            self._onedrive_root is not None
+            and self._onedrive_root.name.casefold()
+            == TABLEAUX_COMPTABLES_DIR_NAME.casefold()
+        )
         self._shared_dir = (
-            self._onedrive_root / SHARED_DIR_NAME
-            if self._onedrive_root is not None
-            else None
+            self._onedrive_root
+            if self._direct_mode
+            else (
+                self._onedrive_root / SHARED_DIR_NAME
+                if self._onedrive_root is not None
+                else None
+            )
         )
         self._pilotage_dir = (
-            self._shared_dir / PILOTAGE_DIR_NAME
-            if self._shared_dir is not None
-            else None
+            None
+            if self._direct_mode
+            else (
+                self._shared_dir / PILOTAGE_DIR_NAME
+                if self._shared_dir is not None
+                else None
+            )
         )
         self._expert_dir = (
-            self._shared_dir / EXPERT_DIR_NAME
-            if self._shared_dir is not None
-            else None
+            self._shared_dir
+            if self._direct_mode
+            else (
+                self._shared_dir / EXPERT_DIR_NAME
+                if self._shared_dir is not None
+                else None
+            )
         )
+
+    @property
+    def direct_mode(self) -> bool:
+        return self._direct_mode
 
     @property
     def onedrive_root(self) -> Path | None:
@@ -176,6 +206,10 @@ class OneDriveAccountingBridge:
         return self._expert_dir
 
     def ensure_structure(self) -> None:
+        if self._direct_mode:
+            if self._expert_dir is not None:
+                self._expert_dir.mkdir(parents=True, exist_ok=True)
+            return
         if self._pilotage_dir is not None:
             self._pilotage_dir.mkdir(parents=True, exist_ok=True)
         if self._expert_dir is not None:
@@ -224,6 +258,16 @@ class OneDriveAccountingBridge:
     def _expert_workbooks(self) -> list[Path]:
         if not self._export_dir.is_dir():
             return []
+        if self._direct_mode:
+            return sorted(
+                (
+                    path
+                    for path in self._export_dir.glob("*.xlsx")
+                    if "__" not in path.stem
+                    and not path.name.startswith("~$")
+                ),
+                key=lambda path: path.name.casefold(),
+            )
         selected: list[Path] = []
         for pattern in EXPERT_WORKBOOK_PATTERNS:
             for path in sorted(self._export_dir.glob(pattern)):
@@ -295,5 +339,6 @@ __all__ = [
     "PILOTAGE_DIR_NAME",
     "PIECES_DIR_NAME",
     "SHARED_DIR_NAME",
+    "TABLEAUX_COMPTABLES_DIR_NAME",
     "resolve_onedrive_root",
 ]

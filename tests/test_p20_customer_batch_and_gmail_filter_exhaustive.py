@@ -909,16 +909,16 @@ def test_remittances_91374_91787_92174_and_workbook_lettering(tmp_path):
     )
     import_ofx_statement(store, TENANT, ofx_with_remittances())
     report = reconcile_customer_invoices(store, TENANT, window_days=60)
-    assert report.reconciled_invoices == 4
-    assert report.pending_invoices == 19
+    # P27-sexies - REMISE 91374 groups two invoices of the same customer
+    # (CALANDRE 18): forbidden without an explicit bordereau. Only the two
+    # single-invoice remittances are lettered.
+    assert report.reconciled_invoices == 2
+    assert report.pending_invoices == 21
     by_number = {
         row["invoice_id"]: row for row in store.list_customer_invoices(TENANT)
     }
-    assert by_number["FA2001"]["reconciliation_status"] == PAID_STATUS
-    assert by_number["FA2001"]["reconciliation_reference"] == "REMISE 91374"
-    assert by_number["FA2001"]["reconciliation_date"] == "2026-01-31"
-    assert by_number["FA2002"]["reconciliation_status"] == PAID_STATUS
-    assert by_number["FA2002"]["reconciliation_reference"] == "REMISE 91374"
+    assert by_number["FA2001"]["reconciliation_status"] == PENDING_STATUS
+    assert by_number["FA2002"]["reconciliation_status"] == PENDING_STATUS
     assert by_number["FA2003"]["reconciliation_status"] == PAID_STATUS
     assert by_number["FA2003"]["reconciliation_reference"] == "REMISE 91787"
     assert by_number["FA2003"]["reconciliation_date"] == "2026-02-28"
@@ -928,28 +928,24 @@ def test_remittances_91374_91787_92174_and_workbook_lettering(tmp_path):
     assert by_number["FA2005"]["reconciliation_status"] == PENDING_STATUS
     payment = report.by_reference("91374")
     assert payment is not None
-    assert payment.matched is True
-    assert payment.allocated_total == Decimal("7484.65")
-    assert payment.invoice_numbers == ("FA2001", "FA2002")
+    assert payment.matched is False
+    assert payment.reason == "NO_EXACT_COMBINATION"
 
     export = export_customer_sales_workbook(
         TENANT, store=store, export_dir=tmp_path / "exports"
     )
-    assert export.reconciled == 4
-    assert export.pending == 19
+    assert export.reconciled == 2
+    assert export.pending == 21
     workbook = load_workbook(export.path)
     sheet = workbook.active
     headers = [cell.value for cell in sheet[1]]
     status_column = headers.index("Statut Rapprochement Bancaire") + 1
-    reference_column = headers.index("Référence OFX") + 1
-    date_column = headers.index("Date Rapprochement") + 1
     rows = {
         sheet.cell(row=index, column=1).value: index
         for index in range(2, sheet.max_row + 1)
     }
-    assert sheet.cell(row=rows["FA2001"], column=status_column).value == PAID_STATUS
-    assert sheet.cell(row=rows["FA2001"], column=reference_column).value == "REMISE 91374"
-    assert sheet.cell(row=rows["FA2001"], column=date_column).value.date() == date(2026, 1, 31)
+    assert sheet.cell(row=rows["FA2001"], column=status_column).value == PENDING_STATUS
+    assert sheet.cell(row=rows["FA2003"], column=status_column).value == PAID_STATUS
     assert sheet.cell(row=rows["FA2005"], column=status_column).value == PENDING_STATUS
     workbook.close()
 
@@ -1050,7 +1046,6 @@ def test_chronological_bank_ordering_prevents_late_remittance_preemption(tmp_pat
         make_invoice("FA16432", "GP AUTO - 03100", "558.98", due=date(2026, 2, 28), method="LCR"),
         make_invoice("FA16434", "Techni wheel Ostwald", "1128.00", due=date(2026, 3, 31), method="LCR"),
         make_invoice("FA16437", "CHOLLET", "2004.17", due=date(2026, 3, 31), method="LCR"),
-        make_invoice("FA16438", "CHOLLET", "144.00", due=date(2026, 3, 31), method="LCR"),
         make_invoice("FA16439", "CARS 18", "1011.20", due=date(2026, 3, 31), method="LCR"),
         make_invoice("FA16440", "Calandre 18", "1942.79", due=date(2026, 3, 31), method="LCR"),
         make_invoice("FA16441", "Calandre 18", "144.00", due=date(2026, 3, 31), method="LCR"),
@@ -1093,7 +1088,7 @@ NEWFILEUID:NONE
 <STMTTRN>
 <TRNTYPE>CREDIT
 <DTPOSTED>20260410
-<TRNAMT>+9665,01
+<TRNAMT>+9377,01
 <FITID>CE-20260410-92174
 <NAME>REMISE ENCAISSEMENT N 92174
 <MEMO>ECHEANCE 31/03/2026
@@ -1119,18 +1114,19 @@ NEWFILEUID:NONE
     early = report.by_reference("92174")
     assert early is not None
     assert early.matched is True
-    assert early.allocated_total == Decimal("9665.01")
-    assert len(early.invoices) == 11
-    assert "FA16441" in early.invoice_numbers
+    assert early.allocated_total == Decimal("9377.01")
+    assert len(early.invoices) == 9
+    assert "FA16441" not in early.invoice_numbers
     late = report.by_reference("94694")
     assert late is not None
-    assert late.matched is False
-    assert late.reason == "NO_EXACT_COMBINATION"
+    assert late.matched is True
+    assert late.allocated_total == Decimal("144.00")
+    assert late.invoice_numbers == ("FA16441",)
     by_number = {
         row["invoice_id"]: row for row in store.list_customer_invoices(TENANT)
     }
     assert by_number["FA16441"]["reconciliation_status"] == PAID_STATUS
-    assert by_number["FA16441"]["reconciliation_reference"] == "REMISE 92174"
+    assert by_number["FA16441"]["reconciliation_reference"] == "REMISE 94694"
 
 
 def test_lcr_priority_survives_one_off_cheque_mention(tmp_path):
@@ -1156,20 +1152,13 @@ def test_lcr_priority_survives_one_off_cheque_mention(tmp_path):
     assert "VIREMENT" in rule["fallback_methods"]
 
 
-def test_lcr_bordereau_allocation_groups_two_small_same_client_invoices(tmp_path):
+def test_lcr_bordereau_allocation_matches_one_invoice_only(tmp_path):
     store = make_store(tmp_path)
     invoices = [
         make_invoice(
-            "FA16464",
-            "CARROSSERIE VINOLIENNE",
-            "82.63",
-            due=date(2026, 10, 16),
-            method="CHEQUE",
-        ),
-        make_invoice(
             "FA16465",
             "CARROSSERIE VINOLIENNE",
-            "142.97",
+            "225.60",
             due=date(2026, 10, 16),
             method="LCR",
         ),
@@ -1195,17 +1184,16 @@ CARROSSERIE VINOLIENNE | 1 | LYON | ACC | 16/10/2026 | 225,60
         ),
     )
     report = reconcile_customer_invoices(store, TENANT, bordereaux=[lcr])
-    assert report.reconciled_invoices == 2
+    assert report.reconciled_invoices == 1
     assert report.pending_invoices == 0
     payment = report.by_reference("94695")
     assert payment is not None
     assert payment.matched is True
     assert payment.allocated_total == Decimal("225.60")
-    assert payment.invoice_numbers == ("FA16464", "FA16465")
+    assert payment.invoice_numbers == ("FA16465",)
     by_number = {
         row["invoice_id"]: row for row in store.list_customer_invoices(TENANT)
     }
-    assert by_number["FA16464"]["reconciliation_status"] == PAID_STATUS
     assert by_number["FA16465"]["reconciliation_status"] == PAID_STATUS
 
 

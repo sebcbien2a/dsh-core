@@ -33,6 +33,28 @@ CLIENT_SALES_CATEGORY = DocumentCategory.VENTES_CLIENTS.value
 # ``FA1*`` invoice numbers are not a subset-sum search and stay unrestricted.
 MAX_SUBSET_SUM_PIECES = 4
 
+# P27-sexies - Boxtal and Chronopost are always settled one bank movement for
+# one document. A subset-sum (or any invoice mix) is forbidden for them: a
+# debit matches a single invoice and a credit matches a single credit note.
+STRICT_ONE_TO_ONE_COUNTERPARTIES: frozenset[str] = frozenset(
+    {"BOXTAL", "CHRONOPOST"}
+)
+
+# Payment methods for which a document dated after the bank movement can never
+# be lettered: an invoice cannot be paid before it exists.
+ZERO_DAY_PAYMENT_METHODS: frozenset[str] = frozenset(
+    {
+        "LCR",
+        "LCR_ENCAISSEMENT_LOT",
+        "LCR_FOURNISSEUR_DEBIT",
+        "REMISE",
+        "REMISE_ENCAISSEMENT",
+        "REMISE_CHEQUES",
+        "VIREMENT",
+        "VIR",
+    }
+)
+
 CLIENTS_ENCAISSEMENT_GROUPE = "CLIENTS_ENCAISSEMENT_GROUPE"
 VIREMENT_A_QUALIFIER = "VIREMENT_A_QUALIFIER"
 INSTRUMENT_A_QUALIFIER = "INSTRUMENT_A_QUALIFIER"
@@ -132,6 +154,62 @@ def is_virement_a_qualifier(*values: Any) -> bool:
     )
 
 
+def is_strict_one_to_one_counterparty(*values: Any) -> bool:
+    """Return ``True`` for Boxtal / Chronopost (strict 1-to-1 settlement).
+
+    These two suppliers are always settled by one card debit per invoice (and
+    one credit per credit note). Combining several invoices to reach a bank
+    amount is never allowed, even when the cent totals match.
+    """
+    folded = " ".join(_fold(value) for value in values if value)
+    return any(
+        token.casefold() in folded
+        for token in STRICT_ONE_TO_ONE_COUNTERPARTIES
+    )
+
+
+def is_lcr_operation(*values: Any) -> bool:
+    """Return ``True`` for an ``LCR`` bank instrument label."""
+    folded = " ".join(_fold(value) for value in values if value)
+    return bool(re.search(r"\blcr\b", folded))
+
+
+def payment_date_allows(
+    invoice_date: Any,
+    payment_date: Any,
+    *,
+    tolerance_days: int = 0,
+) -> bool:
+    """Return ``False`` when a document would be paid before it exists.
+
+    ``invoice_date`` and ``payment_date`` accept ``date``/``datetime`` or an
+    ISO ``YYYY-MM-DD`` string. A missing date is never rejected (the caller
+    cannot prove an anachronism).
+    """
+    if invoice_date is None or payment_date is None:
+        return True
+
+    def _as_date(value: Any) -> Any:
+        if hasattr(value, "date") and not isinstance(value, str):
+            return value.date() if hasattr(value, "hour") else value
+        text = str(value or "").strip()[:10]
+        if not text:
+            return None
+        from datetime import date as _date
+
+        try:
+            return _date.fromisoformat(text)
+        except ValueError:
+            return None
+
+    left = _as_date(invoice_date)
+    right = _as_date(payment_date)
+    if left is None or right is None:
+        return True
+    return (right - left).days >= -abs(int(tolerance_days))
+
+
+
 def client_sales_routing(
     *,
     counterparty: Any = None,
@@ -188,17 +266,22 @@ __all__ = [
     "INSTRUMENT_A_QUALIFIER",
     "INVALID_TIER_NAMES",
     "MAX_SUBSET_SUM_PIECES",
+    "STRICT_ONE_TO_ONE_COUNTERPARTIES",
     "VIREMENT_A_QUALIFIER",
     "VIREMENT_A_QUALIFIER_SUGGESTION",
+    "ZERO_DAY_PAYMENT_METHODS",
     "bank_tier_defaults",
     "clean_bank_tier_name",
     "client_sales_routing",
     "contains_client_invoice_reference",
     "is_client_invoice_reference",
     "is_invalid_tier_name",
+    "is_lcr_operation",
     "is_remise_cheques",
     "is_remise_encaissement",
+    "is_strict_one_to_one_counterparty",
     "is_virement_a_qualifier",
+    "payment_date_allows",
     "remise_counterparty_for",
     "unknown_transfer_counterparty",
 ]

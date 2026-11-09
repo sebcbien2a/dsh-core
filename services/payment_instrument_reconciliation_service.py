@@ -20,11 +20,17 @@ from decimal import Decimal
 from typing import Any, Iterable
 
 from schemas.folder_state_schema import DocumentCategory
-from services.bank_reconciliation_service import MAX_SUBSET_SUM_PIECES
+from services.bank_reconciliation_service import (
+    MAX_SUBSET_SUM_PIECES,
+    is_lcr_operation,
+    is_strict_one_to_one_counterparty,
+    payment_date_allows,
+)
 from services.sqlite_accounting_store import SqliteAccountingStore
 from services.tier_reference_service import is_payment_instrument_label
 
 _CENT = Decimal("0.01")
+_TOLERANCE = Decimal("0.02")
 _DATE_WINDOW_DAYS = 180
 _MAX_CANDIDATES = 20
 _PURCHASE_CATEGORIES = frozenset(
@@ -98,6 +104,28 @@ def _is_invoice_row(row: dict[str, Any]) -> bool:
     return bool(row.get("invoice_id"))
 
 
+def _is_credit_note(row: dict[str, Any]) -> bool:
+    document_type = str(row.get("document_type") or "").strip().upper()
+    if document_type in {"AVOIR", "CREDIT_NOTE"}:
+        return True
+    amount = _decimal(row.get("amount_ttc"))
+    return amount is not None and amount < 0
+
+
+def _invoice_date(row: dict[str, Any]) -> date_cls | None:
+    return _parse_date(row.get("operation_date"))
+
+
+def _fifo_key(row: dict[str, Any]) -> tuple[Any, str]:
+    invoice_date = _invoice_date(row) or date_cls.min
+    return invoice_date, str(row.get("invoice_id") or row.get("line_id") or "")
+
+
+def _payment_date_ok(row: dict[str, Any], bank_date: date_cls | None) -> bool:
+    return payment_date_allows(_invoice_date(row), bank_date)
+
+
+
 def _subset_sum(
     candidates: list[tuple[dict[str, Any], Decimal]],
     target: Decimal,
@@ -133,6 +161,7 @@ def _candidates(
     direction: str,
     amount: Decimal,
     bank_date: date_cls | None,
+    reference: str = "",
 ) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
     for row in rows:
@@ -144,10 +173,21 @@ def _candidates(
         if direction == "CREDIT" and category != DocumentCategory.VENTES_CLIENTS.value:
             continue
         ttc = _decimal(row.get("amount_ttc"))
-        if ttc is None or ttc <= 0:
+        if ttc is None or ttc == 0:
             continue
+        if not _is_credit_note(row) and ttc < 0:
+            continue
+        # P27-sexies - a document already lettered elsewhere must never be
+        # consumed a second time by another bank movement.
+        status = str(row.get("reconciliation_status") or "").strip().upper()
+        if status in {"PAYEE_RAPPROCHEE", "REMBOURSE_RAPPROCHE"}:
+            existing = str(row.get("reconciliation_reference") or "").strip()
+            if reference and existing.casefold() == reference.casefold():
+                pass
+            else:
+                continue
         if bank_date is not None:
-            invoice_date = _parse_date(row.get("operation_date"))
+            invoice_date = _invoice_date(row)
             if invoice_date is not None:
                 delta = abs((invoice_date - bank_date).days)
                 if delta > _DATE_WINDOW_DAYS:
@@ -156,28 +196,97 @@ def _candidates(
     return candidates
 
 
+def _single_invoice_or_avoir(
+    candidates: list[dict[str, Any]],
+    amount: Decimal,
+    bank_date: date_cls | None,
+) -> list[dict[str, Any]]:
+    """P27-sexies Rule B - one invoice, or one invoice minus one credit note.
+
+    Combining two or more positive invoices is forbidden: a supplier LCR is
+    never built from an arbitrary mix of bills.
+    """
+    positives = sorted(
+        (
+            row
+            for row in candidates
+            if not _is_credit_note(row)
+            and (_decimal(row.get("amount_ttc")) or Decimal("0.00")) > 0
+            and _payment_date_ok(row, bank_date)
+        ),
+        key=_fifo_key,
+    )
+    credit_notes = sorted(
+        (
+            row
+            for row in candidates
+            if _is_credit_note(row) and _payment_date_ok(row, bank_date)
+        ),
+        key=_fifo_key,
+    )
+    for invoice in positives:
+        invoice_ttc = _decimal(invoice.get("amount_ttc")) or Decimal("0.00")
+        if abs(invoice_ttc - amount) <= _TOLERANCE:
+            return [invoice]
+        for credit_note in credit_notes:
+            credit_ttc = abs(
+                _decimal(credit_note.get("amount_ttc")) or Decimal("0.00")
+            )
+            net = (invoice_ttc - credit_ttc).quantize(_CENT)
+            if abs(net - amount) <= _TOLERANCE:
+                return [invoice, credit_note]
+    return []
+
+
+def _exact_invoice(
+    candidates: list[dict[str, Any]], amount: Decimal, bank_date: date_cls | None
+) -> list[dict[str, Any]]:
+    exact = [
+        row
+        for row in candidates
+        if _payment_date_ok(row, bank_date)
+        and abs(
+            (_decimal(row.get("amount_ttc")) or Decimal("0.00")) - amount
+        )
+        <= _TOLERANCE
+    ]
+    if not exact:
+        return []
+    return [sorted(exact, key=_fifo_key)[0]]
+
+
 def _match_invoices(
     rows: list[dict[str, Any]],
     *,
     direction: str,
     amount: Decimal,
     bank_date: date_cls | None,
+    label: str = "",
+    reference: str = "",
 ) -> list[dict[str, Any]]:
     candidates = _candidates(
-        rows, direction=direction, amount=amount, bank_date=bank_date
+        rows,
+        direction=direction,
+        amount=amount,
+        bank_date=bank_date,
+        reference=reference,
     )
-    exact = [
-        row
-        for row in candidates
-        if (_decimal(row.get("amount_ttc")) or Decimal("0.00")) == amount
-    ]
-    if len(exact) == 1:
+    strict_one_to_one = is_strict_one_to_one_counterparty(label)
+    exact = _exact_invoice(candidates, amount, bank_date)
+    if strict_one_to_one:
+        # Rule A - a Boxtal / Chronopost debit settles exactly one invoice and
+        # a credit reimburses exactly one credit note. Never a combination.
         return exact
-    if len(exact) > 1:
+    if direction == "DEBIT" and is_lcr_operation(label):
+        # Rule B - a supplier LCR is one invoice, or one invoice minus one
+        # credit note. Two positive invoices are never combined.
+        return _single_invoice_or_avoir(candidates, amount, bank_date)
+    if exact:
+        return exact
+    if direction == "CREDIT":
         return []
-    # Subset-sum is only trusted inside one counterparty and for at most
-    # four invoices (P27-quinquies), otherwise a large LCR would match an
-    # arbitrary mix of suppliers.
+    # Non-LCR instruments (cheques) keep the historical exact subset-sum,
+    # bounded and restricted to one counterparty.
     by_counterparty: dict[str, list[dict[str, Any]]] = {}
     for row in candidates:
         name = str(row.get("counterparty") or "").strip().casefold()
@@ -186,16 +295,9 @@ def _match_invoices(
         by_counterparty.setdefault(name, []).append(row)
     matches: list[list[dict[str, Any]]] = []
     for group in by_counterparty.values():
-        payable_group = group
-        if bank_date is not None:
-            payable_group = [
-                row
-                for row in group
-                if (
-                    _parse_date(row.get("operation_date")) is None
-                    or _parse_date(row.get("operation_date")) <= bank_date
-                )
-            ]
+        payable_group = [
+            row for row in group if _payment_date_ok(row, bank_date)
+        ]
         subset = _subset_sum(
             [
                 (row, _decimal(row.get("amount_ttc")) or Decimal("0.00"))
@@ -216,6 +318,7 @@ def _match_invoices(
     if len(matches) == 1:
         return matches[0]
     return []
+
 
 
 def reconcile_payment_instruments(
@@ -241,7 +344,12 @@ def reconcile_payment_instruments(
             continue
         bank_date = _parse_date(row.get("operation_date"))
         selected = _match_invoices(
-            rows, direction=direction, amount=amount, bank_date=bank_date
+            rows,
+            direction=direction,
+            amount=amount,
+            bank_date=bank_date,
+            label=label,
+            reference=label,
         )
         line_id = str(row.get("line_id") or "")
         if not selected:

@@ -19,7 +19,7 @@ import shutil
 import tempfile
 import unicodedata
 from bisect import bisect_left
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date as date_cls
 from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
@@ -2524,6 +2524,17 @@ def _client_subset(
     return search(0, target.quantize(_CENT), [])
 
 
+def _invoice_not_after_payment(
+    invoice: "ClientLedgerEntry", bank_row: dict[str, Any]
+) -> bool:
+    """P27-sexies - a bank credit never pays a future invoice."""
+    payment_date = _parse_iso_date(bank_row.get("operation_date"))
+    invoice_date = _parse_iso_date(invoice.operation_date)
+    if payment_date is None or invoice_date is None:
+        return True
+    return invoice_date <= payment_date
+
+
 def _client_payment_entries(
     rows: list[dict[str, Any]],
     invoices: list[ClientLedgerEntry],
@@ -2585,6 +2596,8 @@ def _client_payment_entries(
             if invoice.client == client
             and invoice.reference not in matched_invoices
             and (invoice.debit - invoice.credit) != 0
+            and not _client_entry_is_paid(invoice)
+            and _invoice_not_after_payment(invoice, row)
         ]
         exact = [
             invoice
@@ -2595,15 +2608,9 @@ def _client_payment_entries(
         if exact:
             payment_date = str(row.get("operation_date") or "")
             exact.sort(
-                key=lambda invoice: abs(
-                    (
-                        _parse_iso_date(invoice.operation_date)
-                        or date_cls.min
-                    )
-                    - (
-                        _parse_iso_date(payment_date)
-                        or date_cls.min
-                    )
+                key=lambda invoice: (
+                    _parse_iso_date(invoice.operation_date) or date_cls.min,
+                    invoice.reference,
                 )
             )
             selected = [exact[0]]
@@ -2762,6 +2769,126 @@ def _client_synthetic_payments(
             )
         )
     return synthetic
+
+
+def _client_entry_is_paid(entry: "ClientLedgerEntry") -> bool:
+    status = str(entry.status or "").upper()
+    return any(paid in status for paid in _PAID_RECONCILIATION_STATUSES)
+
+
+def _apply_bank_lettering_to_invoices(
+    invoices: list[ClientLedgerEntry],
+    bank_entries: list[ClientLedgerEntry],
+) -> list[ClientLedgerEntry]:
+    """Mark pending invoice rows paid when a bank credit matches them.
+
+    ``refresh_cockpit`` already stores the lettering in SQLite; this in-memory
+    fallback keeps the exporter correct for direct callers that have not run
+    the reconciliation pipeline yet (P20/P24/P25 unit stores).
+    """
+    by_reference: dict[str, ClientLedgerEntry] = {}
+    for invoice in invoices:
+        for value in (invoice.reference, invoice.invoice_id or ""):
+            if value:
+                by_reference.setdefault(_fold(value), invoice)
+    replacements: dict[int, ClientLedgerEntry] = {}
+    for payment in bank_entries:
+        if str(payment.status or "").upper() != "LETTRE":
+            continue
+        pieces = [
+            piece.strip()
+            for piece in re.split(r"\s*\+\s*", payment.matched_pieces or "")
+            if piece.strip()
+        ]
+        for piece in pieces:
+            invoice = by_reference.get(_fold(piece))
+            if invoice is None or _client_entry_is_paid(invoice):
+                continue
+            replacements[id(invoice)] = replace(
+                invoice,
+                payment_date=payment.operation_date or "",
+                payment_method=(
+                    payment.payment_method
+                    or _payment_method_label(payment.reference)
+                ),
+                matched_pieces=piece,
+                status=(
+                    f"PAYEE_RAPPROCHEE — {payment.reference}"
+                    if payment.reference
+                    else "PAYEE_RAPPROCHEE"
+                ),
+            )
+    return [replacements.get(id(invoice), invoice) for invoice in invoices]
+
+
+def _client_paid_invoice_payments(
+    invoices: list[ClientLedgerEntry],
+) -> list[ClientLedgerEntry]:
+    """P27-sexies - one ``PAIEMENT`` row per paid customer invoice.
+
+    The row is driven by the invoice lettering stored in SQLite, so a global
+    multi-client remittance always emits one payment row in each customer
+    sheet. The sum of those credits is therefore exactly the TTC of the
+    ``PAYEE_RAPPROCHEE`` invoices, never a partial total.
+    """
+    payments: list[ClientLedgerEntry] = []
+    seen: set[tuple[str, str]] = set()
+    for invoice in invoices:
+        if invoice.entry_type != CLIENT_LEDGER_TYPE_FACTURE:
+            continue
+        if not invoice.payment_date:
+            continue
+        status = str(invoice.status or "").upper()
+        if not any(paid in status for paid in _PAID_RECONCILIATION_STATUSES):
+            continue
+        amount = (invoice.debit - invoice.credit).quantize(_CENT)
+        if amount <= 0:
+            continue
+        key = (invoice.client, invoice.invoice_id or invoice.reference)
+        if key in seen:
+            continue
+        seen.add(key)
+        reference = str(invoice.matched_pieces or invoice.payment_method or "").strip()
+        remise = re.search(
+            r"REMISE(?:\s+ENCAISSEMENT)?(?:\s+CHEQUES)?(?:\s+N)?\s*(\d{2,})",
+            reference,
+            re.IGNORECASE,
+        )
+        if remise is not None:
+            number = remise.group(1)
+            reference_value = f"REMISE {number}"
+            label = (
+                f"REMISE ENCAISSEMENT N {number} — "
+                f"Règlement {invoice.invoice_id or invoice.reference}"
+            )
+            status_value = f"LETTRE — REMISE {number}"
+        else:
+            reference_value = reference or invoice.payment_method or "VIREMENT"
+            label = f"Règlement {invoice.invoice_id or invoice.reference}"
+            status_value = (
+                f"LETTRE — {reference_value}" if reference_value else "LETTRE"
+            )
+        payments.append(
+            ClientLedgerEntry(
+                entry_type=CLIENT_LEDGER_TYPE_PAIEMENT,
+                operation_date=invoice.payment_date,
+                reference=reference_value,
+                label=label,
+                debit=Decimal("0.00"),
+                credit=amount,
+                status=status_value,
+                line_id=invoice.line_id,
+                invoice_id=None,
+                client=invoice.client,
+                piece_pdf=invoice.piece_pdf,
+                invoice_url=invoice.invoice_url,
+                matched_pieces=invoice.invoice_id or invoice.reference,
+                payment_date=invoice.payment_date,
+                payment_method=invoice.payment_method,
+                bank_credit=amount,
+            )
+        )
+    return payments
 
 
 def _format_display_date(value: Any) -> str:
@@ -2973,12 +3100,16 @@ class ClientLedgerExporter:
         invoice_entries = _client_invoice_entries(
             rows, strict_tiers=self._strict_tiers
         )
-        payment_entries = _client_payment_entries(
+        # P27-sexies - direct callers may not have run the reconciliation
+        # pipeline yet: letter pending invoices from the bank rows in memory
+        # before emitting one PAIEMENT row per paid invoice.
+        bank_entries = _client_payment_entries(
             rows, invoice_entries, strict_tiers=self._strict_tiers
         )
-        payment_entries.extend(
-            _client_synthetic_payments(rows, payment_entries)
+        invoice_entries = _apply_bank_lettering_to_invoices(
+            invoice_entries, bank_entries
         )
+        payment_entries = _client_paid_invoice_payments(invoice_entries)
         grouped: dict[str, list[ClientLedgerEntry]] = {}
         for entry in (*invoice_entries, *payment_entries):
             grouped.setdefault(entry.client, []).append(entry)
