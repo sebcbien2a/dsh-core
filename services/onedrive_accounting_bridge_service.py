@@ -118,6 +118,23 @@ def _copy_atomic(source: Path, target: Path) -> None:
         temporary.unlink(missing_ok=True)
 
 
+def _copy_if_stale(source: Path, target: Path) -> bool:
+    """Copy only when the target is missing or older than the source."""
+    if target.is_file():
+        try:
+            source_stat = source.stat()
+            target_stat = target.stat()
+            if (
+                target_stat.st_size == source_stat.st_size
+                and target_stat.st_mtime >= source_stat.st_mtime
+            ):
+                return False
+        except OSError:
+            pass
+    _copy_atomic(source, target)
+    return True
+
+
 class OneDriveAccountingBridge:
     """Pull director edits and push accountant workbooks through OneDrive."""
 
@@ -167,7 +184,7 @@ class OneDriveAccountingBridge:
             )
         )
         self._pilotage_dir = (
-            None
+            self._shared_dir
             if self._direct_mode
             else (
                 self._shared_dir / PILOTAGE_DIR_NAME
@@ -219,10 +236,12 @@ class OneDriveAccountingBridge:
         readable = self._tree.state_dir("02_A_COMPLETER") / READABLE_FILENAME
         technical = self._tenant_dir / READABLE_FILENAME
         tier_root = self._tenant_dir / TIER_REFERENCE_FILENAME
-        tier_export = self._export_dir / TIER_REFERENCE_FILENAME
+        # P27-septies - one single master tier workbook: the historical
+        # ``04_EXPORT_COMPTA/APD/REFERENTIEL_TIERS_APD.xlsx`` duplicate is
+        # never pulled or recreated.
         return {
             READABLE_FILENAME: (readable, technical),
-            TIER_REFERENCE_FILENAME: (tier_root, tier_export),
+            TIER_REFERENCE_FILENAME: (tier_root,),
         }
 
     def pull_director_files(self) -> tuple[Path, ...]:
@@ -241,7 +260,12 @@ class OneDriveAccountingBridge:
         return tuple(pulled)
 
     def push_director_files(self) -> tuple[Path, ...]:
-        """Publish the readable workbook and tier reference to OneDrive."""
+        """Publish the readable workbook and tier reference to OneDrive.
+
+        P27-septies - "last writer wins": a local file older than the OneDrive
+        copy is never pushed, so the father's fresher edits can never be
+        overwritten by a stale pipeline run.
+        """
         if self._pilotage_dir is None:
             return ()
         self._pilotage_dir.mkdir(parents=True, exist_ok=True)
@@ -251,6 +275,12 @@ class OneDriveAccountingBridge:
             if source is None:
                 continue
             target = self._pilotage_dir / name
+            if target.is_file():
+                try:
+                    if target.stat().st_mtime > source.stat().st_mtime:
+                        continue
+                except OSError:
+                    pass
             _copy_atomic(source, target)
             pushed.append(target)
         return tuple(pushed)
@@ -296,8 +326,8 @@ class OneDriveAccountingBridge:
                 relative = source.relative_to(pieces)
                 target = target_pieces / relative
                 target.parent.mkdir(parents=True, exist_ok=True)
-                _copy_atomic(source, target)
-                pushed.append(target)
+                if _copy_if_stale(source, target):
+                    pushed.append(target)
         return tuple(pushed)
 
     def sync(self) -> OneDriveSyncReport:

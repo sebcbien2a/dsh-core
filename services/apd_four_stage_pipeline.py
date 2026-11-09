@@ -273,6 +273,7 @@ class ApdFourStagePipeline:
             root is None if enable_tier_workflow is None else enable_tier_workflow
         )
         self._tree = ensure_tree(self._tenant_id, root)
+        self._root = root
         self._tenant_dir = self._tree.root / self._tenant_id
         self._store = store if store is not None else SqliteAccountingStore(db_path or DEFAULT_DB_PATH)
         migrate_default_to_apd(root, store=self._store)
@@ -283,8 +284,11 @@ class ApdFourStagePipeline:
         )
         self._export_dir.mkdir(parents=True, exist_ok=True)
         self._memory = AccountingMemoryLearningService()
+        # P27-septies - one single master tier workbook at the tenant root.
+        # The historical ``04_EXPORT_COMPTA/APD/REFERENTIEL_TIERS_APD.xlsx``
+        # duplicate is never recreated.
         self._tier_reference = TierReferenceService(
-            self._export_dir / TIER_REFERENCE_FILENAME,
+            self._tenant_dir / TIER_REFERENCE_FILENAME,
             store=self._store,
             memory=self._memory,
             tenant_id=self._tenant_id,
@@ -1110,6 +1114,17 @@ class ApdFourStagePipeline:
         except Exception as exc:  # noqa: BLE001 - Gmail never blocks the pipeline
             return {"error": f"{type(exc).__name__}: {exc}"}
 
+    def _onedrive_bridge(self):
+        from services.onedrive_accounting_bridge_service import (
+            OneDriveAccountingBridge,
+        )
+
+        return OneDriveAccountingBridge(
+            self._tenant_id,
+            root=self._root,
+            export_dir=self._export_dir,
+        )
+
     def run_stage(self, stage: int) -> StageReport:
         if stage not in STAGE_NAMES:
             raise ApdPipelineError("INVALID_STAGE", repr(stage))
@@ -1119,11 +1134,23 @@ class ApdFourStagePipeline:
             3: self.stage3_ventilation_and_coherence,
             4: self.stage4_simulations,
         }
+        # P27-septies - interactive father/son sync: import the fresher
+        # ``_A_COMPLETER.xlsx`` / ``REFERENTIEL_TIERS_APD.xlsx`` from OneDrive
+        # before the stage, then publish the local edits after it.
+        bridge = self._onedrive_bridge()
+        try:
+            bridge.pull_director_files()
+        except Exception:  # noqa: BLE001 - OneDrive never blocks a stage
+            pass
         if stage == 1:
             self._sync_gmail()
         self._tier_reference.bootstrap()
         self._apply_tier_reference()
         report = dispatch[stage]()
+        try:
+            bridge.push_director_files()
+        except Exception:  # noqa: BLE001 - OneDrive never blocks a stage
+            pass
         self._last_reports[stage] = report
         return report
 

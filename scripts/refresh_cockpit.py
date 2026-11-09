@@ -76,6 +76,9 @@ from services.sqlite_accounting_store import (  # noqa: E402
     DEFAULT_DB_PATH,
     SqliteAccountingStore,
 )
+from services.tier_reference_service import (  # noqa: E402
+    purge_duplicate_tier_workbooks,
+)
 from services.vat_simulation_service import (  # noqa: E402
     CA12_SIMULATION_FILENAME,
     VatSimulationService,
@@ -274,6 +277,10 @@ def refresh_cockpit(
 ) -> CockpitRefreshReport:
     tenant = tenant_id
     tree = ensure_tree(tenant, root)
+    try:
+        purge_duplicate_tier_workbooks(tree.root)
+    except Exception:  # noqa: BLE001 - cleanup never blocks the cockpit
+        pass
     inbox = tree.state_dir(FolderState.INBOX).resolve()
     base_export = (
         Path(export_dir)
