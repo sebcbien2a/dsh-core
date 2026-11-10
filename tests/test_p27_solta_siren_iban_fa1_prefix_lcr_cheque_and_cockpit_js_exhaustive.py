@@ -145,7 +145,7 @@ def test_cockpit_loads_pending_questions_without_click(tmp_path):
     (tree / "02_A_COMPLETER").mkdir(parents=True, exist_ok=True)
     from services.acompleter_workbook_service import AcompleterWorkbook
 
-    workbook = AcompleterWorkbook(tree)
+    workbook = AcompleterWorkbook(tree / "02_A_COMPLETER" / "_TECHNIQUE")
     workbook.ensure_workbook()
     workbook.upsert(
         "b" * 64,
@@ -269,7 +269,7 @@ def test_synthetic_payment_uses_fa1_not_only_fa16(tmp_path):
     ).export(TENANT)
     sheet = load_workbook(path)["CARROSSERIE_YUCEL"]
     rows = list(sheet.iter_rows(min_row=2, values_only=True))
-    payments = [row for row in rows if row[1] == "PAIEMENT"]
+    payments = [row for row in rows if row[2] == "PAIEMENT"]
     assert len(payments) == 1
     assert not any(row[3] == "Règlement lettré (registre)" for row in rows)
 

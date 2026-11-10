@@ -181,11 +181,11 @@ def test_supplier_refund_is_a_bank_credit_and_avoir_is_negative(tmp_path):
     sheet = load_workbook(path)["AMAZON"]
     assert tuple(cell.value for cell in sheet[1]) == SUPPLIER_LEDGER_COLUMNS
     rows = [row for row in sheet.iter_rows(min_row=2, values_only=True)]
-    refund = next(row for row in rows if row[1] == "AVOIR_REMBOURSEMENT")
-    avoir = next(row for row in rows if row[1] == "AVOIR")
-    assert refund[8] == 0
-    assert refund[9] == pytest.approx(36.61)
-    assert avoir[7] == pytest.approx(-12.00)
+    refund = next(row for row in rows if row[2] == "AVOIR_REMBOURSEMENT")
+    avoir = next(row for row in rows if row[2] == "AVOIR")
+    assert refund[9] == 0
+    assert refund[10] == pytest.approx(36.61)
+    assert avoir[8] == pytest.approx(-12.00)
     assert any(
         str(row[0] or "").startswith("TOTAL BANQUE") for row in rows
     )

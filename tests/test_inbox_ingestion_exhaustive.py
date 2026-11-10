@@ -502,7 +502,9 @@ def test_partial_extraction_routes_to_02_adds_workbook_row_and_pending_store(tmp
         MissingFieldEnum.NUMERO_PIECE,
         MissingFieldEnum.CATEGORIE,
     )
-    assert (tenant_dir / WORKBOOK_NAME).is_file()
+    assert (
+        tree.state_dir(FolderState.A_COMPLETER) / "_TECHNIQUE" / WORKBOOK_NAME
+    ).is_file()
 
 
 def test_low_confidence_complete_file_routes_to_02_without_missing_fields(tmp_path):

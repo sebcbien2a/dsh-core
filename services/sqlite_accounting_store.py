@@ -75,6 +75,7 @@ _LINE_FIELDS = (
     "tva_dedup_status",
     "fiscal_year_mode",
     "fiscal_year_target",
+    "exercise_year",
     "deferred_month_override",
     "payment_source",
     "counterparty_account",
@@ -124,6 +125,7 @@ _LINE_MIGRATION_COLUMNS = (
     ("tva_dedup_status", "TEXT"),
     ("fiscal_year_mode", "TEXT"),
     ("fiscal_year_target", "TEXT"),
+    ("exercise_year", "TEXT"),
     ("deferred_month_override", "TEXT"),
     ("payment_source", "TEXT"),
     ("counterparty_account", "TEXT"),
@@ -156,6 +158,7 @@ _P17_LINE_SELECT = (
     " l.hotel_place, l.ht_accommodation, l.ht_breakfast_meals,"
     " l.tva_deductible, l.tva_non_deductible, l.is_classified_marker,"
     " l.tva_dedup_status, l.fiscal_year_mode, l.fiscal_year_target,"
+    " l.exercise_year,"
     " l.deferred_month_override, l.payment_source, l.counterparty_account,"
     " l.payment_method, l.payment_reference, l.purchase_date, l.due_date,"
     " l.fitid, l.remittance_reference, l.client_siret, l.client_vat_number,"
@@ -349,6 +352,7 @@ CREATE TABLE IF NOT EXISTS reconciliation_lines (
     tva_dedup_status TEXT,
     fiscal_year_mode TEXT,
     fiscal_year_target TEXT,
+    exercise_year TEXT,
     deferred_month_override TEXT,
     payment_source TEXT,
     counterparty_account TEXT,

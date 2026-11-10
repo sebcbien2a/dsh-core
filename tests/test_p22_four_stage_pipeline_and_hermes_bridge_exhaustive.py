@@ -482,8 +482,13 @@ def test_stage1_validates_evidence_moves_files_and_updates_readable_workbook(tmp
         assert ":" not in link
         assert not link.startswith("/")
     workbook.close()
-    # The legacy workbook also materialises P22 columns and hides the UUID/hash.
-    legacy = load_workbook(tenant_dir / "_A_COMPLETER.xlsx")
+    # The technical workbook now lives in 02_A_COMPLETER/_TECHNIQUE so the
+    # tenant-root duplicate is never recreated.
+    legacy = load_workbook(
+        tree.state_dir(FolderState.A_COMPLETER)
+        / "_TECHNIQUE"
+        / "_A_COMPLETER.xlsx"
+    )
     legacy_sheet = legacy.active
     assert legacy_sheet.column_dimensions["A"].hidden is True
     assert legacy_sheet.column_dimensions["B"].hidden is True
@@ -505,7 +510,12 @@ def test_stage1_writes_real_business_reason_for_openrouter_pending(tmp_path):
     pipeline.run_stage(1)
     readable = tree.state_dir(FolderState.A_COMPLETER) / "_A_COMPLETER.xlsx"
     sheet = load_workbook(readable).active
-    reasons = [row[5] for row in sheet.iter_rows(min_row=2, values_only=True)]
+    headers = [cell.value for cell in sheet[1]]
+    reason_index = headers.index("Pourquoi c'est en attente & Conseil IA")
+    reasons = [
+        row[reason_index]
+        for row in sheet.iter_rows(min_row=2, values_only=True)
+    ]
     assert any("anglais" in str(reason) for reason in reasons)
     assert any("SaaS" in str(reason) for reason in reasons)
     assert all(reason != "numero_piece, categorie" for reason in reasons)

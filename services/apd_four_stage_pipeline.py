@@ -74,6 +74,10 @@ from services.bank_reconciliation_service import (
     bank_tier_defaults,
     contains_client_invoice_reference,
     is_remise_encaissement,
+    parse_iso_date,
+    purge_invalid_lcr_remittances,
+    remise_number,
+    remittance_explanation,
 )
 from services.folder_tree_service import (
     ensure_tree,
@@ -269,6 +273,16 @@ class ApdFourStagePipeline:
         enable_tier_workflow: bool | None = None,
     ) -> None:
         self._tenant_id = validate_tenant_id(tenant_id)
+        # P27-septies - OneDrive edits are merged before any bootstrap or
+        # workbook write, even when the pipeline object itself is constructed.
+        try:
+            from services.onedrive_accounting_bridge_service import (
+                pull_from_onedrive,
+            )
+
+            pull_from_onedrive(self._tenant_id, root=root)
+        except Exception:  # noqa: BLE001 - OneDrive never blocks construction
+            pass
         self._enable_tier_workflow = (
             root is None if enable_tier_workflow is None else enable_tier_workflow
         )
@@ -293,10 +307,14 @@ class ApdFourStagePipeline:
             memory=self._memory,
             tenant_id=self._tenant_id,
         )
-        self._tier_reference.bootstrap()
+        self._tier_reference.bootstrap(write_missing=False)
         self._year = int(year)
-        self._workbook = AcompleterWorkbook(self._tenant_dir)
         self._a_completer_dir = self._tree.state_dir(FolderState.A_COMPLETER)
+        # P27-septies - the technical workbook lives inside ``02_A_COMPLETER``
+        # so the tenant-root ``_A_COMPLETER.xlsx`` duplicate never reappears.
+        self._workbook = AcompleterWorkbook(
+            self._a_completer_dir / "_TECHNIQUE"
+        )
         self._last_reports: dict[int, StageReport] = {}
         self._unmatched_instruments: tuple[UnmatchedPaymentInstrument, ...] = ()
         for sibling in UNIFIED_TENANT_PREPARATION:
@@ -455,6 +473,15 @@ class ApdFourStagePipeline:
                 or ""
             ),
         }
+
+    def _exercise_year_for(
+        self, line: dict[str, Any] | None, document_date: date | None = None
+    ) -> str:
+        stored = str((line or {}).get("exercise_year") or "").strip()
+        if stored:
+            return stored
+        value = document_date or parse_iso_date((line or {}).get("operation_date"))
+        return f"{value.year:04d}" if value is not None else ""
 
     def prefill_arbitration_columns(self) -> int:
         """Fill the five P24 arbitration columns for every pending row."""
@@ -738,6 +765,11 @@ class ApdFourStagePipeline:
                     self._tenant_id, derive_document_id(decision.sha256)
                 )
             if line is None and decision.filename:
+                ardoise_invoice = (
+                    decision.filename[len("ARDOISE_") :].removesuffix(".tier")
+                    if decision.filename.startswith("ARDOISE_")
+                    else ""
+                )
                 for candidate in self._store.list_master_lines(self._tenant_id):
                     invoice_name = Path(
                         str(candidate.get("invoice_url") or "")
@@ -746,6 +778,11 @@ class ApdFourStagePipeline:
                         invoice_name == decision.filename
                         or str(candidate.get("label") or "")
                         == decision.filename
+                        or (
+                            ardoise_invoice
+                            and str(candidate.get("invoice_id") or "")
+                            == ardoise_invoice
+                        )
                     ):
                         line = candidate
                         break
@@ -758,8 +795,30 @@ class ApdFourStagePipeline:
             updated = dict(line)
             updated.pop("line_id", None)
             updated["status"] = status
-            if status == DocumentStatus.VALIDE.value:
+            decision_token = re.sub(
+                r"[^A-Z0-9]+", "_", str(decision.action or "").upper()
+            ).strip("_")
+            if "DEJA_PAYEE" in decision_token:
+                updated["reconciliation_status"] = "DEJA_PAYEE_2025"
+                updated["reconciliation_date"] = (
+                    updated.get("reconciliation_date")
+                    or updated.get("operation_date")
+                )
+                updated["balance_due"] = "0.00"
+                updated["status"] = DocumentStatus.VALIDE.value
+                status = DocumentStatus.VALIDE.value
+            elif "REPORTER_MOIS_SUIVANT" in decision_token:
+                updated["report"] = "OUI"
+                updated["reconciliation_status"] = None
+            elif "IMPAYEE" in decision_token:
+                updated["reconciliation_status"] = "IMPAYEE"
+                updated["balance_due"] = updated.get("amount_ttc")
+                updated["status"] = DocumentStatus.VALIDE.value
+                status = DocumentStatus.VALIDE.value
+            elif status == DocumentStatus.VALIDE.value:
                 updated["reconciliation_status"] = "VALIDE"
+            if decision.exercise_year:
+                updated["exercise_year"] = decision.exercise_year
             if decision.category:
                 try:
                     updated["category"] = DocumentCategory(
@@ -1125,7 +1184,19 @@ class ApdFourStagePipeline:
             export_dir=self._export_dir,
         )
 
+    def pull_from_onedrive(self) -> tuple[Path, ...]:
+        """Merge the director's OneDrive edits before any local write."""
+        try:
+            from services.onedrive_accounting_bridge_service import (
+                pull_from_onedrive,
+            )
+
+            return pull_from_onedrive(self._tenant_id, root=self._root)
+        except Exception:  # noqa: BLE001 - OneDrive never blocks a stage
+            return ()
+
     def run_stage(self, stage: int) -> StageReport:
+        self.pull_from_onedrive()
         if stage not in STAGE_NAMES:
             raise ApdPipelineError("INVALID_STAGE", repr(stage))
         dispatch = {
@@ -1134,14 +1205,8 @@ class ApdFourStagePipeline:
             3: self.stage3_ventilation_and_coherence,
             4: self.stage4_simulations,
         }
-        # P27-septies - interactive father/son sync: import the fresher
-        # ``_A_COMPLETER.xlsx`` / ``REFERENTIEL_TIERS_APD.xlsx`` from OneDrive
-        # before the stage, then publish the local edits after it.
+        # P27-septies - publish the merged local edits after the stage.
         bridge = self._onedrive_bridge()
-        try:
-            bridge.pull_director_files()
-        except Exception:  # noqa: BLE001 - OneDrive never blocks a stage
-            pass
         if stage == 1:
             self._sync_gmail()
         self._tier_reference.bootstrap()
@@ -1160,6 +1225,7 @@ class ApdFourStagePipeline:
         stages: Iterable[int] = (1, 2, 3, 4),
         pause: Callable[[int], None] | None = None,
     ) -> tuple[StageReport, ...]:
+        self.pull_from_onedrive()
         reports: list[StageReport] = []
         selected = tuple(stages)
         if 1 not in selected:
@@ -1658,6 +1724,9 @@ class ApdFourStagePipeline:
                     status=decision.status,
                     piece_pdf=piece_rel,
                     rule=decision.rule,
+                    exercise_year=self._exercise_year_for(
+                        line, decision.document_date
+                    ),
                     extra=self._readable_extra(
                         sha,
                         line,
@@ -1697,6 +1766,7 @@ class ApdFourStagePipeline:
                     action=action,
                     status=DocumentStatus.EN_ATTENTE,
                     piece_pdf=_tenant_relative(path, self._tenant_dir),
+                    exercise_year=self._exercise_year_for(line),
                     extra=self._readable_extra(
                         sha, line, category=category_value
                     ),
@@ -1746,6 +1816,7 @@ class ApdFourStagePipeline:
                     piece_pdf=self._piece_rel_for_sha(
                         row.sha256, self._tenant_dir / row.nom_fichier
                     ),
+                    exercise_year=self._exercise_year_for(line),
                     extra=self._readable_extra(
                         row.sha256,
                         line,
@@ -1759,6 +1830,7 @@ class ApdFourStagePipeline:
             )
         known = {row.filename for row in rows}
         if not self._enable_tier_workflow:
+            rows.extend(self._overdue_invoice_slate_rows(known))
             return rows
         for name, line in self._tier_reference.unknown_tier_entries(
             self._store.list_master_lines(self._tenant_id)
@@ -1917,6 +1989,47 @@ class ApdFourStagePipeline:
                 if remise
                 else INSTRUMENT_A_QUALIFIER
             )
+            number = remise_number(instrument.label)
+            reason_text = (
+                f"LCR / Chèque de {instrument.amount} € du "
+                f"{instrument.operation_date} sans facture correspondante : "
+                "sélectionner le Fournisseur/Client concerné."
+            )
+            if remise and number:
+                matched_total = Decimal("0.00")
+                matched_numbers: list[str] = []
+                for candidate in self._store.list_master_lines(
+                    self._tenant_id
+                ):
+                    if str(candidate.get("category") or "") != (
+                        DocumentCategory.VENTES_CLIENTS.value
+                    ):
+                        continue
+                    reference = str(
+                        candidate.get("reconciliation_reference") or ""
+                    )
+                    if remise_number(reference) != number:
+                        continue
+                    status = str(
+                        candidate.get("reconciliation_status") or ""
+                    ).upper()
+                    if status and status not in PAID_STATUSES:
+                        continue
+                    try:
+                        matched_total += abs(
+                            Decimal(str(candidate.get("amount_ttc") or "0"))
+                        )
+                    except Exception:  # noqa: BLE001
+                        continue
+                    invoice_id = str(candidate.get("invoice_id") or "").strip()
+                    if invoice_id:
+                        matched_numbers.append(invoice_id)
+                reason_text = remittance_explanation(
+                    f"REMISE {number}",
+                    instrument.amount,
+                    matched_total,
+                    sorted(set(matched_numbers)),
+                )
             rows.append(
                 ReadableRow(
                     sha256=digest,
@@ -1932,12 +2045,7 @@ class ApdFourStagePipeline:
                         if remise
                         else DocumentCategory.DIVERS_A_CLASSER
                     ),
-                    reason=(
-                        f"LCR / Chèque de {instrument.amount} € du "
-                        f"{instrument.operation_date} sans facture "
-                        "correspondante : sélectionner le Fournisseur/Client "
-                        "concerné."
-                    ),
+                    reason=reason_text,
                     action=(
                         "Choisir le tiers concerné ou déposer la facture "
                         "manquante."
@@ -1955,7 +2063,96 @@ class ApdFourStagePipeline:
                     },
                 )
             )
+        rows.extend(self._overdue_invoice_slate_rows(known))
         return rows
+
+    def _overdue_invoice_slate_rows(self, known: set[str]) -> list[ReadableRow]:
+        """P27-septies - the overdue-invoice slate (ardoise).
+
+        A customer invoice older than 62 days that is still unreconciled is
+        never silently used to fill a much later remittance. It is exposed in
+        ``_A_COMPLETER.xlsx`` with an explicit three-way question.
+        """
+        rows = self._store.list_master_lines(self._tenant_id)
+        bank_dates = [
+            parse_iso_date(row.get("operation_date"))
+            for row in rows
+            if str(row.get("document_type") or "").upper() in {"OFX", "QFX"}
+            or str(row.get("line_id") or "").upper().startswith("OFX-")
+        ]
+        observed = [value for value in bank_dates if value is not None]
+        reference_date = max(observed) if observed else date.today()
+        slate: list[ReadableRow] = []
+        for row in rows:
+            if str(row.get("category") or "") != (
+                DocumentCategory.VENTES_CLIENTS.value
+            ):
+                continue
+            if str(row.get("document_type") or "").upper() not in {
+                "CUSTOMER_INVOICE",
+                "SALE",
+                "SALE_INVOICE",
+                "VENTE_CLIENT",
+            }:
+                continue
+            status = str(row.get("reconciliation_status") or "").upper()
+            if status in PAID_STATUSES:
+                continue
+            invoice_date = parse_iso_date(row.get("operation_date"))
+            if invoice_date is None or invoice_date < date(2025, 11, 1):
+                continue
+            if (reference_date - invoice_date).days <= 62:
+                continue
+            invoice_id = str(row.get("invoice_id") or "").strip()
+            if not invoice_id:
+                continue
+            filename = f"ARDOISE_{invoice_id}.tier"
+            if filename in known or filename in {
+                item.filename for item in slate
+            }:
+                continue
+            try:
+                amount = Decimal(str(row.get("amount_ttc") or "0")).quantize(
+                    Decimal("0.01")
+                )
+            except Exception:  # noqa: BLE001
+                amount = Decimal("0.00")
+            slate.append(
+                ReadableRow(
+                    sha256=hashlib.sha256(
+                        f"ardoise:{invoice_id}".encode("utf-8")
+                    ).hexdigest(),
+                    filename=filename,
+                    supplier=str(row.get("counterparty") or ""),
+                    document_number=invoice_id,
+                    document_date=invoice_date,
+                    amount_ht=None,
+                    amount_tva=None,
+                    amount_ttc=amount,
+                    category=DocumentCategory.VENTES_CLIENTS,
+                    reason=(
+                        f"Facture {invoice_id} du "
+                        f"{invoice_date.strftime('%d/%m/%Y')} "
+                        f"({amount} TTC) non encaissée à l'échéance : "
+                        "indiquer DEJA_PAYEE_2025 (si soldée), "
+                        "REPORTER_MOIS_SUIVANT (pour la tester sur la remise "
+                        "suivante) ou IMPAYEE"
+                    ),
+                    action=(
+                        "DEJA_PAYEE_2025 / REPORTER_MOIS_SUIVANT / IMPAYEE"
+                    ),
+                    status=DocumentStatus.EN_ATTENTE,
+                    extra={
+                        "payment_source": "BANQUE_PRO",
+                        "counterparty_account": "411000",
+                        "fiscal_year_target": str(invoice_date.year),
+                        "deferred_month": "NON",
+                        "report": "NON",
+                        "tier_alias_target": "",
+                    },
+                )
+            )
+        return slate
 
     def _piece_rel_for_sha(self, sha: str, fallback: Path) -> str:
         line = self._store.get_line(self._tenant_id, derive_document_id(sha))
@@ -1980,8 +2177,16 @@ class ApdFourStagePipeline:
     # -- stage 2 ---------------------------------------------------------
 
     def stage2_bank_reconciliation(self) -> StageReport:
+        # P27-septies - reset every LCR lettering that violates the monthly
+        # 30-days-end-of-month maturity before recomputing step 2.
+        try:
+            purged = purge_invalid_lcr_remittances(
+                self._store, self._tenant_id
+            )
+        except Exception:  # noqa: BLE001 - purge never blocks stage 2
+            purged = 0
         imported = 0
-        messages: list[str] = []
+        messages: list[str] = [f"Lettrages LCR hors échéance réinitialisés : {purged}"]
         statements = []
         for path in self._ofx_paths():
             try:

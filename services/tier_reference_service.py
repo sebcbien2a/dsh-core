@@ -78,7 +78,11 @@ COLUMNS: tuple[str, ...] = (
     "Sous-Catégorie",
     "Mode Règlement",
     "Statut",
+    "Date Départ Solde 0",
+    "Solde Initial Forcé (€)",
 )
+DEFAULT_BALANCE_START_DATE = "2025-11-01"
+DEFAULT_INITIAL_BALANCE = "0.00"
 P26_COLUMNS: tuple[str, ...] = (
     "Nom Officiel Canonique",
     "ALIAS à regrouper (séparés par ;)",
@@ -211,6 +215,8 @@ class TierRecord:
     siren: str = ""
     siret: str = ""
     iban: tuple[str, ...] = ()
+    balance_start_date: str = ""
+    initial_balance: str = ""
 
     @property
     def alias_text(self) -> str:
@@ -606,7 +612,7 @@ class TierReferenceService:
         if not self._path.is_file():
             if write_missing:
                 self.save_workbook()
-        elif self._is_legacy_workbook():
+        elif write_missing and self._is_legacy_workbook():
             self.save_workbook()
         elif write_missing and missing_seed:
             self.save_workbook()
@@ -996,6 +1002,7 @@ class TierReferenceService:
             siren_siret = "; ".join(
                 value for value in (record.siren, record.siret) if value
             )
+            is_client = record.role == "CLIENT"
             values = (
                 record.canonical,
                 record.alias_text,
@@ -1007,6 +1014,10 @@ class TierReferenceService:
                 record.subcategory,
                 record.payment_method,
                 record.status,
+                record.balance_start_date
+                or (DEFAULT_BALANCE_START_DATE if is_client else ""),
+                record.initial_balance
+                or (DEFAULT_INITIAL_BALANCE if is_client else ""),
             )
             for column, value in enumerate(values, start=1):
                 sheet.cell(row=row_index, column=column, value=value)
@@ -1024,7 +1035,7 @@ class TierReferenceService:
             sheet.add_data_validation(validation)
             validation.add(f"{column}2:{column}{last_row}")
         sheet.freeze_panes = "A2"
-        widths = (30, 62, 24, 22, 40, 20, 22, 26, 18, 18)
+        widths = (30, 62, 24, 22, 40, 20, 22, 26, 18, 18, 22, 22)
         for column, width in enumerate(widths, start=1):
             sheet.column_dimensions[get_column_letter(column)].width = width
         temporary = path.with_name(path.name + ".tmp-p27")
@@ -1071,6 +1082,8 @@ class TierReferenceService:
                 siren = ""
                 siret = ""
                 iban: tuple[str, ...] = ()
+                balance_start_date = ""
+                initial_balance = ""
                 if p27_format:
                     aliases = _split(row[1])
                     rename_to = str(row[2] or "").strip()
@@ -1083,6 +1096,16 @@ class TierReferenceService:
                     subcategory = str(row[7] or "").strip()
                     payment_method = str(row[8] or "").strip()
                     status = str(row[9] or "AUTORISE").strip().upper()
+                    balance_start_date = (
+                        str(row[10] or "").strip()
+                        if len(row) > 10
+                        else ""
+                    )
+                    initial_balance = (
+                        str(row[11] or "").strip()
+                        if len(row) > 11
+                        else ""
+                    )
                     prefixes: tuple[str, ...] = ()
                 elif p26_format:
                     aliases = _split(row[1])
@@ -1103,7 +1126,10 @@ class TierReferenceService:
                     status = str(row[7] or "AUTORISE").strip().upper()
                     rename_to = ""
                 if role not in ROLES:
-                    continue
+                    # P27-septies - never drop a director row because its role
+                    # cell is empty or misspelled: keep it as a supplier to be
+                    # authorised instead of silently destroying the edit.
+                    role = "FOURNISSEUR"
                 records.append(
                     TierRecord(
                         canonical,
@@ -1120,6 +1146,8 @@ class TierReferenceService:
                         siren,
                         siret,
                         iban,
+                        balance_start_date,
+                        initial_balance,
                     )
                 )
         finally:
@@ -1154,6 +1182,8 @@ class TierReferenceService:
                         for item in _split(row.get("iban"))
                         if _iban(item)
                     ),
+                    str(row.get("balance_start_date") or ""),
+                    str(row.get("initial_balance") or ""),
                 )
             )
         return tuple(records)
@@ -1182,6 +1212,8 @@ class TierReferenceService:
                     str(row.get("siren") or ""),
                     str(row.get("siret") or ""),
                     tuple(row.get("iban") or ()),
+                    str(row.get("balance_start_date") or ""),
+                    str(row.get("initial_balance") or ""),
                 )
             )
         return tuple(records)

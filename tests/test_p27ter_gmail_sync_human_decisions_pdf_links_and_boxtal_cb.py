@@ -318,14 +318,14 @@ def test_ledger_uses_native_relative_hyperlink(tmp_path):
     ).export(TENANT)
     sheet = load_workbook(path)["CARROSSERIE_YUCEL"]
     payment = next(
-        row for row in sheet.iter_rows(min_row=2) if row[1].value == "PAIEMENT"
+        row for row in sheet.iter_rows(min_row=2) if row[2].value == "PAIEMENT"
     )
-    assert payment[13].hyperlink is not None
+    assert payment[14].hyperlink is not None
     assert (
         "PIECES_JOINTES/VENTES/FA16423_2026-01-31_CARROSSERIE_YUCELL.pdf"
-        in str(payment[13].hyperlink.target)
+        in str(payment[14].hyperlink.target)
     )
-    assert not str(payment[9].value).startswith("=IFERROR(HYPERLINK(")
+    assert not str(payment[10].value).startswith("=IFERROR(HYPERLINK(")
 
 
 # -- 4. Boxtal CB date token ------------------------------------------------

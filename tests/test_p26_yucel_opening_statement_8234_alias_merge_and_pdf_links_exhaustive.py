@@ -187,11 +187,11 @@ def test_synthetic_payment_is_not_duplicated_when_bank_line_exists(tmp_path):
     ).export(TENANT)
     sheet = load_workbook(path)["CARROSSERIE_YUCEL"]
     rows = list(sheet.iter_rows(min_row=2, values_only=True))
-    payments = [row for row in rows if row[1] == "PAIEMENT"]
+    payments = [row for row in rows if row[2] == "PAIEMENT"]
     assert len(payments) == 1
-    assert payments[0][9] == pytest.approx(950.76)
+    assert payments[0][10] == pytest.approx(950.76)
     assert not any(
-        row[3] == "Règlement lettré (registre)" for row in rows
+        row[4] == "Règlement lettré (registre)" for row in rows
     )
 
 
@@ -309,14 +309,14 @@ def test_payment_lines_have_pdf_links_and_readable_lettering(tmp_path):
     sheet = load_workbook(path)["CARROSSERIE_YUCEL"]
     assert tuple(cell.value for cell in sheet[1]) == CLIENT_LEDGER_COLUMNS_P25
     rows = list(sheet.iter_rows(min_row=2))
-    invoice_row = next(row for row in rows if row[1].value == "FACTURE")
-    payment_row = next(row for row in rows if row[1].value == "PAIEMENT")
-    assert invoice_row[12].value == "Payée le 03/07/2026 par VIR"
-    assert payment_row[12].value == "Règle Facture : FA16423"
-    assert payment_row[13].hyperlink is not None
+    invoice_row = next(row for row in rows if row[2].value == "FACTURE")
+    payment_row = next(row for row in rows if row[2].value == "PAIEMENT")
+    assert invoice_row[13].value == "Payée le 03/07/2026 par VIR"
+    assert payment_row[13].value == "Règle Facture : FA16423"
+    assert payment_row[14].hyperlink is not None
     assert (
         "PIECES_JOINTES/VENTES/FA16423_2026-01-31_CARROSSERIE_YUCELL.pdf"
-        in str(payment_row[13].hyperlink.target)
+        in str(payment_row[14].hyperlink.target)
     )
 
 
@@ -374,7 +374,9 @@ def test_cockpit_embeds_pending_questions_without_click(tmp_path):
     pending_dir.mkdir(parents=True, exist_ok=True)
     from services.acompleter_workbook_service import AcompleterWorkbook
 
-    workbook = AcompleterWorkbook(tree)
+    workbook = AcompleterWorkbook(
+        tree / "02_A_COMPLETER" / "_TECHNIQUE"
+    )
     workbook.ensure_workbook()
     workbook.upsert(
         "a" * 64,

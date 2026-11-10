@@ -71,6 +71,7 @@ from services.inbox_ingestion_service import (  # noqa: E402
 from services.obsidian_vault_service import VaultWriter  # noqa: E402
 from services.onedrive_accounting_bridge_service import (  # noqa: E402
     OneDriveAccountingBridge,
+    pull_from_onedrive,
 )
 from services.sqlite_accounting_store import (  # noqa: E402
     DEFAULT_DB_PATH,
@@ -276,6 +277,9 @@ def refresh_cockpit(
     ingest: bool = True,
 ) -> CockpitRefreshReport:
     tenant = tenant_id
+    # P27-septies - absolute Data priority: merge the director's OneDrive
+    # edits before ensure_tree, any repair or any workbook write on A:\.
+    pull_from_onedrive(tenant, root=root)
     tree = ensure_tree(tenant, root)
     try:
         purge_duplicate_tier_workbooks(tree.root)

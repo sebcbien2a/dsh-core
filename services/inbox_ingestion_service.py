@@ -778,7 +778,9 @@ class InboxIngestionService:
             for sibling, inbox in resolve_unified_inboxes(self._tenant_id, root)
             if sibling in siblings
         )
-        self._workbook = AcompleterWorkbook(self._tree.root / self._tenant_id)
+        self._workbook = AcompleterWorkbook(
+            self._tree.state_dir(FolderState.A_COMPLETER) / "_TECHNIQUE"
+        )
         self._export_root = (
             self._tree.state_dir(FolderState.EXPORT_COMPTA) / self._tenant_id
         )

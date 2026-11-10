@@ -494,6 +494,30 @@ def _date_cell(value: Any) -> Any:
     return _text(text)
 
 
+def _exercise_year_value(row: dict[str, Any], value: Any = None) -> str:
+    """Return the locked ``Exercice Année`` or the year of the piece date.
+
+    A November/December 2025 invoice paid in January/February 2026 keeps its
+    2025 exercise for the profit & loss, while the bank payment stays in 2026.
+    """
+    stored = str(row.get("exercise_year") or "").strip()
+    if stored:
+        return stored
+    candidate = value
+    if candidate in (None, ""):
+        candidate = (
+            row.get("operation_date")
+            or row.get("origin_document_date")
+            or row.get("reconciliation_date")
+        )
+    if isinstance(candidate, datetime):
+        return f"{candidate.year:04d}"
+    if isinstance(candidate, date_cls):
+        return f"{candidate.year:04d}"
+    match = re.search(r"\b(20\d{2})\b", str(candidate or ""))
+    return match.group(1) if match else ""
+
+
 def _resolve_export_dir(
     export_dir: str | os.PathLike[str] | None,
 ) -> Path:
@@ -634,27 +658,75 @@ def _local_piece_link(candidate: Path, workbook_path: Path) -> str:
     return LocalPieceFormula(f'=HYPERLINK("{local_path}","{display}")')
 
 
+def _stored_piece_path(
+    workbook_path: Path, stored: str
+) -> Path | None:
+    """Resolve a stored GED / pieces path relative to the tenant tree."""
+    normalized = stored.replace("\\", "/").strip()
+    if not normalized:
+        return None
+    if "PIECES_JOINTES/" in normalized:
+        relative = normalized.split("PIECES_JOINTES/", 1)[1].lstrip("/")
+        current = workbook_path.resolve().parent
+        for _ in range(6):
+            candidate = current / "PIECES_JOINTES" / relative
+            if candidate.is_file():
+                return candidate
+            current = current.parent
+    if "03_VALIDE_PRET_FEC/" in normalized:
+        relative = normalized.split("03_VALIDE_PRET_FEC/", 1)[1].lstrip("/")
+        current = workbook_path.resolve().parent
+        for _ in range(6):
+            candidate = current / "03_VALIDE_PRET_FEC" / relative
+            if candidate.is_file():
+                return candidate
+            current = current.parent
+    return None
+
+
+def _cover_piece_locally(
+    workbook_path: Path,
+    source: Path,
+    row: dict[str, Any],
+) -> Path:
+    """Copy one GED PDF into the workbook's direct ``PIECES_JOINTES`` child."""
+    pieces_root = _pieces_root_for_workbook(workbook_path)
+    if pieces_root is None:
+        pieces_root = Path(workbook_path).resolve().parent / "PIECES_JOINTES"
+    target = pieces_root / _piece_side_for_row(row) / source.name
+    if not target.is_file():
+        target.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            shutil.copy2(source, target)
+        except OSError:
+            return source
+    return target
+
+
 def _piece_link_for_row(
     workbook_path: Path, row: dict[str, Any]
 ) -> str | None:
     workbook = Path(workbook_path)
     pieces_root = _pieces_root_for_workbook(workbook)
-    if pieces_root is None:
-        return None
     for value in (row.get("piece_pdf"), row.get("invoice_url")):
         stored = str(value or "").strip()
         if not stored:
             continue
         normalized = stored.replace("\\", "/")
         marker = "PIECES_JOINTES/"
-        if marker not in normalized:
-            # A ``03_VALIDE_PRET_FEC/...`` or ``../../`` path would make Excel
-            # open the OneDrive web viewer: it is never used for a link.
-            continue
-        relative = normalized.split(marker, 1)[1].lstrip("/")
-        candidate = pieces_root / relative
-        if candidate.is_file():
-            return _local_piece_link(candidate.resolve(), workbook)
+        if marker in normalized:
+            relative = normalized.split(marker, 1)[1].lstrip("/")
+            if pieces_root is None:
+                pieces_root = workbook.resolve().parent / "PIECES_JOINTES"
+            candidate = pieces_root / relative
+            if candidate.is_file():
+                return _local_piece_link(candidate.resolve(), workbook)
+        source = _stored_piece_path(workbook, normalized)
+        if source is not None:
+            covered = _cover_piece_locally(workbook, source, row)
+            return _local_piece_link(covered.resolve(), workbook)
+    if pieces_root is None:
+        pieces_root = workbook.resolve().parent / "PIECES_JOINTES"
     number = str(
         row.get("invoice_id")
         or row.get("piece_number")
@@ -1068,6 +1140,7 @@ def export_category_overview(
 
 SUPPLIER_LEDGER_COLUMNS_LEGACY = (
     "Date",
+    "Exercice Année",
     "Type",
     "N° Pièce / Réf",
     "Libellé",
@@ -1104,7 +1177,7 @@ SUPPLIER_LEDGER_TYPE_AVOIR_REMBOURSEMENT = "AVOIR_REMBOURSEMENT"
 SUPPLIER_LEDGER_MAX_COMBINATION_ITEMS = 30
 SUPPLIER_LEDGER_EQUILIBRIUM_FILL = "C6EFCE"
 SUPPLIER_LEDGER_DIAGNOSTIC_FILL = "FCE4D6"
-SUPPLIER_LEDGER_MIN_WIDTHS = (12, 14, 24, 40, 14, 14, 20, 14, 14, 14, 18, 24, 30, 32)
+SUPPLIER_LEDGER_MIN_WIDTHS = (12, 12, 14, 24, 40, 14, 14, 20, 14, 14, 14, 18, 24, 30, 32)
 SUPPLIER_LEDGER_MIN_WIDTHS_P25 = SUPPLIER_LEDGER_MIN_WIDTHS
 
 
@@ -1139,6 +1212,7 @@ class SupplierLedgerEntry:
     supplier: str
     matched: bool
     matchable: bool
+    exercise_year: str = ""
     matched_pieces: str = ""
     payment_date: str = ""
     payment_method: str = ""
@@ -1473,6 +1547,7 @@ def _build_supplier_ledger_entries(
                     supplier=supplier_name,
                     matched=matched,
                     matchable=False,
+                    exercise_year=_exercise_year_value(row),
                     matched_pieces=piece_number or matched_id,
                     payment_date=str(row.get("reconciliation_date") or ""),
                     payment_method=_payment_method_label(
@@ -1564,6 +1639,7 @@ def _build_supplier_ledger_entries(
                     and not matched
                     and (debit != 0 or credit != 0)
                 ),
+                exercise_year=_exercise_year_value(row),
                 matched_pieces=str(row.get("reconciliation_reference") or ""),
                 payment_date=str(row.get("reconciliation_date") or ""),
                 payment_method=_payment_method_label(
@@ -1875,6 +1951,10 @@ def _write_supplier_ledger_sheet(
         matched_display = _supplier_matched_display(entry)
         values = (
             _date_cell(entry.operation_date),
+            entry.exercise_year
+            or _exercise_year_value(
+                {"operation_date": entry.operation_date}
+            ),
             entry.entry_type,
             _text(entry.reference),
             _text(entry.label),
@@ -1894,11 +1974,11 @@ def _write_supplier_ledger_sheet(
             if column == len(columns) and _write_piece_link(cell, value):
                 cell.border = border
                 continue
-            if column == 11:
+            if column == 12:
                 cell.value = (
-                    f"=J{index}-I{index}"
+                    f"=K{index}-J{index}"
                     if index == 2
-                    else f"=K{index - 1}+J{index}-I{index}"
+                    else f"=L{index - 1}+K{index}-J{index}"
                 )
             elif isinstance(value, Decimal):
                 cell.value = float(value)
@@ -1907,13 +1987,13 @@ def _write_supplier_ledger_sheet(
             cell.border = border
             if index % 2 == 0:
                 cell.fill = band_fill
-            if column in (5, 6, 8, 9, 10, 11):
+            if column in (6, 7, 9, 10, 11, 12):
                 cell.number_format = "#,##0.00"
                 cell.alignment = Alignment(
                     horizontal="right", vertical="center"
                 )
                 if (
-                    column == 11
+                    column == 12
                     and running == 0
                     and (entry.bank_debit or entry.bank_credit)
                 ):
@@ -1926,17 +2006,17 @@ def _write_supplier_ledger_sheet(
                 )
                 if isinstance(value, date_cls):
                     cell.number_format = "DD/MM/YYYY"
-            elif column == 2:
+            elif column in (2, 3):
                 cell.alignment = Alignment(
                     horizontal="center", vertical="center"
                 )
             else:
                 cell.alignment = Alignment(
-                    vertical="center", wrap_text=column in (3, 4, 7, 12, 13)
+                    vertical="center", wrap_text=column in (4, 5, 8, 13, 14)
                 )
 
     last_data_row = len(entries) + 1
-    sheet.auto_filter.ref = f"A1:N{last_data_row}"
+    sheet.auto_filter.ref = f"A1:O{last_data_row}"
     sheet.freeze_panes = "A2"
 
     total_pieces_row = last_data_row + 1
@@ -1954,7 +2034,7 @@ def _write_supplier_ledger_sheet(
             cell.font = Font(bold=True)
             cell.fill = total_fill
             cell.border = total_border
-            if column in (5, 6, 8, 9, 10, 11):
+            if column in (6, 7, 9, 10, 11, 12):
                 cell.number_format = "#,##0.00"
                 cell.alignment = Alignment(
                     horizontal="right", vertical="center"
@@ -1964,27 +2044,27 @@ def _write_supplier_ledger_sheet(
                     horizontal="left", vertical="center"
                 )
     if entries:
-        sheet.cell(row=total_pieces_row, column=5, value=f"=SUM(E2:E{last_data_row})")
         sheet.cell(row=total_pieces_row, column=6, value=f"=SUM(F2:F{last_data_row})")
-        sheet.cell(row=total_pieces_row, column=8, value=f"=SUM(H2:H{last_data_row})")
-        sheet.cell(row=total_bank_row, column=9, value=f"=SUM(I2:I{last_data_row})")
+        sheet.cell(row=total_pieces_row, column=7, value=f"=SUM(G2:G{last_data_row})")
+        sheet.cell(row=total_pieces_row, column=9, value=f"=SUM(I2:I{last_data_row})")
         sheet.cell(row=total_bank_row, column=10, value=f"=SUM(J2:J{last_data_row})")
-        sheet.cell(row=total_bank_row, column=11, value=f"=K{last_data_row}")
+        sheet.cell(row=total_bank_row, column=11, value=f"=SUM(K2:K{last_data_row})")
+        sheet.cell(row=total_bank_row, column=12, value=f"=L{last_data_row}")
         sheet.cell(
             row=gap_row,
-            column=8,
-            value=f"=H{total_pieces_row}-(I{total_bank_row}-J{total_bank_row})",
+            column=9,
+            value=f"=I{total_pieces_row}-(J{total_bank_row}-K{total_bank_row})",
         )
     else:
-        sheet.cell(row=total_pieces_row, column=5, value=0)
         sheet.cell(row=total_pieces_row, column=6, value=0)
-        sheet.cell(row=total_pieces_row, column=8, value=0)
-        sheet.cell(row=total_bank_row, column=9, value=0)
+        sheet.cell(row=total_pieces_row, column=7, value=0)
+        sheet.cell(row=total_pieces_row, column=9, value=0)
         sheet.cell(row=total_bank_row, column=10, value=0)
         sheet.cell(row=total_bank_row, column=11, value=0)
-        sheet.cell(row=gap_row, column=8, value=0)
+        sheet.cell(row=total_bank_row, column=12, value=0)
+        sheet.cell(row=gap_row, column=9, value=0)
     if entries and running == 0:
-        balance_cell = sheet.cell(row=total_bank_row, column=11)
+        balance_cell = sheet.cell(row=total_bank_row, column=12)
         balance_cell.fill = equilibrium_fill
         balance_cell.comment = Comment("Point d'équilibre", "DSH-Core")
 
@@ -2287,6 +2367,7 @@ class ClientLedgerEntry:
     line_id: str
     invoice_id: str | None
     client: str
+    exercise_year: str = ""
     piece_pdf: str | None = None
     invoice_url: str = ""
     matched_pieces: str = ""
@@ -2298,6 +2379,86 @@ class ClientLedgerEntry:
     vat_regime: str = ""
     bank_debit: Decimal = Decimal("0.00")
     bank_credit: Decimal = Decimal("0.00")
+
+
+def apply_client_balance_cutoff(store: Any, tenant_id: str) -> int:
+    """Mark pre-cutoff unpaid invoices ``SOLDEE_AVANT_DEPART``.
+
+    The director never has to provide the 2022-2025 statements: every client
+    starts at ``0.00 EUR`` on the ``Date Départ Solde 0`` stored in
+    ``REFERENTIEL_TIERS_APD.xlsx`` (default ``2025-11-01``).
+    """
+    tiers = _tier_reference()
+    cutoffs: dict[str, str] = {}
+    for record in tiers.records():
+        if record.role != "CLIENT":
+            continue
+        cutoff = str(record.balance_start_date or "").strip() or "2025-11-01"
+        key = normalize_counterparty_name(record.canonical) or record.canonical
+        cutoffs[key] = cutoff
+    if not cutoffs:
+        return 0
+    try:
+        rows = store.list_master_lines(tenant_id)
+    except Exception:  # noqa: BLE001 - cutoff never blocks an export
+        return 0
+    updated_count = 0
+    for row in rows:
+        if not _is_sales_row(row):
+            continue
+        raw_client = str(row.get("counterparty") or "").strip()
+        record = tiers.resolve(raw_client)
+        if record is None or record.role != "CLIENT":
+            continue
+        key = normalize_counterparty_name(record.canonical) or record.canonical
+        cutoff_text = cutoffs.get(key, "2025-11-01")
+        try:
+            cutoff = date_cls.fromisoformat(cutoff_text[:10])
+        except ValueError:
+            continue
+        status = str(row.get("reconciliation_status") or "").upper()
+        if status in _PAID_RECONCILIATION_STATUSES or status in {
+            "DEJA_PAYEE_2025",
+            "SOLDEE_AVANT_DEPART",
+        }:
+            continue
+        invoice_text = str(
+            row.get("operation_date")
+            or row.get("origin_document_date")
+            or ""
+        ).strip()[:10]
+        try:
+            invoice_date = date_cls.fromisoformat(invoice_text)
+        except ValueError:
+            continue
+        if invoice_date >= cutoff:
+            continue
+        payment_text = str(row.get("reconciliation_date") or "").strip()[:10]
+        if payment_text:
+            try:
+                payment_date = date_cls.fromisoformat(payment_text)
+            except ValueError:
+                payment_date = None
+            if payment_date is not None and payment_date >= cutoff:
+                continue
+        updated = dict(row)
+        updated.pop("line_id", None)
+        updated["reconciliation_status"] = "SOLDEE_AVANT_DEPART"
+        updated["reconciliation_reference"] = "SOLDEE_AVANT_DEPART"
+        updated["balance_due"] = "0.00"
+        line_id = str(row.get("line_id") or "")
+        if not line_id:
+            continue
+        try:
+            force = getattr(store, "force_upsert_document_line", None)
+            if callable(force):
+                force(tenant_id, line_id, updated)
+            else:
+                store.upsert_document_line(tenant_id, line_id, updated)
+            updated_count += 1
+        except Exception:  # noqa: BLE001 - one row never blocks the export
+            continue
+    return updated_count
 
 
 def _client_invoice_date(row: dict[str, Any], record: dict[str, Any]) -> str:
@@ -2335,7 +2496,11 @@ def _client_invoice_entries(
             continue
         if (
             str(row.get("reconciliation_status") or "").strip().upper()
-            == "SOLDEE_EXERCICE_ANTERIEUR_2025"
+            in {
+                "SOLDEE_EXERCICE_ANTERIEUR_2025",
+                "SOLDEE_AVANT_DEPART",
+                "DEJA_PAYEE_2025",
+            }
         ):
             continue
         record = _summary_record(row)
@@ -2392,6 +2557,7 @@ def _client_invoice_entries(
                 line_id=line_id,
                 invoice_id=str(record["invoice_id"] or line_id),
                 client=client,
+                exercise_year=_exercise_year_value(row),
                 piece_pdf=str(row.get("piece_pdf") or "") or None,
                 invoice_url=str(row.get("invoice_url") or ""),
                 matched_pieces=reconciliation_reference if paid else "",
@@ -2482,6 +2648,7 @@ def _client_invoice_entries(
                 line_id=line_id,
                 invoice_id=str(record["invoice_id"] or line_id),
                 client=client,
+                exercise_year=_exercise_year_value(row),
                 piece_pdf=str(row.get("piece_pdf") or "") or None,
                 invoice_url=str(row.get("invoice_url") or ""),
                 piece_ht=piece_ht,
@@ -2963,6 +3130,10 @@ def _write_client_ledger_sheet(
         matched_display = _client_matched_display(entry)
         values = (
             _date_cell(entry.operation_date),
+            entry.exercise_year
+            or _exercise_year_value(
+                {"operation_date": entry.operation_date}
+            ),
             entry.entry_type,
             _text(entry.reference),
             _text(entry.label),
@@ -2982,11 +3153,11 @@ def _write_client_ledger_sheet(
             if column == len(columns) and _write_piece_link(cell, value):
                 cell.border = border
                 continue
-            if column == 11:
+            if column == 12:
                 cell.value = (
-                    f"=J{index}-I{index}"
+                    f"=K{index}-J{index}"
                     if index == 2
-                    else f"=K{index - 1}+J{index}-I{index}"
+                    else f"=L{index - 1}+K{index}-J{index}"
                 )
             elif isinstance(value, Decimal):
                 cell.value = float(value)
@@ -2995,13 +3166,13 @@ def _write_client_ledger_sheet(
             cell.border = border
             if index % 2 == 0:
                 cell.fill = band_fill
-            if column in (5, 6, 8, 9, 10, 11):
+            if column in (6, 7, 9, 10, 11, 12):
                 cell.number_format = "#,##0.00"
                 cell.alignment = Alignment(
                     horizontal="right", vertical="center"
                 )
                 if (
-                    column == 11
+                    column == 12
                     and running == 0
                     and (entry.bank_debit or entry.bank_credit)
                 ):
@@ -3013,13 +3184,13 @@ def _write_client_ledger_sheet(
                 )
                 if isinstance(value, date_cls):
                     cell.number_format = "DD/MM/YYYY"
-            elif column == 2:
+            elif column in (2, 3):
                 cell.alignment = Alignment(
                     horizontal="center", vertical="center"
                 )
             else:
                 cell.alignment = Alignment(
-                    vertical="center", wrap_text=column in (3, 4, 7, 12, 13)
+                    vertical="center", wrap_text=column in (4, 5, 8, 13, 14)
                 )
     last_data_row = len(entries) + 1
     total_pieces_row = last_data_row + 1
@@ -3037,7 +3208,7 @@ def _write_client_ledger_sheet(
             cell.font = Font(bold=True)
             cell.fill = total_fill
             cell.border = total_border
-            if column in (5, 6, 8, 9, 10, 11):
+            if column in (6, 7, 9, 10, 11, 12):
                 cell.number_format = "#,##0.00"
                 cell.alignment = Alignment(
                     horizontal="right", vertical="center"
@@ -3047,28 +3218,28 @@ def _write_client_ledger_sheet(
                     horizontal="left", vertical="center"
                 )
     if entries:
-        sheet.cell(row=total_pieces_row, column=5, value=f"=SUM(E2:E{last_data_row})")
         sheet.cell(row=total_pieces_row, column=6, value=f"=SUM(F2:F{last_data_row})")
-        sheet.cell(row=total_pieces_row, column=8, value=f"=SUM(H2:H{last_data_row})")
-        sheet.cell(row=total_bank_row, column=9, value=f"=SUM(I2:I{last_data_row})")
+        sheet.cell(row=total_pieces_row, column=7, value=f"=SUM(G2:G{last_data_row})")
+        sheet.cell(row=total_pieces_row, column=9, value=f"=SUM(I2:I{last_data_row})")
         sheet.cell(row=total_bank_row, column=10, value=f"=SUM(J2:J{last_data_row})")
-        sheet.cell(row=total_bank_row, column=11, value=f"=K{last_data_row}")
+        sheet.cell(row=total_bank_row, column=11, value=f"=SUM(K2:K{last_data_row})")
+        sheet.cell(row=total_bank_row, column=12, value=f"=L{last_data_row}")
         sheet.cell(
             row=gap_row,
-            column=8,
-            value=f"=H{total_pieces_row}-(I{total_bank_row}-J{total_bank_row})",
+            column=9,
+            value=f"=I{total_pieces_row}-(J{total_bank_row}-K{total_bank_row})",
         )
     else:
-        sheet.cell(row=total_pieces_row, column=5, value=0)
         sheet.cell(row=total_pieces_row, column=6, value=0)
-        sheet.cell(row=total_pieces_row, column=8, value=0)
-        sheet.cell(row=total_bank_row, column=9, value=0)
+        sheet.cell(row=total_pieces_row, column=7, value=0)
+        sheet.cell(row=total_pieces_row, column=9, value=0)
         sheet.cell(row=total_bank_row, column=10, value=0)
         sheet.cell(row=total_bank_row, column=11, value=0)
-        sheet.cell(row=gap_row, column=8, value=0)
-    sheet.auto_filter.ref = f"A1:N{last_data_row}"
+        sheet.cell(row=total_bank_row, column=12, value=0)
+        sheet.cell(row=gap_row, column=9, value=0)
+    sheet.auto_filter.ref = f"A1:O{last_data_row}"
     sheet.freeze_panes = "A2"
-    widths = (12, 14, 24, 40, 14, 14, 20, 14, 14, 14, 18, 24, 30, 32)
+    widths = (12, 12, 14, 24, 40, 14, 14, 20, 14, 14, 14, 18, 24, 30, 32)
     for column, width in enumerate(widths, start=1):
         sheet.column_dimensions[get_column_letter(column)].width = width
 
@@ -3096,6 +3267,10 @@ class ClientLedgerExporter:
             raise SupplierLedgerExportError(
                 "INVALID_TENANT_ID", repr(tenant_id)
             ) from None
+        try:
+            apply_client_balance_cutoff(self._store, tenant)
+        except Exception:  # noqa: BLE001 - cutoff never blocks the ledger
+            pass
         rows = self._store.list_master_lines(tenant)
         invoice_entries = _client_invoice_entries(
             rows, strict_tiers=self._strict_tiers
@@ -3270,6 +3445,7 @@ LEGACY_MASTER_ACHATS_FILENAME = "TABLEAU_MERE_ACHATS_CHARGES.xlsx"
 MASTER_BANQUE_TVA_FILENAME = "TABLEAU_MERE_BANQUE_TVA.xlsx"
 MASTER_PIECES_HEADERS: tuple[str, ...] = (
     "Date Pièce",
+    "Exercice Année",
     "Date de Paiement",
     "Flux (VENTE_CLIENT / ACHAT_FOURNISSEUR)",
     "Tiers (Client ou Fournisseur)",
@@ -4799,6 +4975,7 @@ def _pieces_table_rows(
         rows.append(
             (
                 _date_cell(record["date"]),
+                _exercise_year_value(row, record["date"]),
                 _payment_date_cell(row),
                 (
                     "VENTE_CLIENT"

@@ -109,6 +109,7 @@ _VALIDATION_LISTS: dict[str, tuple[str, ...]] = {
     "sous-catégorie frais": SUBCATEGORY_CHOICES,
     "mode exercice fiscal": ("ACTUEL", "SUIVANT", "PRECEDENT"),
     "exercice cible": EXERCISE_CHOICES,
+    "exercice année": EXERCISE_CHOICES,
     "mois décalé": DEFERRED_MONTH_CHOICES,
     "source de paiement": PAYMENT_SOURCE_CHOICES,
     "compte de contrepartie": COUNTERPARTY_ACCOUNT_CHOICES,
@@ -271,11 +272,27 @@ class AcompleterWorkbook:
         return self._directory / WORKBOOK_NAME
 
     def find_lock_file(self) -> Path | None:
-        """Return the active Excel / OneDrive lock file, if any."""
+        """Return the active Excel / OneDrive lock file, if any.
+
+        When the technical workbook lives in ``02_A_COMPLETER/_TECHNIQUE``, a
+        lock on the human-readable ``02_A_COMPLETER/_A_COMPLETER.xlsx`` (or a
+        legacy tenant-root workbook) must defer the pipeline too.
+        """
         if not self._directory.is_dir():
-            return None
-        locks = sorted(self._directory.glob(LOCK_GLOB))
-        return locks[0] if locks else None
+            if self._directory.name != "_TECHNIQUE":
+                return None
+        directories = [self._directory]
+        if self._directory.name == "_TECHNIQUE":
+            directories.extend(
+                [self._directory.parent, self._directory.parent.parent]
+            )
+        for directory in directories:
+            if not directory.is_dir():
+                continue
+            locks = sorted(directory.glob(LOCK_GLOB))
+            if locks:
+                return locks[0]
+        return None
 
     def _require_no_lock(self) -> None:
         lock = self.find_lock_file()
@@ -483,6 +500,12 @@ class AcompleterWorkbook:
                     ws.cell(row=target, column=6, value=row.status_value)
                 values = (
                     row.document_date,
+                    row.exercise_year
+                    or (
+                        f"{row.document_date.year:04d}"
+                        if row.document_date is not None
+                        else ""
+                    ),
                     row.supplier,
                     row.document_number,
                     float(row.amount_ttc)

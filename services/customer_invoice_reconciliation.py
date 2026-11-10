@@ -40,7 +40,11 @@ from services.ofx_bank_statement_parser import (
     parse_ofx_statement,
 )
 from schemas.payment_method_schema import normalize_counterparty_name
-from services.bank_reconciliation_service import MAX_SUBSET_SUM_PIECES
+from services.bank_reconciliation_service import (
+    MAX_SUBSET_SUM_PIECES,
+    lcr_invoice_matches_maturity,
+    purge_invalid_lcr_remittances,
+)
 from services.sqlite_accounting_store import validate_tenant_id
 
 _CENT = Decimal("0.01")
@@ -386,11 +390,22 @@ def find_exact_invoice_combination(
     return tuple(sorted(best, key=lambda item: (item.due_date or date.min, item.number)))
 
 
+def _maturity_allows(
+    invoice: ReconciliableInvoice, maturity_date: date | None
+) -> bool:
+    if maturity_date is None:
+        return True
+    return invoice.invoice_date is not None and lcr_invoice_matches_maturity(
+        invoice.invoice_date, maturity_date
+    )
+
+
 def find_single_invoice_or_avoir(
     invoices: Sequence[ReconciliableInvoice | Any],
     target: Decimal,
     *,
     payment_date: date | None = None,
+    maturity_date: date | None = None,
     tolerance: Decimal = _DEFAULT_TOLERANCE,
 ) -> tuple[ReconciliableInvoice, ...] | None:
     """P27-sexies - match one invoice, or one invoice minus one credit note.
@@ -409,6 +424,7 @@ def find_single_invoice_or_avoir(
             or invoice.invoice_date is None
             or invoice.invoice_date <= payment_date
         )
+        and _maturity_allows(invoice, maturity_date)
     ]
     positives = sorted(
         (
@@ -437,15 +453,17 @@ def find_remittance_combination(
     target: Decimal,
     *,
     payment_date: date | None = None,
+    maturity_date: date | None = None,
     tolerance: Decimal = _DEFAULT_TOLERANCE,
     max_clients: int = 12,
     forbidden_clients: Iterable[str] | None = None,
 ) -> tuple[ReconciliableInvoice, ...] | None:
-    """P27-sexies Rule C - one invoice (or invoice - avoir) per client.
+    """P27-septies Rule C - 30-days-end-of-month LCR bundles per client.
 
-    A multi-client LCR remittance can never use two positive invoices from the
-    same customer to fabricate the bank amount. The small ``CALANDRE_18``
-    144.00 EUR invoices can therefore no longer act as filler.
+    A client may contribute (a) one invoice of the maturity month, or (b) the
+    recurring monthly pair issued on the same end-of-month day (goods invoice
+    + 144.00 EUR fixed invoice), optionally reduced by one credit note of the
+    same period. An 8-day or 6-month-old invoice is never used as filler.
     """
     target_cents = int((_amount(target) * 100).to_integral_value())
     tolerance_cents = int((_amount(tolerance) * 100).to_integral_value())
@@ -461,6 +479,8 @@ def find_remittance_combination(
             and coerced.invoice_date is not None
             and coerced.invoice_date > payment_date
         ):
+            continue
+        if not _maturity_allows(coerced, maturity_date):
             continue
         pending.append(coerced)
     if not pending:
@@ -504,6 +524,36 @@ def find_remittance_combination(
                     continue
                 net_cents = int((net * 100).to_integral_value())
                 client_bundles.append((net_cents, (positive, credit_note)))
+        # P27-septies - the recurring monthly pair: goods invoice + fixed
+        # invoice issued the same end-of-month day (e.g. FA16496 + FA16497 on
+        # 30/06/2026 for CALANDRE_18). A pair is only legal when both invoices
+        # share the exact same issue date and that date is a month end.
+        for index, first in enumerate(positives):
+            if first.invoice_date is None or first.invoice_date.day < 28:
+                continue
+            for second in positives[index + 1 :]:
+                if second.invoice_date != first.invoice_date:
+                    continue
+                pair_total = (first.amount + second.amount).quantize(_CENT)
+                pair = (first, second)
+                client_bundles.append(
+                    (
+                        int((pair_total * 100).to_integral_value()),
+                        pair,
+                    )
+                )
+                for credit_note in credit_notes:
+                    net = (
+                        pair_total - abs(credit_note.amount)
+                    ).quantize(_CENT)
+                    if net <= 0:
+                        continue
+                    client_bundles.append(
+                        (
+                            int((net * 100).to_integral_value()),
+                            (*pair, credit_note),
+                        )
+                    )
         if client_bundles:
             bundles[key] = client_bundles
     keys = [key for key in keys if key in bundles]
@@ -542,6 +592,114 @@ def find_remittance_combination(
                 item.invoice_date or date.min,
                 item.number,
             ),
+        )
+    )
+
+
+def find_partial_remittance_combination(
+    invoices: Sequence[ReconciliableInvoice | Any],
+    target: Decimal,
+    *,
+    payment_date: date | None = None,
+    maturity_date: date | None = None,
+) -> tuple[ReconciliableInvoice, ...] | None:
+    """P27-septies - letter the identified customers when the slip is short.
+
+    A global ``REMISE 93847`` of 9 678,93 EUR may cover only 7 950,06 EUR of
+    invoices (an invoice or two are missing). The identified monthly bundles
+    are still lettered; the remaining amount is exposed as "Reste X EUR à
+    justifier" in ``_A_COMPLETER.xlsx`` instead of hiding the partial match.
+    """
+    target_cents = int((_amount(target) * 100).to_integral_value())
+    pending: list[ReconciliableInvoice] = []
+    for invoice in invoices:
+        coerced = _coerce_reconciliable(invoice)
+        if not coerced.pending:
+            continue
+        if (
+            payment_date is not None
+            and coerced.invoice_date is not None
+            and coerced.invoice_date > payment_date
+        ):
+            continue
+        if not _maturity_allows(coerced, maturity_date):
+            continue
+        pending.append(coerced)
+    grouped: dict[str, list[ReconciliableInvoice]] = {}
+    for invoice in pending:
+        key = normalize_counterparty_name(invoice.customer) or invoice.customer
+        grouped.setdefault(key, []).append(invoice)
+    selected: list[ReconciliableInvoice] = []
+    remaining = target_cents
+    for key in sorted(grouped):
+        items = grouped[key]
+        positives = sorted(
+            (
+                item
+                for item in items
+                if not item.is_credit_note and item.amount > 0
+            ),
+            key=lambda item: (item.invoice_date or date.min, item.number),
+        )
+        credit_notes = sorted(
+            (item for item in items if item.is_credit_note),
+            key=lambda item: (item.invoice_date or date.min, item.number),
+        )
+        candidates: list[tuple[int, tuple[ReconciliableInvoice, ...]]] = []
+        for positive in positives:
+            candidates.append(
+                (
+                    int((positive.amount * 100).to_integral_value()),
+                    (positive,),
+                )
+            )
+            for credit_note in credit_notes:
+                net = (
+                    positive.amount - abs(credit_note.amount)
+                ).quantize(_CENT)
+                if net > 0:
+                    candidates.append(
+                        (
+                            int((net * 100).to_integral_value()),
+                            (positive, credit_note),
+                        )
+                    )
+        if (
+            len(positives) == 2
+            and positives[0].invoice_date == positives[1].invoice_date
+            and positives[0].invoice_date is not None
+            and positives[0].invoice_date.day >= 28
+        ):
+            pair_total = (positives[0].amount + positives[1].amount).quantize(
+                _CENT
+            )
+            candidates.append(
+                (
+                    int((pair_total * 100).to_integral_value()),
+                    (positives[0], positives[1]),
+                )
+            )
+            for credit_note in credit_notes:
+                net = (pair_total - abs(credit_note.amount)).quantize(_CENT)
+                if net > 0:
+                    candidates.append(
+                        (
+                            int((net * 100).to_integral_value()),
+                            (positives[0], positives[1], credit_note),
+                        )
+                    )
+        preferred = [item for item in candidates if item[0] <= remaining]
+        if not preferred:
+            continue
+        cents, bundle = max(preferred, key=lambda item: item[0])
+        selected.extend(bundle)
+        remaining -= cents
+    if not selected:
+        return None
+    return tuple(
+        sorted(
+            selected,
+            key=lambda item: (item.invoice_date or date.min, item.number),
         )
     )
 
@@ -779,6 +937,7 @@ def _reconcile_bordereau(
             candidates,
             allocation.amount,
             payment_date=operations,
+            maturity_date=operations,
         )
         if combination is None:
             errors.append(f"UNMATCHED_ALLOCATION:{allocation.drawer}:{allocation.amount}")
@@ -845,8 +1004,16 @@ def _reconcile_remittance_combination(
             candidates,
             values["amount"],
             payment_date=operations,
+            maturity_date=operations,
             forbidden_clients=forbidden_clients,
         )
+        if combination is None:
+            combination = find_partial_remittance_combination(
+                candidates,
+                values["amount"],
+                payment_date=operations,
+                maturity_date=operations,
+            )
     else:
         combination = find_exact_invoice_combination(
             candidates,
@@ -1034,6 +1201,10 @@ def reconcile_customer_invoices(
     tenant = validate_tenant_id(tenant_id)
     if not isinstance(window_days, int) or isinstance(window_days, bool) or window_days < 0:
         raise CustomerReconciliationError("INVALID_WINDOW_DAYS", repr(window_days))
+    try:
+        purge_invalid_lcr_remittances(store, tenant)
+    except Exception:  # noqa: BLE001 - a purge never blocks the lettering
+        pass
     if bordereau_paths is not None:
         bordereaux = bordereau_paths
     if isinstance(bordereaux, (str, bytes, bytearray, Path, LcrRemittance)):
@@ -1187,6 +1358,7 @@ __all__ = [
     "VIREMENT",
     "counterparty_names_match",
     "find_exact_invoice_combination",
+    "find_partial_remittance_combination",
     "find_remittance_combination",
     "find_single_invoice_or_avoir",
     "letter_customer_payments",

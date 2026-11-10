@@ -332,6 +332,23 @@ def test_multi_client_lcr_remittance_uses_one_invoice_per_customer():
             counts = bordereau_by_amount.get(amount)
             if counts is not None and client in counts:
                 allowance = max(1, counts[client])
+        # P27-septies - the recurring monthly pair (goods invoice + 144 EUR
+        # fixed invoice issued the same end-of-month day) is now legal.
+        pair_dates = {
+            _as_date(row.get("operation_date"))
+            for row in rows
+            if not _is_bank(row)
+            and _remise_number(row.get("reconciliation_reference")) == number
+            and _client_key(row.get("counterparty")) == client
+        }
+        if (
+            allowance == 1
+            and len(invoice_ids) == 2
+            and len(pair_dates) == 1
+            and next(iter(pair_dates)) is not None
+            and next(iter(pair_dates)).day >= 28
+        ):
+            allowance = 2
         if len(invoice_ids) > allowance:
             offenders[(number, client)] = sorted(invoice_ids)
     assert offenders == {}, f"Remittance customer over-allocation: {offenders}"

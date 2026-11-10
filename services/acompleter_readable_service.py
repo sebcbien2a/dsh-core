@@ -33,10 +33,10 @@ from schemas.accounting_choices import (
     normalize_status,
 )
 from schemas.folder_state_schema import DocumentCategory, DocumentStatus
-from services.pdf_splitter_and_linker import relative_link
 
 READABLE_HEADERS: tuple[str, ...] = (
     "Date Pièce",
+    "Exercice Année",
     "Fournisseur / Tiers",
     "N° Pièce",
     "TTC",
@@ -66,13 +66,14 @@ READABLE_PENDING_FILL = "FFF2CC"
 READABLE_VALID_FILL = "E2EFDA"
 READABLE_REJECT_FILL = "FCE4D6"
 
-CATEGORY_COLUMN = "E"
-PAYMENT_SOURCE_COLUMN = "H"
-EXERCISE_COLUMN = "J"
-MONTH_COLUMN = "K"
-REPORT_COLUMN = "L"
-ALIAS_TARGET_COLUMN = "M"
-ACTION_COLUMN = "G"
+CATEGORY_COLUMN = "F"
+PAYMENT_SOURCE_COLUMN = "I"
+EXERCISE_COLUMN = "K"
+MONTH_COLUMN = "L"
+REPORT_COLUMN = "M"
+ALIAS_TARGET_COLUMN = "N"
+ACTION_COLUMN = "H"
+EXERCISE_YEAR_COLUMN = "B"
 
 
 class ReadableWorkbookError(ValueError):
@@ -101,6 +102,7 @@ class ReadableRow:
     status: DocumentStatus | str = DocumentStatus.EN_ATTENTE
     piece_pdf: str | None = None
     rule: str = ""
+    exercise_year: str = ""
     extra: dict[str, Any] = field(default_factory=dict, compare=False)
 
     @property
@@ -129,6 +131,7 @@ class ReadableDecision:
     payment_source: str | None = None
     counterparty_account: str = ""
     fiscal_year_target: str | None = None
+    exercise_year: str | None = None
     deferred_month: str | None = None
     report: str | None = None
     tier_alias_target: str = ""
@@ -155,31 +158,60 @@ def _amount_cell(value: Decimal | None) -> Any:
     return float(value) if isinstance(value, Decimal) else (value if value is not None else "")
 
 
+def _piece_child_link(workbook_path: Path, raw: str) -> str | None:
+    """Return a direct ``PIECES_JOINTES/<sub>/<file>`` child link.
+
+    P27-septies - Office co-authoring turns the workbook base URL into
+    ``https://d.docs.live.net/...`` as soon as a relative link climbs out of
+    the folder. The readable workbook therefore never uses ``..`` and always
+    points inside its own ``PIECES_JOINTES`` child tree.
+    """
+    marker = "PIECES_JOINTES/"
+    normalized = raw.replace("\\", "/").strip()
+    if marker in normalized:
+        suffix = normalized.split(marker, 1)[1].lstrip("/")
+        if suffix and ".." not in suffix:
+            return f"PIECES_JOINTES/{suffix}"
+    name = Path(normalized).name
+    if not name:
+        return None
+    current = workbook_path.resolve().parent
+    for _ in range(6):
+        pieces = current / "PIECES_JOINTES"
+        if pieces.is_dir():
+            for candidate in pieces.rglob(name):
+                relative = candidate.relative_to(pieces).as_posix()
+                return f"PIECES_JOINTES/{relative}"
+        if current.parent == current:
+            break
+        current = current.parent
+    return None
+
+
 def _link_for(workbook_path: Path, target: str | None) -> str | None:
     if not target:
         return None
     raw = str(target).replace("\\", "/").strip()
     if not raw:
         return None
+    child = _piece_child_link(workbook_path, raw)
+    if child is not None:
+        return child
     candidate = Path(raw)
     if candidate.is_absolute():
-        try:
-            return relative_link(candidate, workbook_path)
-        except ValueError:
-            return None
+        found = _piece_child_link(workbook_path, candidate.name)
+        return found
     resolved = (workbook_path.parent / candidate).resolve()
     if resolved.is_file():
-        try:
-            return relative_link(resolved, workbook_path)
-        except ValueError:
-            return None
+        found = _piece_child_link(workbook_path, resolved.name)
+        if found is not None:
+            return found
     parent_resolved = (workbook_path.parent.parent / candidate).resolve()
     if parent_resolved.is_file():
-        try:
-            return relative_link(parent_resolved, workbook_path)
-        except ValueError:
-            return None
-    return raw if not raw.startswith("/") and ":" not in raw[:2] else None
+        found = _piece_child_link(workbook_path, parent_resolved.name)
+        if found is not None:
+            return found
+    return None
 
 
 def _unique_path(path: Path) -> Path:
@@ -264,6 +296,9 @@ def _install_validations(
         pass
     _add_list_validation(sheet, CATEGORY_COLUMN, CATEGORY_CHOICES, last_row)
     _add_list_validation(
+        sheet, EXERCISE_YEAR_COLUMN, EXERCISE_CHOICES, last_row
+    )
+    _add_list_validation(
         sheet, PAYMENT_SOURCE_COLUMN, PAYMENT_SOURCE_CHOICES, last_row
     )
     _add_list_validation(sheet, EXERCISE_COLUMN, EXERCISE_CHOICES, last_row)
@@ -279,6 +314,52 @@ def _install_validations(
         _add_list_validation(
             sheet, ALIAS_TARGET_COLUMN, _alias_choices(), last_row
         )
+
+
+def _existing_readable_rows(path: Path) -> list[dict[str, Any]]:
+    """Read the current workbook rows by header name (non-destructive merge)."""
+    if not path.is_file():
+        return []
+    try:
+        from openpyxl import load_workbook
+
+        workbook = load_workbook(path, data_only=True)
+    except Exception:  # noqa: BLE001 - a locked/corrupt file is rebuilt
+        return []
+    try:
+        sheet = workbook.active
+        headers = {
+            _text(cell.value): cell.column
+            for cell in next(sheet.iter_rows(min_row=1, max_row=1))
+            if _text(cell.value)
+        }
+        rows: list[dict[str, Any]] = []
+        for row in sheet.iter_rows(min_row=2):
+            values = {
+                header: row[column - 1].value
+                for header, column in headers.items()
+            }
+            if not any(_text(value) for value in values.values()):
+                continue
+            link_cell = (
+                row[headers.get("Pièce PDF (Clic)", 1) - 1]
+                if "Pièce PDF (Clic)" in headers
+                else None
+            )
+            link = link_cell.hyperlink if link_cell is not None else None
+            values["_link"] = link.target if link is not None else None
+            rows.append(values)
+        return rows
+    finally:
+        workbook.close()
+
+
+def _readable_row_key(values: dict[str, Any]) -> str:
+    for header in ("SHA-256", "Nom Fichier", "N° Pièce"):
+        value = _text(values.get(header))
+        if value:
+            return f"{header}:{value}"
+    return ""
 
 
 def write_readable_workbook(
@@ -346,9 +427,28 @@ def write_readable_workbook(
             _text(item.filename).casefold(),
         ),
     )
+    existing_rows = _existing_readable_rows(path)
+    generated_keys = {
+        f"SHA-256:{row.sha256}" for row in ordered if row.sha256
+    } | {
+        f"Nom Fichier:{row.filename}" for row in ordered if row.filename
+    } | {
+        f"N° Pièce:{row.document_number}"
+        for row in ordered
+        if row.document_number
+    }
     for offset, row in enumerate(ordered, start=2):
+        exercise_year = (
+            str(row.exercise_year or "").strip()
+            or (
+                f"{row.document_date.year:04d}"
+                if row.document_date is not None
+                else ""
+            )
+        )
         values = (
             _date_cell(row.document_date),
+            exercise_year,
             row.supplier,
             row.document_number,
             _amount_cell(row.amount_ttc),
@@ -377,7 +477,7 @@ def write_readable_workbook(
             if isinstance(value, float):
                 cell.number_format = "#,##0.00"
                 cell.alignment = Alignment(horizontal="right", vertical="top")
-            if offset % 2 == 0 and column not in (6, 7):
+            if offset % 2 == 0 and column not in (7, 8):
                 cell.fill = band_fill
         for offset_hidden, value in enumerate(
             hidden_values, start=len(READABLE_HEADERS) + 1
@@ -386,7 +486,7 @@ def write_readable_workbook(
             cell.alignment = Alignment(vertical="top")
         status_fill = status_fills.get(row.status_value)
         if status_fill is not None:
-            sheet.cell(row=offset, column=7).fill = status_fill
+            sheet.cell(row=offset, column=8).fill = status_fill
         link = _link_for(path, row.piece_pdf)
         if link:
             cell = sheet.cell(row=offset, column=len(READABLE_HEADERS))
@@ -395,6 +495,32 @@ def write_readable_workbook(
             cell.font = Font(color="0563C1", underline="single")
             cell.border = border
             cell.alignment = Alignment(vertical="top", wrap_text=True)
+
+    next_row = sheet.max_row + 1
+    for old in existing_rows:
+        key = _readable_row_key(old)
+        if not key or key in generated_keys:
+            continue
+        action = _text(old.get("Action / Décision"))
+        category = _text(old.get("Catégorie Proposée"))
+        if not action and not category:
+            continue
+        for column, header in enumerate(READABLE_HEADERS, start=1):
+            if header == "Pièce PDF (Clic)":
+                continue
+            cell = sheet.cell(
+                row=next_row, column=column, value=old.get(header)
+            )
+            cell.alignment = Alignment(vertical="top", wrap_text=True)
+        link = old.get("_link")
+        if isinstance(link, str) and link and ".." not in link:
+            cell = sheet.cell(
+                row=next_row, column=len(READABLE_HEADERS)
+            )
+            cell.value = link
+            cell.hyperlink = link
+            cell.font = Font(color="0563C1", underline="single")
+        next_row += 1
 
     last_row = max(sheet.max_row, 1)
     alias_choices = _alias_choices()
@@ -420,7 +546,7 @@ def write_readable_workbook(
         f"A1:{get_column_letter(len(READABLE_HEADERS))}{last_row}"
     )
     sheet.freeze_panes = "A2"
-    widths = (12, 26, 18, 12, 24, 62, 42, 22, 22, 14, 14, 10, 24, 32)
+    widths = (12, 12, 26, 18, 12, 24, 62, 42, 22, 22, 14, 14, 10, 24, 32)
     for column, width in enumerate(widths, start=1):
         sheet.column_dimensions[get_column_letter(column)].width = width
     workbook.properties.creator = "DSH-Core P24"
@@ -529,11 +655,20 @@ def _read_decisions_from_workbook(
                 for header, column in headers.items()
             }
             sha = values.get("SHA-256", "")
+            if re.fullmatch(r"[0-9a-fA-F]{64}", sha.strip()) is None:
+                sha = ""
             filename = (
                 values.get("Nom Fichier", "")
                 or values.get("Nom fichier", "")
                 or values.get("N° Pièce", "")
             )
+            if (
+                not filename
+                or "DEJA_PAYEE" in filename.upper()
+                or "IMPAYEE" in filename.upper()
+                or "/" in filename
+            ):
+                filename = values.get("N° Pièce", "") or filename
             if not sha and not filename:
                 continue
             action = values.get("Action / Décision", "")
@@ -570,6 +705,9 @@ def _read_decisions_from_workbook(
                         values.get("Exercice cible", "")
                     )
                     or extract_year(observed_category),
+                    exercise_year=extract_year(
+                        values.get("Exercice Année", "")
+                    ),
                     deferred_month=normalize_month(
                         values.get("Mois décalé", "")
                     ),

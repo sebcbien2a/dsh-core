@@ -147,7 +147,9 @@ class FolderSyncService:
         self._tenant_id = validate_tenant_id(tenant_id)
         self._store = store
         self._tree = ensure_tree(self._tenant_id, root)
-        self._workbook = AcompleterWorkbook(self._tree.root / self._tenant_id)
+        self._workbook = AcompleterWorkbook(
+            self._tree.state_dir(FolderState.A_COMPLETER) / "_TECHNIQUE"
+        )
         self._last_seen: tuple[Any, Any] | None = None
         self._vault_bridge = vault_bridge
 

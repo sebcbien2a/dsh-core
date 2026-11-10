@@ -17,7 +17,9 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from typing import Any
+from datetime import date, datetime
+from decimal import Decimal, InvalidOperation
+from typing import Any, Iterable
 
 from schemas.folder_state_schema import DocumentCategory
 
@@ -210,6 +212,270 @@ def payment_date_allows(
 
 
 
+# P27-septies - a customer LCR settles invoices issued at the end of month
+# M-2 (30 days end of month, due the 10th of M+2). A remittance therefore only
+# matches invoices whose issue date lies between 25 and 62 days before it.
+LCR_MATURITY_MIN_DAYS = 25
+LCR_MATURITY_MAX_DAYS = 62
+_CLIENT_PAID_STATUSES = frozenset(
+    {
+        "PAYEE_RAPPROCHEE",
+        "PAYE",
+        "PAYE_PRELEVE",
+        "REMBOURSE_RAPPROCHE",
+        "SOLDEE",
+        "DEJA_PAYEE_2025",
+        "SOLDEE_AVANT_DEPART",
+        "SOLDEE_EXERCICE_ANTERIEUR_2025",
+    }
+)
+_REMISE_KEY = re.compile(r"REMISE[^\d]{0,30}(\d{2,})", re.IGNORECASE)
+
+
+def parse_iso_date(value: Any) -> date | None:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    text = str(value or "").strip()[:10]
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def lcr_maturity_window(payment_date: date) -> tuple[date, date]:
+    """Return the ``[earliest, latest]`` invoice dates of an LCR remittance."""
+    from datetime import timedelta
+
+    return (
+        payment_date - timedelta(days=LCR_MATURITY_MAX_DAYS),
+        payment_date - timedelta(days=LCR_MATURITY_MIN_DAYS),
+    )
+
+
+def lcr_invoice_matches_maturity(
+    invoice_date: Any,
+    payment_date: Any,
+    *,
+    minimum_days: int = LCR_MATURITY_MIN_DAYS,
+    maximum_days: int = LCR_MATURITY_MAX_DAYS,
+) -> bool:
+    """True when an invoice is due on the 30-days-end-of-month LCR cycle.
+
+    A missing date is accepted (the caller cannot prove an anachronism), but
+    an invoice issued 8 days or 8 months before the remittance is rejected.
+    """
+    issued = parse_iso_date(invoice_date)
+    paid = parse_iso_date(payment_date)
+    if issued is None or paid is None:
+        return True
+    elapsed = (paid - issued).days
+    return minimum_days <= elapsed <= maximum_days
+
+
+def remise_number(value: Any) -> str:
+    match = _REMISE_KEY.search(str(value or ""))
+    return match.group(1) if match is not None else ""
+
+
+def format_euro(value: Any) -> str:
+    """French display amount: ``9 678,93`` (no currency symbol)."""
+    try:
+        amount = Decimal(str(value)).quantize(Decimal("0.01"))
+    except (InvalidOperation, ValueError):
+        return str(value or "")
+    raw = f"{amount:,.2f}"
+    return raw.replace(",", "\u00a0").replace(".", ",")
+
+
+def remittance_explanation(
+    reference: Any,
+    total: Any,
+    matched_amount: Any,
+    invoice_numbers: Iterable[Any] = (),
+) -> str:
+    """Explain a remittance without ever claiming it has no invoice.
+
+    ``REMISE 93847`` must read as ``X € déjà rapprochés (FA16496...) — Reste
+    Y € à justifier`` as soon as at least one invoice is lettered.
+    """
+    number = remise_number(reference) or str(reference or "").strip()
+    matched = Decimal(str(matched_amount or "0"))
+    total_value = Decimal(str(total or "0"))
+    remaining = (total_value - matched).quantize(Decimal("0.01"))
+    names = [
+        str(item).strip()
+        for item in invoice_numbers
+        if str(item).strip()
+    ]
+    if matched > 0:
+        detail = f" ({', '.join(names)})" if names else ""
+        return (
+            f"Remise {number} (Total {format_euro(total_value)} €) : "
+            f"{format_euro(matched)} € déjà rapprochés{detail} — "
+            f"Reste {format_euro(remaining)} € à justifier "
+            "(bordereau ou factures clients manquantes)"
+        )
+    return (
+        f"Remise {number} (Total {format_euro(total_value)} €) : "
+        f"aucune facture rapprochée — Reste {format_euro(total_value)} € "
+        "à justifier (bordereau ou factures clients manquantes)"
+    )
+
+
+def _row_is_bank(row: dict[str, Any]) -> bool:
+    document_type = str(row.get("document_type") or "").strip().upper()
+    line_id = str(row.get("line_id") or "").strip().upper()
+    return document_type in {"OFX", "QFX"} or line_id.startswith("OFX-") or (
+        row.get("debit_amount") not in (None, "")
+        or row.get("credit_amount") not in (None, "")
+    )
+
+
+def _row_is_customer_invoice(row: dict[str, Any]) -> bool:
+    return (
+        not _row_is_bank(row)
+        and str(row.get("category") or "")
+        == DocumentCategory.VENTES_CLIENTS.value
+    )
+
+
+def _clear_row(
+    store: Any,
+    tenant_id: str,
+    row: dict[str, Any],
+    *,
+    bank: bool,
+) -> None:
+    line_id = str(row.get("line_id") or "")
+    if not line_id:
+        return
+    updated = dict(row)
+    updated.pop("line_id", None)
+    updated.update(
+        {
+            "reconciliation_status": None,
+            "reconciliation_date": None,
+            "reconciliation_reference": None,
+            "reconciliation_amount": None,
+            "balance_due": None,
+        }
+    )
+    if bank:
+        updated["invoice_id"] = None
+    try:
+        store.force_upsert_document_line(tenant_id, line_id, updated)
+    except AttributeError:
+        store.upsert_document_line(tenant_id, line_id, updated)
+
+
+def purge_invalid_lcr_remittances(
+    store: Any, tenant_id: str
+) -> int:
+    """Reset automatic LCR lettering that violates the monthly maturity rule.
+
+    This clears the historical errors (``FA16409`` dated 30/11/2025 lettered
+    on ``REMISE 93696`` in July 2026, ``FA16509`` dated 31/07/2026 lettered 8
+    days later, the four 144.00 EUR ``CALANDRE_18`` fillers on ``REMISE
+    94694``) before stage 2 recomputes the lettering.
+    """
+    try:
+        rows = store.list_master_lines(tenant_id)
+    except Exception:  # noqa: BLE001 - purge is best effort
+        return 0
+    bank_rows = [row for row in rows if _row_is_bank(row)]
+    remise_dates: dict[str, date] = {}
+    remise_totals: dict[str, Decimal] = {}
+    for row in bank_rows:
+        label = str(
+            row.get("label")
+            or row.get("reconciliation_reference")
+            or row.get("payment_reference")
+            or ""
+        )
+        number = remise_number(label)
+        if not number:
+            continue
+        operation_date = parse_iso_date(row.get("operation_date"))
+        if operation_date is not None:
+            remise_dates.setdefault(number, operation_date)
+        credit = row.get("credit_amount")
+        try:
+            amount = Decimal(str(credit)) if credit not in (None, "") else Decimal("0")
+        except (InvalidOperation, ValueError):
+            amount = Decimal("0")
+        if amount > 0:
+            remise_totals[number] = amount.quantize(Decimal("0.01"))
+    groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for row in rows:
+        if not _row_is_customer_invoice(row):
+            continue
+        reference = str(
+            row.get("reconciliation_reference")
+            or row.get("fitid")
+            or ""
+        )
+        number = remise_number(reference)
+        if not number:
+            continue
+        customer = _fold(row.get("counterparty") or "")
+        groups.setdefault((number, customer), []).append(row)
+    reset_ids: set[str] = set()
+    reset_bank_ids: set[str] = set()
+    for (number, _customer), items in groups.items():
+        payment_date = remise_dates.get(number)
+        if payment_date is None:
+            continue
+        positives: list[dict[str, Any]] = []
+        credit_notes = 0
+        invalid = False
+        for row in items:
+            invoice_date = parse_iso_date(row.get("operation_date"))
+            if invoice_date is None:
+                continue
+            if not lcr_invoice_matches_maturity(invoice_date, payment_date):
+                invalid = True
+            amount = row.get("amount_ttc")
+            try:
+                value = Decimal(str(amount or "0"))
+            except (InvalidOperation, ValueError):
+                value = Decimal("0")
+            if value < 0 or str(row.get("document_type") or "").upper() in {
+                "AVOIR",
+                "CREDIT_NOTE",
+            }:
+                credit_notes += 1
+            else:
+                positives.append(row)
+        dates = {
+            parse_iso_date(row.get("operation_date")) for row in positives
+        }
+        if len(positives) > 2 or len(dates) > 1 or credit_notes > 1:
+            invalid = True
+        if not invalid:
+            continue
+        for row in items:
+            reset_ids.add(str(row.get("line_id") or ""))
+        for bank in bank_rows:
+            label = str(
+                bank.get("label")
+                or bank.get("reconciliation_reference")
+                or ""
+            )
+            if remise_number(label) == number:
+                reset_bank_ids.add(str(bank.get("line_id") or ""))
+    for row in rows:
+        line_id = str(row.get("line_id") or "")
+        if line_id in reset_ids:
+            _clear_row(store, tenant_id, row, bank=False)
+        elif line_id in reset_bank_ids:
+            _clear_row(store, tenant_id, row, bank=True)
+    return len(reset_ids) + len(reset_bank_ids)
+
+
 def client_sales_routing(
     *,
     counterparty: Any = None,
@@ -260,6 +526,8 @@ def bank_tier_defaults(
 __all__ = [
     "CLIENTS_ENCAISSEMENT_GROUPE",
     "CLIENT_INVOICE_PATTERN",
+    "LCR_MATURITY_MAX_DAYS",
+    "LCR_MATURITY_MIN_DAYS",
     "CLIENT_INVOICE_REFERENCE_PATTERN",
     "CLIENT_ROLE",
     "CLIENT_SALES_CATEGORY",
@@ -281,7 +549,13 @@ __all__ = [
     "is_remise_encaissement",
     "is_strict_one_to_one_counterparty",
     "is_virement_a_qualifier",
+    "lcr_invoice_matches_maturity",
+    "lcr_maturity_window",
+    "parse_iso_date",
     "payment_date_allows",
+    "purge_invalid_lcr_remittances",
     "remise_counterparty_for",
+    "remise_number",
+    "remittance_explanation",
     "unknown_transfer_counterparty",
 ]

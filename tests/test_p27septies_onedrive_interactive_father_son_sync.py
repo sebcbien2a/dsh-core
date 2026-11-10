@@ -88,7 +88,8 @@ def test_newer_onedrive_files_are_pulled_into_both_local_copies(tmp_path):
     pulled = bridge.pull_director_files()
 
     assert local_readable.read_bytes() == b"father-readable"
-    assert (tenant_dir / READABLE).read_bytes() == b"father-readable"
+    # P27-septies - the tenant-root ``_A_COMPLETER.xlsx`` duplicate is gone.
+    assert not (tenant_dir / READABLE).exists()
     assert local_tier.read_bytes() == b"father-tier"
     assert {path.name for path in pulled} == {READABLE, TIER_REFERENCE_FILENAME}
     assert not (export_dir / TIER_REFERENCE_FILENAME).exists()
