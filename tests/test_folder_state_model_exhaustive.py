@@ -86,6 +86,8 @@ def test_document_category_values():
         "FISCAL_SOCIAL",
         "VENTES_CLIENTS",
         "DIVERS_A_CLASSER",
+        "PAIEMENT_INTERNE_SOCIETE",
+        "PAIEMENT_INTERNE_PERSO_REMBOURSEMENT",
     ]
 
 

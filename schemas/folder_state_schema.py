@@ -29,7 +29,12 @@ class FolderState(str, Enum):
 
 
 class DocumentCategory(str, Enum):
-    """The eight business categories, normalised under ``03_`` and ``04_``."""
+    """The business categories, normalised under ``03_`` and ``04_``.
+
+    P27-nonies adds the two internal-transfer categories. They are deliberately
+    outside the operating result (accounts ``580000`` and ``455100``) and must
+    never be mixed with supplier expenses or customer sales.
+    """
 
     ACHATS_MARCHANDISES = "ACHATS_MARCHANDISES"
     FRAIS_GENERAUX = "FRAIS_GENERAUX"
@@ -39,6 +44,10 @@ class DocumentCategory(str, Enum):
     FISCAL_SOCIAL = "FISCAL_SOCIAL"
     VENTES_CLIENTS = "VENTES_CLIENTS"
     DIVERS_A_CLASSER = "DIVERS_A_CLASSER"
+    PAIEMENT_INTERNE_SOCIETE = "PAIEMENT_INTERNE_SOCIETE"
+    PAIEMENT_INTERNE_PERSO_REMBOURSEMENT = (
+        "PAIEMENT_INTERNE_PERSO_REMBOURSEMENT"
+    )
 
 
 class _MissingFieldMeta(EnumMeta):
@@ -75,15 +84,15 @@ class MissingFieldEnum(str, Enum, metaclass=_MissingFieldMeta):
 
 
 class ExpenseSubCategory(str, Enum):
-    """The ``FRAIS_GENERAUX`` analytic sub-categories (P17 / P22).
+    """The ``FRAIS_GENERAUX`` analytic sub-categories (P17 / P22 / P27).
 
     ``HOTELLERIE`` is deliberately separated from ``RESTAURATION`` because the
     VAT of accommodation is not deductible (or only partially deductible),
     whereas meal VAT is. ``INFORMATIQUE_WEB`` and ``HONORAIRES_JURIDIQUES``
     were added with the P22 director arbitrations for web hosting and legal
-    fees. Each value is also the physical sub-folder name under
-    ``03_VALIDE_PRET_FEC/FRAIS_GENERAUX/`` and
-    ``04_EXPORT_COMPTA/FRAIS_GENERAUX/``.
+    fees. ``ASSURANCES_SOCIETE`` (P27-nonies) is VAT-exempt
+    (``EXONERE_ASSURANCE_0%``) and ``PROMOTION_CADEAUX_PUBLICITE`` carries the
+    client/supplier gift and advertising account ``623400``.
     """
 
     RESTAURATION = "RESTAURATION"
@@ -93,6 +102,34 @@ class ExpenseSubCategory(str, Enum):
     INFORMATIQUE_WEB = "INFORMATIQUE_WEB"
     HONORAIRES_JURIDIQUES = "HONORAIRES_JURIDIQUES"
     FRAIS_REPRESENTATION_PRESIDENT = "FRAIS_REPRESENTATION_PRESIDENT"
+    PROMOTION_CADEAUX_PUBLICITE = "PROMOTION_CADEAUX_PUBLICITE"
+    ASSURANCES_SOCIETE = "ASSURANCES_SOCIETE"
+
+
+# P27-nonies - the physical folder / workbook names differ from the canonical
+# analytic marker for a few sub-categories (the director wants readable
+# ``PROMOTION_CADEAUX`` paths, not the full enum token).
+EXPENSE_SUBCATEGORY_FOLDER_NAMES: dict[ExpenseSubCategory, str] = {
+    ExpenseSubCategory.PROMOTION_CADEAUX_PUBLICITE: "PROMOTION_CADEAUX",
+    ExpenseSubCategory.ASSURANCES_SOCIETE: "ASSURANCES_SOCIETE",
+}
+
+
+def expense_subcategory_folder_name(
+    subcategory: ExpenseSubCategory | str,
+) -> str:
+    """Return the directory name used under ``FRAIS_GENERAUX``."""
+    try:
+        selected = ExpenseSubCategory(subcategory)
+    except (TypeError, ValueError):
+        return str(subcategory or "").strip()
+    return EXPENSE_SUBCATEGORY_FOLDER_NAMES.get(selected, selected.value)
+
+
+EXPENSE_SUBCATEGORY_ACCOUNTS: dict[ExpenseSubCategory, str] = {
+    ExpenseSubCategory.PROMOTION_CADEAUX_PUBLICITE: "623400",
+    ExpenseSubCategory.ASSURANCES_SOCIETE: "616000",
+}
 
 
 class FiscalYearMode(str, Enum):

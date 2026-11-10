@@ -511,7 +511,7 @@ def test_stage1_writes_real_business_reason_for_openrouter_pending(tmp_path):
     readable = tree.state_dir(FolderState.A_COMPLETER) / "_A_COMPLETER.xlsx"
     sheet = load_workbook(readable).active
     headers = [cell.value for cell in sheet[1]]
-    reason_index = headers.index("Pourquoi c'est en attente & Conseil IA")
+    reason_index = headers.index("Pourquoi en attente")
     reasons = [
         row[reason_index]
         for row in sheet.iter_rows(min_row=2, values_only=True)

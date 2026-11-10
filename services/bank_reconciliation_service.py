@@ -523,7 +523,47 @@ def bank_tier_defaults(
     return "", "", ""
 
 
+MISE_SUR_ORBITE_CANONICAL = "MISE_SUR_ORBITE"
+MISE_SUR_ORBITE_SIREN = "820130714"
+MISE_SUR_ORBITE_VAT = "FR55820130714"
+# The current OCR matcher must never attribute a piece to the ACTION store just
+# because the invoice body contains the common French word "action".
+ACTION_STORE_CANONICAL = "ACTION"
+
+
+def authoritative_supplier(*values: Any) -> str | None:
+    """Return a supplier forced by a strong identity marker in names/headers.
+
+    P27-nonies - ``MISE SUR ORBITE`` invoices contain the generic word
+    ``action`` in their legal footer; the tier matcher previously attributed
+    them to the ``ACTION`` supermarket. Any filename, header or SIREN/VAT
+    marker for Mise Sur Orbite now wins over every keyword match.
+    """
+    haystack = " ".join(str(value or "") for value in values if value)
+    folded = _fold(haystack)
+    compact = re.sub(r"[\s\-_]+", "", folded)
+    digits = re.sub(r"\D", "", haystack)
+    if (
+        "misesurorbite" in compact
+        or MISE_SUR_ORBITE_SIREN in digits
+        or MISE_SUR_ORBITE_VAT.casefold() in folded
+    ):
+        return MISE_SUR_ORBITE_CANONICAL
+    return None
+
+
+def supplier_identity_conflict(
+    candidate: Any, *evidence: Any
+) -> bool:
+    """Return ``True`` when ``candidate`` is only a body-word false positive."""
+    authoritative = authoritative_supplier(*evidence)
+    if authoritative is None:
+        return False
+    return _fold(candidate) == _fold(ACTION_STORE_CANONICAL)
+
+
 __all__ = [
+    "ACTION_STORE_CANONICAL",
     "CLIENTS_ENCAISSEMENT_GROUPE",
     "CLIENT_INVOICE_PATTERN",
     "LCR_MATURITY_MAX_DAYS",
@@ -534,10 +574,14 @@ __all__ = [
     "INSTRUMENT_A_QUALIFIER",
     "INVALID_TIER_NAMES",
     "MAX_SUBSET_SUM_PIECES",
+    "MISE_SUR_ORBITE_CANONICAL",
+    "MISE_SUR_ORBITE_SIREN",
+    "MISE_SUR_ORBITE_VAT",
     "STRICT_ONE_TO_ONE_COUNTERPARTIES",
     "VIREMENT_A_QUALIFIER",
     "VIREMENT_A_QUALIFIER_SUGGESTION",
     "ZERO_DAY_PAYMENT_METHODS",
+    "authoritative_supplier",
     "bank_tier_defaults",
     "clean_bank_tier_name",
     "client_sales_routing",
@@ -557,5 +601,5 @@ __all__ = [
     "remise_counterparty_for",
     "remise_number",
     "remittance_explanation",
-    "unknown_transfer_counterparty",
+    "supplier_identity_conflict",
 ]

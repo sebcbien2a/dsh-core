@@ -198,14 +198,21 @@ def _merge_xlsx(remote: Path, local: Path, target: Path) -> None:
     header list is the union of both schemas so a locally upgraded layout
     (``Exercice Année``, ``Date Départ Solde 0``) is never reverted to the old
     OneDrive layout.
+
+    P27-nonies - the merge edits an existing workbook instead of rebuilding a
+    blank ``Workbook()``: Excel styles, hidden columns, dropdowns, autofilter
+    and column widths survive every father/son round-trip.
     """
-    from openpyxl import Workbook, load_workbook
+    from copy import copy
+
+    from openpyxl import load_workbook
 
     key_names = (
         "Nom Officiel Canonique",
         "SHA-256",
         "Nom Fichier",
         "Nom fichier",
+        "Fichier / Réf",
         "N° Pièce",
         "Date Pièce",
     )
@@ -246,6 +253,19 @@ def _merge_xlsx(remote: Path, local: Path, target: Path) -> None:
         finally:
             workbook.close()
 
+    def _rich(path: Path) -> bool:
+        try:
+            workbook = load_workbook(path, data_only=False)
+        except Exception:  # noqa: BLE001
+            return False
+        try:
+            sheet = workbook.active
+            return bool(sheet.data_validations.dataValidation) and (
+                sheet.title != "Sheet"
+            )
+        finally:
+            workbook.close()
+
     remote_headers, remote_rows = read_sheet(remote)
     if not local.is_file():
         _copy_atomic(remote, target)
@@ -257,24 +277,50 @@ def _merge_xlsx(remote: Path, local: Path, target: Path) -> None:
             headers.append(header)
     merged: dict[str, dict[str, Any]] = dict(local_rows)
     merged.update(remote_rows)
-    workbook = Workbook()
+    template = local if _rich(local) else (remote if _rich(remote) else local)
+    workbook = load_workbook(template, data_only=False)
     sheet = workbook.active
+    header_style = copy(sheet.cell(row=1, column=1)._style)
+    row_style = (
+        copy(sheet.cell(row=2, column=1)._style)
+        if sheet.max_row >= 2
+        else header_style
+    )
+    old_max_row = sheet.max_row
+    old_max_column = sheet.max_column
     for column, header in enumerate(headers, start=1):
-        sheet.cell(row=1, column=column, value=header or None)
+        cell = sheet.cell(row=1, column=column)
+        cell.value = header or None
+        if cell._style is None or column > old_max_column:
+            cell._style = copy(header_style)
+    for row_index in range(2, old_max_row + 1):
+        for column in range(1, max(old_max_column, len(headers)) + 1):
+            cell = sheet.cell(row=row_index, column=column)
+            cell.value = None
+            cell.hyperlink = None
     for row_index, values in enumerate(merged.values(), start=2):
         for column, header in enumerate(headers, start=1):
             if not header:
                 continue
             cell = sheet.cell(row=row_index, column=column)
             cell.value = values.get(header)
+            if row_index > old_max_row:
+                cell._style = copy(row_style)
             link = values.get(f"__link__{header}")
             if link:
                 cell.hyperlink = link
+    try:
+        from services.acompleter_workbook_service import install_data_validations
+
+        install_data_validations(sheet, max(sheet.max_row, 2))
+    except Exception:  # noqa: BLE001 - validations are best effort
+        pass
     temporary = target.with_name(target.name + ".tmp-p27-merge")
     try:
         workbook.save(temporary)
         os.replace(temporary, target)
     finally:
+        workbook.close()
         temporary.unlink(missing_ok=True)
 
 

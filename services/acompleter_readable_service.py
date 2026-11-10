@@ -23,6 +23,8 @@ from schemas.accounting_choices import (
     EXERCISE_CHOICES,
     PAYMENT_SOURCE_CHOICES,
     REPORT_CHOICES,
+    STATUS_CHOICES,
+    SUBCATEGORY_CHOICES,
     excel_list,
     extract_year,
     normalize_category,
@@ -35,6 +37,22 @@ from schemas.accounting_choices import (
 from schemas.folder_state_schema import DocumentCategory, DocumentStatus
 
 READABLE_HEADERS: tuple[str, ...] = (
+    "Date",
+    "Source",
+    "Fichier / Réf",
+    "Fournisseur / Tiers",
+    "Libellé / N° Pièce",
+    "Montant TTC (€)",
+    "Pourquoi en attente",
+    "Action attendue",
+    "Catégorie",
+    "Sous-Catégorie",
+    "Exercice Année",
+    "Source de paiement",
+    "Décision",
+)
+# Historical P22/P24 layout, still used by the hidden technical workbook.
+LEGACY_READABLE_HEADERS: tuple[str, ...] = (
     "Date Pièce",
     "Exercice Année",
     "Fournisseur / Tiers",
@@ -56,6 +74,13 @@ HIDDEN_HEADERS: tuple[str, ...] = (
     "Action IA",
     "SHA-256",
     "Nom Fichier",
+    "Sous-Catégorie IA",
+    "Exercice cible",
+    "Mois décalé",
+    "Report",
+    "Rattacher comme ALIAS de (ou NOUVEAU_TIERS)",
+    "Compte de contrepartie",
+    "Pièce PDF (Clic)",
 )
 READABLE_SHEET = "A_COMPLETER"
 READABLE_FILENAME = "_A_COMPLETER.xlsx"
@@ -66,14 +91,22 @@ READABLE_PENDING_FILL = "FFF2CC"
 READABLE_VALID_FILL = "E2EFDA"
 READABLE_REJECT_FILL = "FCE4D6"
 
-CATEGORY_COLUMN = "F"
-PAYMENT_SOURCE_COLUMN = "I"
-EXERCISE_COLUMN = "K"
-MONTH_COLUMN = "L"
-REPORT_COLUMN = "M"
-ALIAS_TARGET_COLUMN = "N"
+CATEGORY_COLUMN = "I"
+SUBCATEGORY_COLUMN = "J"
+EXERCISE_YEAR_COLUMN = "K"
+PAYMENT_SOURCE_COLUMN = "L"
+DECISION_COLUMN = "M"
+DATE_COLUMN = "A"
+SOURCE_COLUMN = "B"
+FILE_COLUMN = "C"
+TTC_COLUMN = "F"
 ACTION_COLUMN = "H"
-EXERCISE_YEAR_COLUMN = "B"
+# Hidden arbitration columns keep their legacy letters for the technical
+# workbook compatibility and are never shown to the director.
+EXERCISE_COLUMN = "S"
+MONTH_COLUMN = "T"
+REPORT_COLUMN = "U"
+ALIAS_TARGET_COLUMN = "V"
 
 
 class ReadableWorkbookError(ValueError):
@@ -103,6 +136,10 @@ class ReadableRow:
     piece_pdf: str | None = None
     rule: str = ""
     exercise_year: str = ""
+    source: str = ""
+    label: str = ""
+    subcategory: str = ""
+    date_label: str = ""
     extra: dict[str, Any] = field(default_factory=dict, compare=False)
 
     @property
@@ -136,6 +173,7 @@ class ReadableDecision:
     report: str | None = None
     tier_alias_target: str = ""
     action: str = ""
+    subcategory: str | None = None
 
     @property
     def is_validated(self) -> bool:
@@ -150,12 +188,28 @@ def _text(value: Any) -> str:
     return "" if value is None else str(value).strip()
 
 
+def _first_value(values: dict[str, Any], *headers: str) -> str:
+    for header in headers:
+        value = _text(values.get(header))
+        if value:
+            return value
+    return ""
+
+
 def _date_cell(value: date | None) -> Any:
     return value if value is not None else ""
 
 
 def _amount_cell(value: Decimal | None) -> Any:
     return float(value) if isinstance(value, Decimal) else (value if value is not None else "")
+
+
+def _is_fake_bank_source_piece(value: Any) -> bool:
+    normalized = str(value or "").replace("\\", "/").upper()
+    if not normalized:
+        return False
+    name = normalized.rsplit("/", 1)[-1]
+    return "SOURCE_OFX" in name or "CAISSE_D_EPARGNE_SOURCE_OFX" in name
 
 
 def _piece_child_link(workbook_path: Path, raw: str) -> str | None:
@@ -165,7 +219,12 @@ def _piece_child_link(workbook_path: Path, raw: str) -> str | None:
     ``https://d.docs.live.net/...`` as soon as a relative link climbs out of
     the folder. The readable workbook therefore never uses ``..`` and always
     points inside its own ``PIECES_JOINTES`` child tree.
+
+    P27-nonies - a raw OFX statement is never a proof of expense and must not
+    be linked as a piece PDF.
     """
+    if _is_fake_bank_source_piece(raw):
+        return None
     marker = "PIECES_JOINTES/"
     normalized = raw.replace("\\", "/").strip()
     if marker in normalized:
@@ -173,13 +232,15 @@ def _piece_child_link(workbook_path: Path, raw: str) -> str | None:
         if suffix and ".." not in suffix:
             return f"PIECES_JOINTES/{suffix}"
     name = Path(normalized).name
-    if not name:
+    if not name or _is_fake_bank_source_piece(name):
         return None
     current = workbook_path.resolve().parent
     for _ in range(6):
         pieces = current / "PIECES_JOINTES"
         if pieces.is_dir():
             for candidate in pieces.rglob(name):
+                if _is_fake_bank_source_piece(candidate.name):
+                    continue
                 relative = candidate.relative_to(pieces).as_posix()
                 return f"PIECES_JOINTES/{relative}"
         if current.parent == current:
@@ -189,11 +250,14 @@ def _piece_child_link(workbook_path: Path, raw: str) -> str | None:
 
 
 def _link_for(workbook_path: Path, target: str | None) -> str | None:
-    if not target:
+    if not target or _is_fake_bank_source_piece(target):
         return None
     raw = str(target).replace("\\", "/").strip()
     if not raw:
         return None
+    sibling = workbook_path.parent / Path(raw).name
+    if sibling.is_file() and not _is_fake_bank_source_piece(sibling.name):
+        return sibling.name
     child = _piece_child_link(workbook_path, raw)
     if child is not None:
         return child
@@ -296,11 +360,15 @@ def _install_validations(
         pass
     _add_list_validation(sheet, CATEGORY_COLUMN, CATEGORY_CHOICES, last_row)
     _add_list_validation(
+        sheet, SUBCATEGORY_COLUMN, SUBCATEGORY_CHOICES, last_row
+    )
+    _add_list_validation(
         sheet, EXERCISE_YEAR_COLUMN, EXERCISE_CHOICES, last_row
     )
     _add_list_validation(
         sheet, PAYMENT_SOURCE_COLUMN, PAYMENT_SOURCE_CHOICES, last_row
     )
+    _add_list_validation(sheet, DECISION_COLUMN, STATUS_CHOICES, last_row)
     _add_list_validation(sheet, EXERCISE_COLUMN, EXERCISE_CHOICES, last_row)
     _add_list_validation(
         sheet, MONTH_COLUMN, DEFERRED_MONTH_CHOICES, last_row
@@ -446,28 +514,53 @@ def write_readable_workbook(
                 else ""
             )
         )
+        amount_ttc = _amount_cell(row.amount_ttc)
+        if amount_ttc == "":
+            amount_ttc = 0.0
+        subcategory = (
+            str(row.subcategory or "").strip()
+            or str(row.extra.get("subcategory") or "").strip()
+        )
+        source = str(row.source or "").strip() or (
+            "BANQUE_OFX"
+            if _text(row.filename).upper().startswith(
+                ("TIER__", "INSTRUMENT__")
+            )
+            else "PIECE_PDF"
+        )
+        label = (
+            str(row.label or "").strip()
+            or str(row.document_number or "").strip()
+            or _text(row.filename)
+        )
+        decision_value = row.status_value
         values = (
-            _date_cell(row.document_date),
-            exercise_year,
+            row.date_label or _date_cell(row.document_date),
+            source,
+            row.filename,
             row.supplier,
-            row.document_number,
-            _amount_cell(row.amount_ttc),
-            row.category_value,
+            label,
+            amount_ttc,
             row.reason,
             row.action,
+            row.category_value,
+            subcategory,
+            exercise_year,
             row.extra.get("payment_source", ""),
-            row.extra.get("counterparty_account", ""),
-            row.extra.get("fiscal_year_target", ""),
-            row.extra.get("deferred_month", ""),
-            row.extra.get("report", ""),
-            row.extra.get("tier_alias_target", ""),
-            None,
+            decision_value,
         )
         hidden_values = (
             row.extra.get("ai_category", row.category_value),
             row.extra.get("ai_action", row.action),
             row.sha256,
             row.filename,
+            row.extra.get("ai_subcategory", subcategory),
+            row.extra.get("fiscal_year_target", ""),
+            row.extra.get("deferred_month", "NON"),
+            row.extra.get("report", "NON"),
+            row.extra.get("tier_alias_target", ""),
+            row.extra.get("counterparty_account", ""),
+            None,
         )
         for column, value in enumerate(values, start=1):
             cell = sheet.cell(row=offset, column=column)
@@ -486,38 +579,121 @@ def write_readable_workbook(
             cell.alignment = Alignment(vertical="top")
         status_fill = status_fills.get(row.status_value)
         if status_fill is not None:
-            sheet.cell(row=offset, column=8).fill = status_fill
+            sheet.cell(row=offset, column=13).fill = status_fill
         link = _link_for(path, row.piece_pdf)
         if link:
-            cell = sheet.cell(row=offset, column=len(READABLE_HEADERS))
-            cell.value = link
+            cell = sheet.cell(row=offset, column=3)
+            cell.value = row.filename
             cell.hyperlink = link
             cell.font = Font(color="0563C1", underline="single")
             cell.border = border
             cell.alignment = Alignment(vertical="top", wrap_text=True)
+            hidden_link = sheet.cell(
+                row=offset, column=len(READABLE_HEADERS) + len(HIDDEN_HEADERS)
+            )
+            hidden_link.value = link
+            hidden_link.hyperlink = link
+            hidden_link.font = Font(color="0563C1", underline="single")
 
     next_row = sheet.max_row + 1
     for old in existing_rows:
         key = _readable_row_key(old)
         if not key or key in generated_keys:
             continue
-        action = _text(old.get("Action / Décision"))
-        category = _text(old.get("Catégorie Proposée"))
-        if not action and not category:
+        old_filename = _first_value(
+            old, "Fichier / Réf", "Nom Fichier", "Nom fichier"
+        )
+        if old_filename.upper().startswith("TIER__") and (
+            f"Nom Fichier:{old_filename}" not in generated_keys
+        ):
+            # A tier that is now resolved (BPCE IARD, Mise Sur Orbite, ...)
+            # must leave the pending workbook immediately.
             continue
-        for column, header in enumerate(READABLE_HEADERS, start=1):
-            if header == "Pièce PDF (Clic)":
-                continue
+        if "DETAILREMISE" in old_filename.upper().replace("_", ""):
+            continue
+        action = _first_value(
+            old, "Action attendue", "Action / Décision"
+        )
+        category = _first_value(old, "Catégorie", "Catégorie Proposée")
+        decision = _first_value(old, "Décision")
+        alias_target = _first_value(
+            old, "Rattacher comme ALIAS de (ou NOUVEAU_TIERS)"
+        )
+        ai_category = _first_value(old, "Catégorie IA")
+        ai_action = _first_value(old, "Action IA")
+        ai_subcategory = _first_value(old, "Sous-Catégorie IA")
+        selected_subcategory = _first_value(
+            old, "Sous-Catégorie", "Sous-catégorie Frais"
+        )
+        human_decision = _explicit_status(decision)
+        human_edit = bool(alias_target.strip()) or (
+            human_decision in {
+                DocumentStatus.VALIDE.value,
+                DocumentStatus.REJETE.value,
+            }
+        )
+        if not human_edit and ai_category:
+            human_edit = _normalize_label(category) != _normalize_label(
+                ai_category
+            )
+        if not human_edit and ai_subcategory:
+            human_edit = _normalize_label(
+                selected_subcategory
+            ) != _normalize_label(ai_subcategory)
+        if not human_edit and ai_action and action:
+            human_edit = (
+                _normalize_label(action) != _normalize_label(ai_action)
+                and any(
+                    keyword in _normalize_label(action)
+                    for keyword in _DECISION_KEYWORDS
+                )
+            )
+        if not human_edit:
+            continue
+        amount = _first_value(old, "Montant TTC (€)", "TTC")
+        values = (
+            _first_value(old, "Date", "Date Pièce"),
+            _first_value(old, "Source") or "PIECE_PDF",
+            _first_value(old, "Fichier / Réf", "Nom Fichier", "N° Pièce"),
+            _first_value(old, "Fournisseur / Tiers"),
+            _first_value(old, "Libellé / N° Pièce", "N° Pièce"),
+            _amount_cell(
+                Decimal(str(amount).replace(",", "."))
+                if str(amount or "").strip()
+                else None
+            ),
+            _first_value(old, "Pourquoi en attente"),
+            action,
+            category,
+            _first_value(old, "Sous-Catégorie", "Sous-catégorie Frais"),
+            _first_value(old, "Exercice Année"),
+            _first_value(old, "Source de paiement"),
+            decision or "EN_ATTENTE",
+        )
+        for column, value in enumerate(values, start=1):
             cell = sheet.cell(
-                row=next_row, column=column, value=old.get(header)
+                row=next_row, column=column, value=value
             )
             cell.alignment = Alignment(vertical="top", wrap_text=True)
-        link = old.get("_link")
-        if isinstance(link, str) and link and ".." not in link:
-            cell = sheet.cell(
-                row=next_row, column=len(READABLE_HEADERS)
+            if isinstance(value, float):
+                cell.number_format = "#,##0.00"
+        for offset_hidden, header in enumerate(
+            HIDDEN_HEADERS, start=len(READABLE_HEADERS) + 1
+        ):
+            sheet.cell(
+                row=next_row,
+                column=offset_hidden,
+                value=old.get(header),
             )
-            cell.value = link
+        link = old.get("_link")
+        if (
+            isinstance(link, str)
+            and link
+            and ".." not in link
+            and not _is_fake_bank_source_piece(link)
+        ):
+            cell = sheet.cell(row=next_row, column=3)
+            cell.value = values[2]
             cell.hyperlink = link
             cell.font = Font(color="0563C1", underline="single")
         next_row += 1
@@ -546,10 +722,13 @@ def write_readable_workbook(
         f"A1:{get_column_letter(len(READABLE_HEADERS))}{last_row}"
     )
     sheet.freeze_panes = "A2"
-    widths = (12, 12, 26, 18, 12, 24, 62, 42, 22, 22, 14, 14, 10, 24, 32)
+    widths = (12, 14, 46, 28, 32, 14, 60, 40, 26, 26, 12, 20, 14)
     for column, width in enumerate(widths, start=1):
         sheet.column_dimensions[get_column_letter(column)].width = width
-    workbook.properties.creator = "DSH-Core P24"
+    for column in range(len(READABLE_HEADERS) + 1,
+                        len(READABLE_HEADERS) + len(HIDDEN_HEADERS) + 1):
+        sheet.column_dimensions[get_column_letter(column)].hidden = True
+    workbook.properties.creator = "DSH-Core P27-nonies"
     workbook.properties.title = "APD - Pièces à compléter"
 
     temporary = path.with_name(path.name + ".tmp-p24")
@@ -585,7 +764,23 @@ _DECISION_KEYWORDS: tuple[str, ...] = (
     "ok",
     "note de frais",
     "accepter",
+    "paiement interne",
+    "compte courant",
+    "assurance",
+    "cadeaux",
 )
+
+_SUBCATEGORY_VALUES: frozenset[str] = frozenset(SUBCATEGORY_CHOICES)
+
+
+def _normalise_subcategory(value: Any) -> str | None:
+    text = _normalize_label(value)
+    if not text:
+        return None
+    for choice in SUBCATEGORY_CHOICES:
+        if _normalize_label(choice) == text:
+            return choice
+    return None
 
 
 def _tier_reference() -> Any:
@@ -603,13 +798,18 @@ def _is_human_decided(
     values: dict[str, str], tier_reference: Any = None
 ) -> bool:
     """Return ``True`` as soon as the director touched one decision column."""
-    observed_category = values.get("Catégorie Proposée", "")
+    observed_category = _first_value(values, "Catégorie", "Catégorie Proposée")
     ai_category = values.get("Catégorie IA", "")
-    alias = values.get("Rattacher comme ALIAS de (ou NOUVEAU_TIERS)", "")
-    action = values.get("Action / Décision", "")
+    alias = values.get(
+        "Rattacher comme ALIAS de (ou NOUVEAU_TIERS)", ""
+    )
+    action = _first_value(values, "Action attendue", "Action / Décision")
     action_ia = values.get("Action IA", "")
+    decision = _first_value(values, "Décision")
     supplier = values.get("Fournisseur / Tiers", "")
     if alias.strip():
+        return True
+    if _explicit_status(decision) is not None:
         return True
     if ai_category:
         if _normalize_label(observed_category) != _normalize_label(ai_category):
@@ -671,19 +871,38 @@ def _read_decisions_from_workbook(
                 filename = values.get("N° Pièce", "") or filename
             if not sha and not filename:
                 continue
-            action = values.get("Action / Décision", "")
+            action = _first_value(
+                values, "Action attendue", "Action / Décision"
+            )
             action_ia = values.get("Action IA", "")
-            observed_category = values.get("Catégorie Proposée", "")
+            observed_category = _first_value(
+                values, "Catégorie", "Catégorie Proposée"
+            )
             ai_category = values.get("Catégorie IA", "")
+            subcategory = _normalise_subcategory(
+                _first_value(
+                    values, "Sous-Catégorie", "Sous-catégorie Frais"
+                )
+            )
+            decision = _first_value(values, "Décision")
             category = normalize_category(observed_category)
-            status = None
-            if action_ia:
+            status = _explicit_status(decision)
+            if status is None and action_ia:
                 if _normalize_label(action) != _normalize_label(action_ia):
                     status = normalize_status(action)
-            else:
+            if status is None and action:
                 status = _explicit_status(action)
             if status is None and category is not None and ai_category:
                 if _normalize_label(observed_category) != _normalize_label(ai_category):
+                    status = DocumentStatus.VALIDE.value
+            if status is None and subcategory is not None:
+                ai_subcategory = _normalise_subcategory(
+                    values.get("Sous-Catégorie IA", "")
+                )
+                if (
+                    ai_subcategory is not None
+                    and subcategory != ai_subcategory
+                ):
                     status = DocumentStatus.VALIDE.value
             if status is None and _is_human_decided(values, tier_reference):
                 status = DocumentStatus.VALIDE.value
@@ -695,6 +914,7 @@ def _read_decisions_from_workbook(
                     filename=filename,
                     status=status,
                     category=category,
+                    subcategory=subcategory,
                     payment_source=normalize_payment_source(
                         values.get("Source de paiement", "")
                     ),
@@ -792,6 +1012,7 @@ def _normalize_label(value: Any) -> str:
 
 __all__ = [
     "HIDDEN_HEADERS",
+    "LEGACY_READABLE_HEADERS",
     "READABLE_FILENAME",
     "READABLE_FALLBACK_SUFFIX",
     "READABLE_HEADERS",

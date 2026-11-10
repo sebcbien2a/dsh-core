@@ -79,6 +79,7 @@ from services.customer_invoice_batch_importer import (
 )
 from services.bank_reconciliation_service import (
     CLIENT_SALES_CATEGORY,
+    authoritative_supplier,
     contains_client_invoice_reference,
     is_client_invoice_reference,
 )
@@ -556,6 +557,18 @@ def extracted_from_invoice(
 
     payload = raw_payload if isinstance(raw_payload, Mapping) else {}
     supplier_name = invoice.supplier.name if invoice.supplier is not None else None
+    # P27-nonies - a strong identity marker in the header/filename always wins
+    # over the generic body word "action" (MISE SUR ORBITE invoice 19544).
+    authoritative = authoritative_supplier(
+        source_name,
+        supplier_name,
+        payload.get("raw_text"),
+        payload.get("text"),
+        payload.get("fournisseur"),
+        payload.get("supplier"),
+    )
+    if authoritative is not None:
+        supplier_name = authoritative
     metadata = invoice.metadata if isinstance(invoice.metadata, Mapping) else {}
     tool = metadata.get("extraction_tool")
     tool = tool if isinstance(tool, str) else None

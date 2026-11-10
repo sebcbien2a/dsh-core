@@ -17,6 +17,7 @@ from schemas.accounting_choices import (
     CATEGORY_CHOICES,
     EXERCISE_CHOICES,
     PAYMENT_SOURCE_CHOICES,
+    SUBCATEGORY_CHOICES,
     as_dict,
     normalize_category,
 )
@@ -49,12 +50,21 @@ STATUS_FIELDS: tuple[tuple[str, str], ...] = (
     ("readable_workbook", "Classeur lisible"),
 )
 PENDING_FIELDS: tuple[tuple[str, str], ...] = (
-    ("filename", "Fichier"),
-    ("fournisseur", "Fournisseur"),
-    ("numero_piece", "N° pièce"),
-    ("montant_ttc", "Montant TTC"),
+    ("date_piece", "Date"),
+    ("source", "Source"),
+    ("fichier_ref", "Fichier / Réf"),
+    ("fournisseur", "Fournisseur / Tiers"),
+    ("libelle", "Libellé / N° Pièce"),
+    ("montant_ttc", "Montant TTC (€)"),
     ("raison", "Pourquoi en attente"),
     ("action", "Action attendue"),
+)
+PENDING_ARBITRATION_FIELDS: tuple[tuple[str, str], ...] = (
+    ("categorie", "Catégorie"),
+    ("sous_categorie", "Sous-Catégorie"),
+    ("exercice", "Exercice Année"),
+    ("source_paiement", "Source de paiement"),
+    ("decision", "Décision"),
 )
 PAGE_TITLE = "APD - Cockpit comptable P27"
 
@@ -121,8 +131,8 @@ def render_pending_table(questions: Iterable[Mapping[str, Any]]) -> str:
         f"<th>{_cell(label)}</th>"
         for _, label in PENDING_FIELDS
     ) + (
-        "<th>Catégorie</th><th>Exercice</th>"
-        "<th>Source de paiement</th><th>Décision</th>"
+        "<th>Catégorie</th><th>Sous-Catégorie</th>"
+        "<th>Exercice</th><th>Source de paiement</th><th>Décision</th>"
     )
     body_rows: list[str] = []
     for index, question in enumerate(items, start=1):
@@ -133,6 +143,12 @@ def render_pending_table(questions: Iterable[Mapping[str, Any]]) -> str:
         category_select = _select(
             f"categorie-{index}", CATEGORY_CHOICES, selected_category,
             role="category",
+        )
+        subcategory_select = _select(
+            f"sous-categorie-{index}",
+            ["", *SUBCATEGORY_CHOICES],
+            question.get("sous_categorie") or "",
+            role="subcategory",
         )
         exercise_select = _select(
             f"exercice-{index}", EXERCISE_CHOICES, "2026", role="exercise"
@@ -164,10 +180,11 @@ def render_pending_table(questions: Iterable[Mapping[str, Any]]) -> str:
             "<tr>"
             + cells
             + f"<td>{category_select}</td>"
+            + f"<td>{subcategory_select}</td>"
             + f"<td>{exercise_select}</td>"
             + f"<td>{source_select}</td>"
-            + f"<td>{alias_select}</td>"
-            + f'<td><button type="button" '
+            + f"<td>{alias_select} "
+            f'<button type="button" '
             f'onclick="validerPiece(\'{doc_id}\', this)">Valider</button></td>'
             + "</tr>"
         )
@@ -384,34 +401,42 @@ async function showPending(initial) {{
   const rows = data.map(item => {{
     const doc = String(item.doc_id || '');
     const category = selectOptions('category', CHOICES.categorie, item.categorie);
+    const subcategory = selectOptions('subcategory', ['', ...CHOICES.sous_categorie], item.sous_categorie || '');
     const exercise = selectOptions('exercise', CHOICES.exercice_cible, '2026');
     const source = selectOptions('payment_source', CHOICES.source_paiement, 'BANQUE_PRO');
     const alias = selectOptions('tier_alias', ['', ...(CHOICES.tier_alias_targets || [])], item.tier_alias_target || '');
     return '<tr data-doc-id="' + esc(doc) + '">' +
-      '<td>' + esc(item.filename) + '</td>' +
+      '<td>' + esc(item.date_piece) + '</td>' +
+      '<td>' + esc(item.source) + '</td>' +
+      '<td>' + esc(item.fichier_ref || item.filename) + '</td>' +
       '<td>' + esc(item.fournisseur) + '</td>' +
-      '<td>' + esc(item.numero_piece) + '</td>' +
+      '<td>' + esc(item.libelle || item.numero_piece) + '</td>' +
       '<td>' + esc(item.montant_ttc) + '</td>' +
       '<td>' + esc(item.raison) + '</td>' +
       '<td>' + esc(item.action) + '</td>' +
       '<td>' + category + '</td>' +
+      '<td>' + subcategory + '</td>' +
       '<td>' + exercise + '</td>' +
       '<td>' + source + '</td>' +
-      '<td>' + alias + '</td>' +
-      '<td><button type="button" data-action="validate">Valider</button></td>' +
+      '<td>' + alias + ' <button type="button" data-action="validate">Valider</button></td>' +
       '</tr>';
   }}).join('');
   document.getElementById('questions').innerHTML =
     '<h2>Questions en attente</h2>' +
     '<table class="data pending"><thead><tr>' +
-    '<th>Fichier</th><th>Fournisseur</th><th>N° pièce</th>' +
-    '<th>Montant TTC</th><th>Pourquoi en attente</th><th>Action attendue</th>' +
-    '<th>Catégorie</th><th>Exercice</th><th>Source de paiement</th><th>Décision</th>' +
+    '<th>Date</th><th>Source</th><th>Fichier / Réf</th>' +
+    '<th>Fournisseur / Tiers</th><th>Libellé / N° Pièce</th>' +
+    '<th>Montant TTC (€)</th><th>Pourquoi en attente</th><th>Action attendue</th>' +
+    '<th>Catégorie</th><th>Sous-Catégorie</th><th>Exercice Année</th>' +
+    '<th>Source de paiement</th><th>Décision</th>' +
     '</tr></thead><tbody>' + rows + '</tbody></table>';
 }}
 async function validerPiece(docId, button) {{
   const row = button.closest('tr');
   const category = row.querySelector('select[data-role="category"]').value;
+  const subcategory = row.querySelector('select[data-role="subcategory"]')
+    ? row.querySelector('select[data-role="subcategory"]').value
+    : '';
   const exercise = row.querySelector('select[data-role="exercise"]').value;
   const source = row.querySelector('select[data-role="payment_source"]').value;
   const alias = row.querySelector('select[data-role="tier_alias"]')
@@ -424,6 +449,7 @@ async function validerPiece(docId, button) {{
       doc_id: docId,
       decision: 'VALIDE',
       category: category,
+      expense_subcategory: subcategory || null,
       fiscal_year_target: exercise,
       payment_source: source,
       tier_alias_target: alias

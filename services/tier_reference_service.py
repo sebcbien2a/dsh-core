@@ -29,6 +29,7 @@ from services.bank_reconciliation_service import (
     CLIENT_INVOICE_PATTERN,
     CLIENT_INVOICE_REFERENCE_PATTERN,
     INVALID_TIER_NAMES,
+    authoritative_supplier,
     is_remise_cheques,
     is_remise_encaissement,
 )
@@ -532,6 +533,34 @@ SEED_TIERS: tuple[TierRecord, ...] = (
         aliases=("TRADEINN", "DIVEINN", "TREKKINN", "MOTARDINN"),
         payment_method="CARTE_BANCAIRE",
     ),
+    # P27-nonies - insurance premiums debited by Caisse d'Épargne / BPCE IARD
+    # are VAT-exempt company expenses (account 616000), not fuel.
+    TierRecord(
+        "CAISSE_D_EPARGNE_ASSURANCE",
+        "FOURNISSEUR",
+        "FRAIS_GENERAUX",
+        "ASSURANCES_SOCIETE",
+        aliases=(
+            "BPCE IARD",
+            "PRLV BPCE IARD",
+            "BPCE ASSURANCE",
+            "CAISSE D'EPARGNE ASSURANCE",
+            "CAISSE D EPARGNE ASSURANCE",
+            "IARD",
+        ),
+        payment_method="PRELEVEMENT",
+    ),
+    # P27-nonies - web hosting / domains / SaaS billed by Mise Sur Orbite.
+    TierRecord(
+        "MISE_SUR_ORBITE",
+        "FOURNISSEUR",
+        "FRAIS_GENERAUX",
+        "INFORMATIQUE_WEB",
+        aliases=("MISE SUR ORBITE", "SARL MISE SUR ORBITE"),
+        payment_method="VIREMENT",
+        siren="820130714",
+        iban=(),
+    ),
 )
 
 
@@ -646,6 +675,11 @@ class TierReferenceService:
         text = str(value or "").strip()
         if not text:
             return None
+        forced = authoritative_supplier(text)
+        if forced is not None:
+            for record in self.records():
+                if record.canonical == forced:
+                    return record
         for record in self.records():
             if record.matches(text):
                 return record

@@ -24,6 +24,7 @@ from schemas.folder_state_schema import (
     DocumentCategory,
     ExpenseSubCategory,
     FolderState,
+    expense_subcategory_folder_name,
 )
 from services.bank_reconciliation_service import (
     CLIENT_SALES_CATEGORY,
@@ -392,7 +393,7 @@ class FolderTree:
             ) from None
         return (
             self.category_dir(state, DocumentCategory.FRAIS_GENERAUX)
-            / selected.value
+            / expense_subcategory_folder_name(selected)
         )
 
     def rejet_manuel_dir(self) -> Path:
@@ -436,7 +437,10 @@ def ensure_tree(
     for state in CATEGORISED_STATES:
         frais_generaux = state_dirs[state] / DocumentCategory.FRAIS_GENERAUX.value
         for subcategory in ExpenseSubCategory:
-            _mkdir(frais_generaux / subcategory.value)
+            _mkdir(
+                frais_generaux
+                / expense_subcategory_folder_name(subcategory)
+            )
 
     _mkdir(state_dirs[FolderState.ARCHIVE_ERREUR] / REJET_MANUEL_DIR)
 

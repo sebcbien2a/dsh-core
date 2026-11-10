@@ -36,6 +36,7 @@ from schemas.folder_state_schema import (
     MissingFieldEnum,
     PaymentSource,
     TvaDedupStatus,
+    expense_subcategory_folder_name,
     classify_marker,
     counterparty_account_for_payment_source,
     normalize_payment_source,
@@ -408,6 +409,8 @@ def test_expense_subcategory_contract_and_missing_fields():
         "INFORMATIQUE_WEB",
         "HONORAIRES_JURIDIQUES",
         "FRAIS_REPRESENTATION_PRESIDENT",
+        "PROMOTION_CADEAUX_PUBLICITE",
+        "ASSURANCES_SOCIETE",
     ]
     assert MissingFieldEnum.INVITE_RESTAURANT.value == "invite_restaurant"
     assert MissingFieldEnum.LIEU_RESTAURANT.value == "lieu_restaurant"
@@ -430,7 +433,7 @@ def test_expense_subcategory_physical_folders_under_03_and_04(tmp_path):
             directory = tree.expense_subcategory_dir(state, subcategory)
             assert directory.is_dir()
             assert directory.parent.name == GENERAL.value
-            assert directory.name == subcategory.value
+            assert directory.name == expense_subcategory_folder_name(subcategory)
 
 
 def test_expense_export_creates_global_and_four_subtables(tmp_path):
@@ -443,13 +446,13 @@ def test_expense_export_creates_global_and_four_subtables(tmp_path):
     assert set(report.subtable_paths) == set(ExpenseSubCategory)
     for subcategory, path in report.subtable_paths.items():
         assert path.is_file()
-        assert path.parent.name == subcategory.value
+        assert path.parent.name == expense_subcategory_folder_name(subcategory)
         assert path.parent.parent.name == GENERAL.value
         assert header_of(path) == EXPENSE_SUBCATEGORY_HEADERS[subcategory]
         assert report.subcategory_counts[subcategory] == 1
         folder_03, folder_04 = report.subfolders[subcategory]
-        assert folder_03.name == subcategory.value
-        assert folder_04.name == subcategory.value
+        assert folder_03.name == expense_subcategory_folder_name(subcategory)
+        assert folder_04.name == expense_subcategory_folder_name(subcategory)
 
 
 def test_restaurant_subtable_has_invite_and_place_columns(tmp_path):

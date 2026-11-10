@@ -545,6 +545,9 @@ def find_piece_for_document(
         if not root.is_dir():
             continue
         for path in sorted(root.rglob("*.pdf")):
+            if "SOURCE_OFX" in path.name.upper():
+                # P27-nonies - a raw OFX statement is never an invoice PDF.
+                continue
             candidate = re.sub(
                 r"[^A-Z0-9]", "", sanitize_component(path.stem, uppercase=True)
             )

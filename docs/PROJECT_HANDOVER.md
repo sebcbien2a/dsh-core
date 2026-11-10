@@ -275,3 +275,63 @@ graph LR
 ---
 
 *Source de vérité exécutive — le handover dit quoi lire ensuite ; les documents techniques spécialisés disent comment. Ne jamais relire tout le dépôt.*
+
+---
+
+## 5. P27-NONIES - MIROIR COCKPIT, ASSURANCES, PAIEMENTS INTERNES & NETTOYAGE WEB
+
+**Date** : 2026-11-10. **P?rim?tre** : quatre captures du dirigeant.
+
+### 5.1 Miroir Cockpit Web <-> `_A_COMPLETER.xlsx`
+- `services/acompleter_readable_service.py` : colonnes visibles exactes
+  `Date | Source | Fichier / R?f | Fournisseur / Tiers | Libell? / N? Pi?ce |
+  Montant TTC (?) | Pourquoi en attente | Action attendue | Cat?gorie |
+  Sous-Cat?gorie | Exercice Ann?e | Source de paiement | D?cision` ; colonnes
+  techniques cach?es (`SHA-256`, `Nom Fichier`, alias, exercice cible...).
+- `services/apd_four_stage_pipeline.py` : les tiers bancaires inconnus sont
+  agr?g?s (`JJ/MM/AAAA -> JJ/MM/AAAA (N op.)`, somme TTC, libell? bancaire
+  r?el, `BANQUE_OFX`) ; les lignes `_A_COMPLETER` et les questions du cockpit
+  proviennent de la m?me source.
+- `services/hermes_accounting_bridge.py` + `services/apd_control_panel.py` +
+  `scripts/cockpit_server.py` : le tableau ? Questions en attente ? expose
+  exactement les treize colonnes du classeur et valide imm?diatement la ligne.
+- `services/onedrive_accounting_bridge_service.py` : la fusion p?re/fils ?dite
+  d?sormais le classeur existant (styles, listes d?roulantes, colonnes cach?es,
+  largeurs) au lieu de reconstruire un `Workbook()` nu.
+
+### 5.2 Cat?gories, sous-cat?gories et tableaux d?di?s
+- `PAIEMENT_INTERNE_SOCIETE` (compte `580000`) ->
+  `SYNTHESE_APD_PAIEMENTS_INTERNES_SOCIETE.xlsx`.
+- `PAIEMENT_INTERNE_PERSO_REMBOURSEMENT` (compte `455100`) ->
+  `SYNTHESE_APD_COMPTE_COURANT_PERSO.xlsx`.
+- `PROMOTION_CADEAUX_PUBLICITE` (`623400`) ->
+  `FRAIS_GENERAUX/PROMOTION_CADEAUX/TABLEAU_PROMOTION_CADEAUX.xlsx`.
+- `ASSURANCES_SOCIETE` (`616000`, `EXONERE_ASSURANCE_0%`) ->
+  `FRAIS_GENERAUX/ASSURANCES_SOCIETE/TABLEAU_ASSURANCES_SOCIETE.xlsx`.
+- `REFERENTIEL_TIERS_APD.xlsx` : `CAISSE_D_EPARGNE_ASSURANCE` (alias
+  `BPCE IARD`, `PRLV BPCE IARD`) et `MISE_SUR_ORBITE` (alias
+  `MISE SUR ORBITE`, `SARL MISE SUR ORBITE`) sont des lignes verrouill?es.
+
+### 5.3 Corrections m?tier
+- `services/apd_p27nonies_repair_service.py` : r?pare `BPCE IARD` en
+  `FRAIS_GENERAUX / ASSURANCES_SOCIETE` (TVA `0,00 ?`), r?attribue la facture
+  `19544` ? `MISE_SUR_ORBITE`, sort la facture `ACTION` `18417` du tableau
+  informatique, rejette `DetailRemise_1_`, d?doublonne les `Receipt` OpenRouter
+  et unifie chaque achat avec son d?bit CB r?el (`10,74 ?`, `10,69 ?`, TVA 0).
+- `services/accounting_spreadsheet_export_service.py` : une seule ligne par
+  achat (facture + paiement CB), tol?rance devise `?0,50 ?`, lien vers la vraie
+  facture OpenRouter ; plus aucun lien `CAISSE_D_EPARGNE_SOURCE_OFX_*.pdf`.
+- `services/bank_reconciliation_service.py` / `inbox_ingestion_service.py` :
+  un marqueur fort (`MISE SUR ORBITE`, SIREN `820130714`, TVA
+  `FR55820130714`) interdit au mot ? action ? d'attribuer la pi?ce au magasin
+  `ACTION`.
+- `scripts/Activer_Ouverture_PDF_Locale_PC_Pere.bat` :
+  `DontUpdateLinks=1`, `ForceShellExecute=1`, `DisableHyperlinkWarning=1`
+  (HKCU et strat?gie Office) pour supprimer l'alerte OLE/DDE.
+
+### 5.4 Validation
+- `tests/test_p27nonies_cockpit_acompleter_mirror_subcategories_mise_sur_orbite_openrouter_and_no_ofx_pdf.py`
+  : 5 tests (miroir, tiers agr?g?s, assurance BPCE, cat?gories d?di?es,
+  nettoyage `TABLEAU_INFORMATIQUE_WEB`).
+- Commande de r?f?rence :
+  `.venv-v3\Scripts\python.exe scripts/refresh_cockpit.py --tenant APD --no-ingest`.

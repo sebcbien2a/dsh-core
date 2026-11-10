@@ -35,10 +35,14 @@ from services.accounting_spreadsheet_export_service import (  # noqa: E402
     MasterTableExporter,
     PersonalExpenseNoteExporter,
     SupplierLedgerExporter,
+    category_summary_is_mandatory,
 )
 from services.apd_four_stage_pipeline import ApdFourStagePipeline  # noqa: E402
 from services.apd_p27quinquies_repair_service import (  # noqa: E402
     repair_p27quinquies,
+)
+from services.apd_p27nonies_repair_service import (  # noqa: E402
+    repair_p27nonies,
 )
 from services.apd_p27sexies_repair_service import (  # noqa: E402
     repair_p27sexies,
@@ -254,7 +258,10 @@ def refresh_workbooks(
     )
     exported.extend(notes.paths.values())
     for category in DocumentCategory:
-        if not store.list_category_lines(tenant_id, category):
+        if (
+            not store.list_category_lines(tenant_id, category)
+            and not category_summary_is_mandatory(category)
+        ):
             continue
         path = CategorySummaryExporter(
             store, export_dir=export_dir, include_payment_date=True
@@ -316,6 +323,15 @@ def refresh_cockpit(
         pass
     try:
         repair_p27sexies(
+            store,
+            tenant,
+            tenant_dir=tree.root / tenant,
+            export_dir=base_export / tenant,
+        )
+    except Exception:  # noqa: BLE001 - repair never blocks the cockpit
+        pass
+    try:
+        repair_p27nonies(
             store,
             tenant,
             tenant_dir=tree.root / tenant,

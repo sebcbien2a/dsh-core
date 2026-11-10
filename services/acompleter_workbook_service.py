@@ -43,7 +43,10 @@ from services.folder_tree_service import (
     validate_tenant_id,
 )
 from services.pdf_splitter_and_linker import PIECE_LINK_HEADER
-from services.acompleter_readable_service import READABLE_HEADERS, ReadableRow
+from services.acompleter_readable_service import (
+    LEGACY_READABLE_HEADERS,
+    ReadableRow,
+)
 from schemas.accounting_choices import (
     CATEGORY_CHOICES,
     COUNTERPARTY_ACCOUNT_CHOICES,
@@ -87,7 +90,7 @@ P17_EXTENSION_HEADERS: tuple[str, ...] = (
 EXTENDED_HEADERS: tuple[str, ...] = HEADERS + P17_EXTENSION_HEADERS
 # P22 appends the manager-facing readable columns. They are only materialised
 # by ``write_readable_rows`` so the frozen P14/P17 creation contract is intact.
-P22_EXTENSION_HEADERS: tuple[str, ...] = READABLE_HEADERS
+P22_EXTENSION_HEADERS: tuple[str, ...] = LEGACY_READABLE_HEADERS
 P22_FIRST_COLUMN = len(EXTENDED_HEADERS) + 1
 P22_LAST_COLUMN = P22_FIRST_COLUMN + len(P22_EXTENSION_HEADERS) - 1
 LOCK_GLOB = "~$*.xlsx"
@@ -103,9 +106,13 @@ OUTCOME_PRESERVED = "preserved"
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 
 _VALIDATION_LISTS: dict[str, tuple[str, ...]] = {
+    "catégorie": CATEGORY_CHOICES,
     "catégorie suggérée": CATEGORY_CHOICES,
     "catégorie proposée": CATEGORY_CHOICES,
+    "sous-catégorie": SUBCATEGORY_CHOICES,
     "statut": STATUS_CHOICES,
+    "décision": STATUS_CHOICES,
+    "source": ("BANQUE_OFX", "PIECE_PDF"),
     "sous-catégorie frais": SUBCATEGORY_CHOICES,
     "mode exercice fiscal": ("ACTUEL", "SUIVANT", "PRECEDENT"),
     "exercice cible": EXERCISE_CHOICES,

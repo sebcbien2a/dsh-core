@@ -21,7 +21,12 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from schemas.folder_state_schema import DocumentCategory, DocumentStatus, FolderState
+from schemas.folder_state_schema import (
+    DocumentCategory,
+    DocumentStatus,
+    ExpenseSubCategory,
+    FolderState,
+)
 from services.acompleter_workbook_service import (
     AcompleterWorkbook,
     AcompleterWorkbookError,
@@ -252,6 +257,9 @@ class HermesAccountingBridge:
         }
 
     def list_pending_questions(self) -> list[dict[str, Any]]:
+        readable = self._readable_pending_questions()
+        if readable:
+            return readable
         questions: list[dict[str, Any]] = []
         seen: set[str] = set()
         for row in self._rows():
@@ -259,6 +267,20 @@ class HermesAccountingBridge:
                 continue
             if row.sha256 in seen:
                 continue
+            if row.nom_fichier.startswith("TIER__") and row.nom_fichier.endswith(
+                ".tier"
+            ):
+                tier_name = row.nom_fichier[
+                    len("TIER__") : -len(".tier")
+                ]
+                try:
+                    resolved = self._pipeline._tier_reference.resolve(
+                        tier_name
+                    )
+                except Exception:  # noqa: BLE001
+                    resolved = None
+                if resolved is not None:
+                    continue
             seen.add(row.sha256)
             path = self._file_for_row(row)
             line = self._store.get_line(
@@ -286,6 +308,49 @@ class HermesAccountingBridge:
                 or (evidence.category.value if evidence is not None else "")
                 or row.categorie_suggeree
             )
+            document_type = _text((line or {}).get("document_type")).upper()
+            line_id = _text((line or {}).get("line_id")).upper()
+            bank_line = (
+                document_type in {"OFX", "QFX"}
+                or line_id.startswith("OFX-")
+                or (line or {}).get("debit_amount") not in (None, "")
+                or (line or {}).get("credit_amount") not in (None, "")
+            )
+            subcategory = _text((line or {}).get("expense_subcategory"))
+            if not subcategory:
+                try:
+                    from services.accounting_spreadsheet_export_service import (
+                        _infer_expense_subcategory,
+                    )
+
+                    inferred = (
+                        _infer_expense_subcategory(line or {})
+                        if line
+                        else None
+                    )
+                    subcategory = inferred.value if inferred is not None else ""
+                except Exception:  # noqa: BLE001
+                    subcategory = ""
+            amount_ttc = _decimal((line or {}).get("amount_ttc"))
+            if amount_ttc is None:
+                amount_ttc = _decimal(
+                    (line or {}).get("debit_amount")
+                    or (line or {}).get("credit_amount")
+                )
+            raw_date = _text((line or {}).get("operation_date"))
+            date_label = ""
+            if raw_date:
+                parsed_date = _date(raw_date)
+                date_label = (
+                    parsed_date.strftime("%d/%m/%Y")
+                    if parsed_date is not None
+                    else raw_date
+                )
+            label = _text(
+                (line or {}).get("label")
+                or (line or {}).get("invoice_id")
+                or number
+            )
             piece = (
                 relative_link(path, self._tenant_dir / "_A_COMPLETER.xlsx")
                 if path is not None
@@ -306,22 +371,28 @@ class HermesAccountingBridge:
                     "id_document": row.id_document or derive_document_id(row.sha256),
                     "filename": row.nom_fichier,
                     "nom_fichier": row.nom_fichier,
+                    "fichier_ref": row.nom_fichier,
                     "supplier": supplier,
                     "fournisseur": supplier,
                     "document_number": number,
                     "numero_piece": number,
-                    "document_date": (
-                        _text((line or {}).get("operation_date")) or None
-                    ),
-                    "date_piece": _date((line or {}).get("operation_date")),
+                    "libelle": label,
+                    "label": label,
+                    "document_date": raw_date or None,
+                    "date_piece": date_label,
+                    "date": date_label,
+                    "source": "BANQUE_OFX" if bank_line else "PIECE_PDF",
                     "amount_ht": _decimal((line or {}).get("amount_ht")),
                     "ht": _decimal((line or {}).get("amount_ht")),
                     "amount_tva": _decimal((line or {}).get("amount_tva")),
                     "tva": _decimal((line or {}).get("amount_tva")),
-                    "amount_ttc": _decimal((line or {}).get("amount_ttc")),
-                    "ttc": _decimal((line or {}).get("amount_ttc")),
+                    "amount_ttc": amount_ttc,
+                    "ttc": amount_ttc,
+                    "montant_ttc": amount_ttc,
                     "category": category,
                     "categorie": category,
+                    "subcategory": subcategory,
+                    "sous_categorie": subcategory,
                     "question": reason,
                     "pourquoi": reason,
                     "why": reason,
@@ -329,6 +400,8 @@ class HermesAccountingBridge:
                     "advice": action,
                     "conseil": action,
                     "action": action,
+                    "decision": row.statut,
+                    "statut": row.statut,
                     "piece_pdf": piece,
                     "link": piece,
                     "tier_alias_target": (
@@ -345,6 +418,125 @@ class HermesAccountingBridge:
                 }
             )
         return questions
+
+    def _readable_pending_questions(self) -> list[dict[str, Any]]:
+        """Mirror ``_A_COMPLETER.xlsx`` exactly for the web cockpit."""
+        from openpyxl import load_workbook
+
+        path = (
+            self._tree.state_dir(FolderState.A_COMPLETER) / "_A_COMPLETER.xlsx"
+        )
+        if not path.is_file():
+            return []
+        try:
+            workbook = load_workbook(path, data_only=True)
+        except Exception:  # noqa: BLE001 - a locked workbook falls back
+            return []
+        try:
+            sheet = workbook.active
+            headers = {
+                _text(cell.value): cell.column
+                for cell in next(sheet.iter_rows(min_row=1, max_row=1))
+                if _text(cell.value)
+            }
+            required = ("Fichier / Réf", "Fournisseur / Tiers")
+            if not all(name in headers for name in required):
+                return []
+            alias_choices = list(
+                self._pipeline._tier_reference.alias_targets()
+            )
+
+            def value(row: Any, name: str) -> Any:
+                column = headers.get(name)
+                if column is None:
+                    return None
+                return row[column - 1].value
+
+            questions: list[dict[str, Any]] = []
+            for row in sheet.iter_rows(min_row=2):
+                filename = _text(value(row, "Fichier / Réf"))
+                sha = _text(value(row, "SHA-256"))
+                if not filename and not sha:
+                    continue
+                supplier = _text(value(row, "Fournisseur / Tiers"))
+                label = _text(value(row, "Libellé / N° Pièce")) or filename
+                date_label = _text(value(row, "Date"))
+                source = _text(value(row, "Source")) or (
+                    "BANQUE_OFX"
+                    if filename.upper().startswith(
+                        ("TIER__", "INSTRUMENT__")
+                    )
+                    else "PIECE_PDF"
+                )
+                category = _text(value(row, "Catégorie"))
+                subcategory = _text(value(row, "Sous-Catégorie"))
+                payment_source = _text(value(row, "Source de paiement"))
+                exercise = _text(value(row, "Exercice Année"))
+                reason = _text(value(row, "Pourquoi en attente"))
+                action = _text(value(row, "Action attendue"))
+                decision = _text(value(row, "Décision")) or (
+                    DocumentStatus.EN_ATTENTE.value
+                )
+                alias_target = _text(
+                    value(
+                        row,
+                        "Rattacher comme ALIAS de (ou NOUVEAU_TIERS)",
+                    )
+                )
+                amount_ttc = _decimal(value(row, "Montant TTC (€)"))
+                piece = ""
+                column = headers.get("Fichier / Réf")
+                if column is not None:
+                    link = row[column - 1].hyperlink
+                    if link is not None and link.target:
+                        target = str(link.target)
+                        if "SOURCE_OFX" not in target.upper():
+                            piece = target
+                doc_id = filename or sha
+                questions.append(
+                    {
+                        "doc_id": doc_id,
+                        "id_document": doc_id,
+                        "filename": filename,
+                        "nom_fichier": filename,
+                        "fichier_ref": filename,
+                        "supplier": supplier,
+                        "fournisseur": supplier,
+                        "document_number": label,
+                        "numero_piece": label,
+                        "libelle": label,
+                        "label": label,
+                        "date_piece": date_label,
+                        "date": date_label,
+                        "document_date": date_label,
+                        "source": source,
+                        "amount_ttc": amount_ttc,
+                        "ttc": amount_ttc,
+                        "montant_ttc": amount_ttc,
+                        "category": category,
+                        "categorie": category,
+                        "subcategory": subcategory,
+                        "sous_categorie": subcategory,
+                        "question": reason,
+                        "pourquoi": reason,
+                        "why": reason,
+                        "reason": reason,
+                        "advice": action,
+                        "conseil": action,
+                        "action": action,
+                        "decision": decision,
+                        "statut": decision,
+                        "exercise_year": exercise,
+                        "source_paiement": payment_source,
+                        "piece_pdf": piece,
+                        "link": piece,
+                        "tier_alias_target": alias_target,
+                        "tier_alias_choices": alias_choices,
+                    }
+                )
+            return questions
+        finally:
+            workbook.close()
 
     def decide_document(
         self,
@@ -370,6 +562,11 @@ class HermesAccountingBridge:
                 self._pipeline._tier_reference.learn_alias(name, target)
                 self._pipeline._apply_tier_reference()
                 self._align(row.sha256, DocumentStatus.VALIDE)
+                try:
+                    self._pipeline._write_readable_views()
+                except Exception:  # noqa: BLE001 - decision already persisted
+                    pass
+                self._push_onedrive()
                 return {
                     "doc_id": _text(doc_id),
                     "decision": DocumentStatus.VALIDE.value,
@@ -656,6 +853,14 @@ class HermesAccountingBridge:
             updated_category = normalize_category(arb.get("category"))
             if updated_category:
                 updated["category"] = updated_category
+            subcategory = str(arb.get("expense_subcategory") or "").strip()
+            if subcategory:
+                try:
+                    updated["expense_subcategory"] = ExpenseSubCategory(
+                        subcategory
+                    ).value
+                except ValueError:
+                    pass
             payment_source = normalize_payment_source(
                 arb.get("payment_source")
             )

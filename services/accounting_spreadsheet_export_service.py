@@ -44,6 +44,7 @@ from schemas.folder_state_schema import (
     TvaDedupStatus,
     classify_marker,
     counterparty_account_for_payment_source,
+    expense_subcategory_folder_name,
     normalize_payment_source,
 )
 from services.folder_tree_service import ensure_tree
@@ -665,6 +666,8 @@ def _stored_piece_path(
     normalized = stored.replace("\\", "/").strip()
     if not normalized:
         return None
+    if _is_fake_bank_source_piece(normalized):
+        return None
     if "PIECES_JOINTES/" in normalized:
         relative = normalized.split("PIECES_JOINTES/", 1)[1].lstrip("/")
         current = workbook_path.resolve().parent
@@ -703,6 +706,20 @@ def _cover_piece_locally(
     return target
 
 
+def _is_fake_bank_source_piece(value: Any) -> bool:
+    """Return ``True`` for raw OFX statements masquerading as invoice PDFs.
+
+    P27-nonies - a purely bank line never carries a hyperlink towards
+    ``CAISSE_D_EPARGNE_SOURCE_OFX_*.pdf``. The statement is a technical
+    container, not a proof of expense.
+    """
+    normalized = str(value or "").replace("\\", "/").upper()
+    if not normalized:
+        return False
+    name = normalized.rsplit("/", 1)[-1]
+    return "SOURCE_OFX" in name or "CAISSE_D_EPARGNE_SOURCE_OFX" in name
+
+
 def _piece_link_for_row(
     workbook_path: Path, row: dict[str, Any]
 ) -> str | None:
@@ -710,12 +727,14 @@ def _piece_link_for_row(
     pieces_root = _pieces_root_for_workbook(workbook)
     for value in (row.get("piece_pdf"), row.get("invoice_url")):
         stored = str(value or "").strip()
-        if not stored:
+        if not stored or _is_fake_bank_source_piece(stored):
             continue
         normalized = stored.replace("\\", "/")
         marker = "PIECES_JOINTES/"
         if marker in normalized:
             relative = normalized.split(marker, 1)[1].lstrip("/")
+            if _is_fake_bank_source_piece(relative):
+                continue
             if pieces_root is None:
                 pieces_root = workbook.resolve().parent / "PIECES_JOINTES"
             candidate = pieces_root / relative
@@ -737,7 +756,7 @@ def _piece_link_for_row(
     found = find_piece_for_document(
         pieces_root.parent, number, side=_piece_side_for_row(row)
     )
-    if found is None:
+    if found is None or _is_fake_bank_source_piece(found):
         return None
     return _local_piece_link(Path(found).resolve(), workbook)
 
@@ -760,6 +779,8 @@ def _write_piece_link(
     if not isinstance(value, str) or not value.strip():
         return False
     normalized = value.replace("\\", "/")
+    if _is_fake_bank_source_piece(normalized):
+        return False
     if not isinstance(value, PieceLink) and not normalized.startswith(
         "PIECES_JOINTES/"
     ):
@@ -798,6 +819,10 @@ def _payment_date_cell(row: dict[str, Any]) -> Any:
         row.get("already_paid_on_invoice") or ""
     ).strip() in {"1", "true", "oui"}
     if not paid:
+        if _is_bank_operation(row):
+            bank_date = _date_cell(row.get("operation_date"))
+            if bank_date != "":
+                return bank_date
         return "EN ATTENTE"
     raw = (
         row.get("reconciliation_date")
@@ -1019,7 +1044,9 @@ class CategorySummaryExporter:
             if output_path is not None
             else self._export_dir
             / tenant
-            / f"SYNTHESE_{tenant}_{selected.value}.xlsx"
+            / DEDICATED_CATEGORY_FILENAMES.get(
+                selected, f"SYNTHESE_{tenant}_{selected.value}.xlsx"
+            )
         )
         records = [_summary_record(row) for row in rows]
         for record, row in zip(records, rows):
@@ -3455,6 +3482,24 @@ EXPENSE_SUBCATEGORY_HEADERS: dict[ExpenseSubCategory, tuple[str, ...]] = {
         "TVA",
         "TTC",
     ),
+    ExpenseSubCategory.PROMOTION_CADEAUX_PUBLICITE: (
+        "Date",
+        "Date de Paiement",
+        "Fournisseur",
+        "Description",
+        "HT",
+        "TVA",
+        "TTC",
+    ),
+    ExpenseSubCategory.ASSURANCES_SOCIETE: (
+        "Date",
+        "Date de Paiement",
+        "Compagnie / Contrat",
+        "Description",
+        "HT",
+        "TVA (EXONERE_ASSURANCE_0%)",
+        "TTC",
+    ),
 }
 EXPENSE_SYNTHESIS_HEADERS: tuple[str, ...] = (
     "Sous-catégorie",
@@ -3465,6 +3510,43 @@ EXPENSE_SYNTHESIS_HEADERS: tuple[str, ...] = (
 )
 EXPENSE_SYNTHESIS_FILENAME = "SYNTHESE_FRAIS_GENERAUX.xlsx"
 EXPENSE_SUBTABLE_FILENAME = "TABLEAU_{subcategory}.xlsx"
+# P27-nonies - the director-facing names keep the physical folder readable.
+EXPENSE_SUBTABLE_NAMES: dict[ExpenseSubCategory, str] = {
+    ExpenseSubCategory.PROMOTION_CADEAUX_PUBLICITE: (
+        "TABLEAU_PROMOTION_CADEAUX.xlsx"
+    ),
+    ExpenseSubCategory.ASSURANCES_SOCIETE: "TABLEAU_ASSURANCES_SOCIETE.xlsx",
+}
+# Dedicated internal-transfer summaries (outside the operating result).
+DEDICATED_CATEGORY_FILENAMES: dict[DocumentCategory, str] = {
+    DocumentCategory.PAIEMENT_INTERNE_SOCIETE: (
+        "SYNTHESE_APD_PAIEMENTS_INTERNES_SOCIETE.xlsx"
+    ),
+    DocumentCategory.PAIEMENT_INTERNE_PERSO_REMBOURSEMENT: (
+        "SYNTHESE_APD_COMPTE_COURANT_PERSO.xlsx"
+    ),
+}
+DEDICATED_CATEGORY_LABELS: dict[DocumentCategory, str] = {
+    DocumentCategory.PAIEMENT_INTERNE_SOCIETE: (
+        "Paiements internes société (compte 580000)"
+    ),
+    DocumentCategory.PAIEMENT_INTERNE_PERSO_REMBOURSEMENT: (
+        "Compte courant d'associé (compte 455100)"
+    ),
+}
+
+
+def category_summary_is_mandatory(
+    category: DocumentCategory | str,
+) -> bool:
+    """Return ``True`` for the P27-nonies dedicated internal summaries."""
+    try:
+        selected = DocumentCategory(category)
+    except (TypeError, ValueError):
+        return False
+    return selected in DEDICATED_CATEGORY_FILENAMES
+
+
 MASTER_PIECES_FILENAME = "TABLEAU_MERE_PIECES_COMPTABLES.xlsx"
 MASTER_ACHATS_FILENAME = MASTER_PIECES_FILENAME
 LEGACY_MASTER_ACHATS_FILENAME = "TABLEAU_MERE_ACHATS_CHARGES.xlsx"
@@ -3523,6 +3605,32 @@ _SUBCATEGORY_KEYWORDS: tuple[tuple[ExpenseSubCategory, tuple[str, ...]], ...] = 
             "tradeinn",
             "representation",
             "représentation",
+        ),
+    ),
+    (
+        ExpenseSubCategory.ASSURANCES_SOCIETE,
+        (
+            "bpce iard",
+            "assurance",
+            "assurances",
+            "prime d'assurance",
+            "primes d'assurance",
+            "maif",
+            "axa",
+            "allianz",
+            "generali",
+            "mma",
+        ),
+    ),
+    (
+        ExpenseSubCategory.PROMOTION_CADEAUX_PUBLICITE,
+        (
+            "cadeaux",
+            "cadeau client",
+            "promotion",
+            "publicite",
+            "publicité",
+            "goodies",
         ),
     ),
     (
@@ -3821,6 +3929,7 @@ def _expense_row_values(
         ExpenseSubCategory.INFORMATIQUE_WEB,
         ExpenseSubCategory.HONORAIRES_JURIDIQUES,
         ExpenseSubCategory.FRAIS_REPRESENTATION_PRESIDENT,
+        ExpenseSubCategory.PROMOTION_CADEAUX_PUBLICITE,
     ):
         return (
             date_value,
@@ -3831,6 +3940,18 @@ def _expense_row_values(
             or _text_field(row, "invoice_url"),
             ht,
             tva,
+            ttc,
+        )
+    if subcategory is ExpenseSubCategory.ASSURANCES_SOCIETE:
+        return (
+            date_value,
+            payment_value,
+            record["counterparty"],
+            _text_field(row, "label")
+            or record["invoice_id"]
+            or _text_field(row, "invoice_url"),
+            ht,
+            Decimal("0.00"),
             ttc,
         )
     accommodation = _decimal_field(row, "ht_accommodation") or ht
@@ -3854,10 +3975,223 @@ def _expense_row_values(
     )
 
 
+_FX_MATCH_TOLERANCE = Decimal("0.50")
+
+
+def _is_bank_line(row: dict[str, Any]) -> bool:
+    document_type = str(row.get("document_type") or "").strip().upper()
+    line_id = str(row.get("line_id") or "").strip().upper()
+    return (
+        document_type in {"OFX", "QFX"}
+        or line_id.startswith("OFX-")
+        or _decimal(row.get("debit_amount")) is not None
+        or _decimal(row.get("credit_amount")) is not None
+    )
+
+
+def _bank_ttc(row: dict[str, Any]) -> Decimal | None:
+    debit = _decimal(row.get("debit_amount"))
+    credit = _decimal(row.get("credit_amount"))
+    movement = abs((debit or Decimal("0")) - (credit or Decimal("0")))
+    if movement:
+        return movement.quantize(_CENT)
+    return _decimal(row.get("amount_ttc"))
+
+
+def _fact_date_in_label(label: Any) -> date_cls | None:
+    """Read ``FACT 021126`` -> 02/11/2026 used by card statements."""
+    text = re.sub(r"\s+", " ", str(label or "")).upper()
+    match = re.search(r"FACT(?:URE)?\s*(\d{6})", text)
+    if match is None:
+        return None
+    raw = match.group(1)
+    try:
+        day = int(raw[:2])
+        month = int(raw[2:4])
+        year = 2000 + int(raw[4:6])
+        return date_cls(year, month, day)
+    except ValueError:
+        return None
+
+
+def _same_purchase_amount(
+    invoice_amount: Decimal | None,
+    bank_amount: Decimal | None,
+    row: dict[str, Any],
+) -> bool:
+    if invoice_amount is None or bank_amount is None:
+        return False
+    difference = abs(invoice_amount - bank_amount)
+    if difference < _CENT:
+        return True
+    currency = str(row.get("currency") or "").upper()
+    return (
+        difference <= _FX_MATCH_TOLERANCE
+        and (
+            currency == "USD"
+            or _fact_date_in_label(row.get("label")) is not None
+        )
+    )
+
+
+def _match_bank_for_invoice(
+    invoice_row: dict[str, Any],
+    bank_rows: list[dict[str, Any]],
+    used_ids: set[str],
+) -> dict[str, Any] | None:
+    """Find the single card debit that paid one invoice (P27-nonies)."""
+    supplier = _fold(invoice_row.get("counterparty") or "")
+    if not supplier:
+        return None
+    invoice_date = _parse_iso_date(invoice_row.get("operation_date"))
+    invoice_amount = _summary_record(invoice_row)["ttc"]
+    best: tuple[float, dict[str, Any]] | None = None
+    for bank in bank_rows:
+        bank_id = str(bank.get("line_id") or "")
+        if bank_id in used_ids:
+            continue
+        if _fold(bank.get("counterparty") or "") != supplier:
+            continue
+        if _is_technical_piece_row(bank):
+            continue
+        bank_amount = _bank_ttc(bank)
+        if not _same_purchase_amount(invoice_amount, bank_amount, bank):
+            continue
+        bank_date = _parse_iso_date(bank.get("operation_date"))
+        fact_date = _fact_date_in_label(bank.get("label"))
+        distance = 999.0
+        if invoice_date is not None and bank_date is not None:
+            if bank_date < invoice_date:
+                continue
+            distance = float((bank_date - invoice_date).days)
+            if distance > 20:
+                continue
+        if fact_date is not None and invoice_date is not None:
+            if fact_date != invoice_date and distance > 3:
+                continue
+            if fact_date == invoice_date:
+                distance = 0.0
+        if best is None or distance < best[0]:
+            best = (distance, bank)
+    return best[1] if best is not None else None
+
+
+def _dedupe_receipt_and_invoice_rows(
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Drop the payment ``Receipt`` twin when the real ``Invoice`` exists."""
+    groups: dict[tuple[str, str, Decimal], list[dict[str, Any]]] = {}
+    passthrough: list[dict[str, Any]] = []
+    for row in rows:
+        if _is_bank_line(row):
+            passthrough.append(row)
+            continue
+        record = _summary_record(row)
+        label = _fold(row.get("label") or row.get("invoice_id") or "")
+        if "receipt" not in label and "invoice" not in label:
+            passthrough.append(row)
+            continue
+        key = (
+            _fold(row.get("counterparty") or ""),
+            str(record["date"] or ""),
+            record["ttc"] or Decimal("0.00"),
+        )
+        groups.setdefault(key, []).append(row)
+    result = list(passthrough)
+    for items in groups.values():
+        invoice = next(
+            (
+                item
+                for item in items
+                if "invoice" in _fold(
+                    item.get("label") or item.get("invoice_id") or ""
+                )
+            ),
+            None,
+        )
+        if invoice is None:
+            result.extend(items)
+            continue
+        result.append(invoice)
+    return result
+
+
+def _unify_expense_rows(
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Return one accounting line per purchase, invoice + card debit merged.
+
+    A matched card debit no longer appears as a second ``EN ATTENTE`` line: the
+    invoice keeps the real piece PDF and receives the bank payment date plus
+    the actual debited euros (TVA forced to 0,00 for the OpenRouter USD case).
+    """
+    filtered = [
+        row
+        for row in rows
+        if not _is_technical_piece_row(row)
+    ]
+    filtered = _dedupe_receipt_and_invoice_rows(filtered)
+    bank_rows = [row for row in filtered if _is_bank_line(row)]
+    invoices = [row for row in filtered if not _is_bank_line(row)]
+    used_ids: set[str] = set()
+    merged_rows: list[dict[str, Any]] = []
+    for invoice in invoices:
+        bank = _match_bank_for_invoice(invoice, bank_rows, used_ids)
+        if bank is None:
+            merged_rows.append(invoice)
+            continue
+        used_ids.add(str(bank.get("line_id") or ""))
+        merged = dict(invoice)
+        bank_date = _parse_iso_date(bank.get("operation_date"))
+        bank_amount = _bank_ttc(bank)
+        merged["reconciliation_date"] = (
+            bank_date.isoformat() if bank_date is not None else bank.get(
+                "operation_date"
+            )
+        )
+        merged["reconciliation_status"] = "PAYEE_RAPPROCHEE"
+        merged["payment_source"] = (
+            str(invoice.get("payment_source") or "") or "BANQUE_PRO"
+        )
+        invoice_ttc = _summary_record(invoice)["ttc"]
+        if (
+            bank_amount is not None
+            and (
+                invoice_ttc is None
+                or abs(invoice_ttc - bank_amount) >= _CENT
+            )
+        ):
+            # Foreign-currency card debit (OpenRouter USD): keep the real
+            # debited euros and force VAT to 0,00.
+            merged["amount_ht"] = str(bank_amount)
+            merged["amount_tva"] = "0.00"
+            merged["amount_ttc"] = str(bank_amount)
+        bank_label = str(bank.get("label") or "").strip()
+        if bank_label:
+            merged["label"] = (
+                f"{invoice.get('label') or invoice.get('invoice_id') or ''}"
+                f" (CB {bank_date.strftime('%d/%m/%Y')})"
+                if bank_date is not None
+                else f"{invoice.get('label') or ''} ({bank_label})"
+            )
+        merged_rows.append(merged)
+    merged_rows.extend(
+        row
+        for row in bank_rows
+        if str(row.get("line_id") or "") not in used_ids
+    )
+    return sorted(
+        merged_rows,
+        key=lambda row: (
+            _parse_iso_date(row.get("operation_date")) or date_cls.max,
+            str(row.get("line_id") or row.get("invoice_id") or ""),
+        ),
+    )
+
+
 @dataclass(frozen=True)
 class ExpenseSubCategoryExportReport:
     """Paths produced by the four expense sub-tables and the global summary."""
-
     global_path: Path
     subtable_paths: dict[ExpenseSubCategory, Path]
     subfolders: dict[ExpenseSubCategory, tuple[Path, Path]]
@@ -4006,8 +4340,10 @@ class ExpenseSubCategoryExporter:
         frais_dir = base / DocumentCategory.FRAIS_GENERAUX.value
         frais_dir.mkdir(parents=True, exist_ok=True)
 
-        rows = self._store.list_category_lines(
-            tenant, DocumentCategory.FRAIS_GENERAUX
+        rows = _unify_expense_rows(
+            self._store.list_category_lines(
+                tenant, DocumentCategory.FRAIS_GENERAUX
+            )
         )
         grouped: dict[ExpenseSubCategory, list[tuple[Any, ...]]] = {
             subcategory: [] for subcategory in ExpenseSubCategory
@@ -4039,10 +4375,15 @@ class ExpenseSubCategoryExporter:
             )
             subfolder_03.mkdir(parents=True, exist_ok=True)
             subfolder_04.mkdir(parents=True, exist_ok=True)
-            target_dir = frais_dir / subcategory.value
+            target_dir = frais_dir / expense_subcategory_folder_name(
+                subcategory
+            )
             target_dir.mkdir(parents=True, exist_ok=True)
-            path = target_dir / EXPENSE_SUBTABLE_FILENAME.format(
-                subcategory=subcategory.value
+            path = target_dir / EXPENSE_SUBTABLE_NAMES.get(
+                subcategory,
+                EXPENSE_SUBTABLE_FILENAME.format(
+                    subcategory=subcategory.value
+                ),
             )
             linked_values = [
                 (*value, _piece_link_for_row(path, row))

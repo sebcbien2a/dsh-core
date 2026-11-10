@@ -30,11 +30,16 @@ from typing import Any, Callable, Iterable
 from schemas.folder_state_schema import (
     DEFERRED_MONTHS,
     DIRIGEANT_COUNTERPART_ACCOUNT,
+    EXPENSE_SUBCATEGORY_ACCOUNTS,
     DocumentCategory,
     DocumentStatus,
     ExpenseSubCategory,
     FolderState,
     PaymentSource,
+)
+from schemas.accounting_choices import (
+    CATEGORY_ACCOUNTS,
+    INTERNAL_CATEGORY_CHOICES,
 )
 from services.acompleter_readable_service import (
     READABLE_FILENAME,
@@ -71,6 +76,7 @@ from services.bank_reconciliation_service import (
     INSTRUMENT_A_QUALIFIER,
     VIREMENT_A_QUALIFIER,
     VIREMENT_A_QUALIFIER_SUGGESTION,
+    authoritative_supplier,
     bank_tier_defaults,
     contains_client_invoice_reference,
     is_remise_encaissement,
@@ -387,7 +393,13 @@ class ApdFourStagePipeline:
             account = DIRIGEANT_COUNTERPART_ACCOUNT
         else:
             payment_source = payment or PaymentSource.BANQUE_PRO.value
-            if category_value == DocumentCategory.ACHATS_MARCHANDISES.value:
+            if category_value in INTERNAL_CATEGORY_CHOICES:
+                account = CATEGORY_ACCOUNTS.get(category_value, PCG_SERVICES)
+            elif sub in EXPENSE_SUBCATEGORY_ACCOUNTS:
+                account = EXPENSE_SUBCATEGORY_ACCOUNTS[
+                    ExpenseSubCategory(sub)
+                ]
+            elif category_value == DocumentCategory.ACHATS_MARCHANDISES.value:
                 account = PCG_PURCHASES_GOODS
             elif sub in {
                 ExpenseSubCategory.RESTAURATION.value,
@@ -452,6 +464,10 @@ class ApdFourStagePipeline:
         except (WorkbookLockedError, AcompleterWorkbookError, PermissionError, OSError):
             existing = {}
         return {
+            "subcategory": (
+                existing.get("Sous-catégorie Frais")
+                or defaults["expense_subcategory"]
+            ),
             "payment_source": (
                 existing.get("Source de Paiement")
                 or defaults["payment_source"]
@@ -826,6 +842,13 @@ class ApdFourStagePipeline:
                     ).value
                 except ValueError:
                     pass
+            if decision.subcategory:
+                try:
+                    updated["expense_subcategory"] = ExpenseSubCategory(
+                        decision.subcategory
+                    ).value
+                except ValueError:
+                    pass
             if decision.payment_source:
                 updated["payment_source"] = decision.payment_source
                 if (
@@ -856,6 +879,7 @@ class ApdFourStagePipeline:
             changed = status != str(line.get("status") or "").strip().upper()
             for key in (
                 "category",
+                "expense_subcategory",
                 "payment_source",
                 "counterparty_account",
                 "fiscal_year_target",
@@ -1051,6 +1075,11 @@ class ApdFourStagePipeline:
                 name, label, invoice_id, invoice_url, piece_pdf
             )
             record = tiers.resolve(name) or tiers.resolve(label)
+            guard = authoritative_supplier(
+                name, label, invoice_id, invoice_url, piece_pdf
+            )
+            if guard is not None:
+                record = tiers.resolve(guard) or record
             if client_sale:
                 canonical = (
                     record.canonical
@@ -1258,6 +1287,9 @@ class ApdFourStagePipeline:
 
     def stage1_vision_and_mother_table(self) -> StageReport:
         from services.accounting_cleanup_service import run_cleanup
+        from services.apd_p27nonies_repair_service import (
+            repair_p27nonies,
+        )
         from services.apd_p27quinquies_repair_service import (
             repair_p27quinquies,
         )
@@ -1265,6 +1297,17 @@ class ApdFourStagePipeline:
             repair_boxtal_and_paintcar,
         )
 
+        try:
+            repair_p27nonies(
+                self._store,
+                self._tenant_id,
+                tenant_dir=self._tenant_dir,
+                export_dir=self._export_dir,
+                tier_reference=self._tier_reference,
+                workbook=self._workbook,
+            )
+        except Exception:  # noqa: BLE001 - repair never blocks stage 1
+            pass
         try:
             repair_boxtal_and_paintcar(
                 self._store,
@@ -1291,6 +1334,17 @@ class ApdFourStagePipeline:
         )
         self._repair_stale_lock()
         human_applied = self.apply_human_decisions()
+        try:
+            repair_p27nonies(
+                self._store,
+                self._tenant_id,
+                tenant_dir=self._tenant_dir,
+                export_dir=self._export_dir,
+                tier_reference=self._tier_reference,
+                workbook=self._workbook,
+            )
+        except Exception:  # noqa: BLE001 - repair never blocks stage 1
+            pass
         decisions = self._collect_evidence_decisions()
         processed = validated = pending = moved = 0
         messages: list[str] = []
@@ -1727,6 +1781,11 @@ class ApdFourStagePipeline:
                     exercise_year=self._exercise_year_for(
                         line, decision.document_date
                     ),
+                    source="PIECE_PDF",
+                    label=str(decision.document_number or path.name),
+                    subcategory=str(
+                        decision.expense_subcategory or ""
+                    ),
                     extra=self._readable_extra(
                         sha,
                         line,
@@ -1767,6 +1826,13 @@ class ApdFourStagePipeline:
                     status=DocumentStatus.EN_ATTENTE,
                     piece_pdf=_tenant_relative(path, self._tenant_dir),
                     exercise_year=self._exercise_year_for(line),
+                    source="PIECE_PDF",
+                    label=str(
+                        (line or {}).get("invoice_id") or path.stem
+                    ),
+                    subcategory=str(
+                        (line or {}).get("expense_subcategory") or ""
+                    ),
                     extra=self._readable_extra(
                         sha, line, category=category_value
                     ),
@@ -1780,6 +1846,21 @@ class ApdFourStagePipeline:
                 self._tenant_id, derive_document_id(row.sha256)
             )
             if line is None:
+                continue
+            if str(line.get("status") or "").upper() == (
+                DocumentStatus.REJETE.value
+            ):
+                continue
+            if row.nom_fichier.startswith("TIER__") and row.nom_fichier.endswith(
+                ".tier"
+            ):
+                tier_name = row.nom_fichier[
+                    len("TIER__") : -len(".tier")
+                ]
+                if self._tier_reference.resolve(tier_name) is not None:
+                    continue
+                # Unknown tiers are emitted below as one aggregated line for
+                # all their bank operations (date range + summed TTC).
                 continue
             status = str(row.statut or DocumentStatus.EN_ATTENTE.value).upper()
             if status == DocumentStatus.VALIDE.value:
@@ -1817,6 +1898,21 @@ class ApdFourStagePipeline:
                         row.sha256, self._tenant_dir / row.nom_fichier
                     ),
                     exercise_year=self._exercise_year_for(line),
+                    source=(
+                        "BANQUE_OFX"
+                        if row.nom_fichier.upper().startswith(
+                            ("TIER__", "INSTRUMENT__")
+                        )
+                        else "PIECE_PDF"
+                    ),
+                    label=str(
+                        line.get("invoice_id")
+                        or line.get("label")
+                        or row.nom_fichier
+                    ),
+                    subcategory=str(
+                        line.get("expense_subcategory") or ""
+                    ),
                     extra=self._readable_extra(
                         row.sha256,
                         line,
@@ -1832,9 +1928,8 @@ class ApdFourStagePipeline:
         if not self._enable_tier_workflow:
             rows.extend(self._overdue_invoice_slate_rows(known))
             return rows
-        for name, line in self._tier_reference.unknown_tier_entries(
-            self._store.list_master_lines(self._tenant_id)
-        ):
+        all_lines = self._store.list_master_lines(self._tenant_id)
+        for name, line in self._tier_reference.unknown_tier_entries(all_lines):
             if str(name).strip().upper() == VIREMENT_A_QUALIFIER:
                 continue
             safe_name = str(name).replace("/", "_").replace("\\", "_").strip()
@@ -1846,23 +1941,77 @@ class ApdFourStagePipeline:
             digest = hashlib.sha256(
                 f"tier:{name}".encode("utf-8")
             ).hexdigest()
-            document_date = None
-            raw_date = str(line.get("operation_date") or "")[:10]
-            if raw_date:
-                try:
-                    document_date = date.fromisoformat(raw_date)
-                except ValueError:
-                    document_date = None
-            piece_pdf = str(line.get("piece_pdf") or "").strip() or None
-            if piece_pdf is None:
-                invoice_url = str(line.get("invoice_url") or "").strip()
-                if invoice_url:
-                    piece_pdf = invoice_url
-            amount_ttc = _parse_decimal(line.get("amount_ttc"))
-            if amount_ttc is None:
-                amount_ttc = _parse_decimal(
-                    line.get("debit_amount") or line.get("credit_amount")
+            related = [
+                candidate
+                for candidate in all_lines
+                if _fold(candidate.get("counterparty") or "")
+                == _fold(name)
+                or (
+                    not str(candidate.get("counterparty") or "").strip()
+                    and _fold(candidate.get("label") or "") == _fold(name)
                 )
+            ] or [line]
+            dates: list[date] = []
+            total_ttc = Decimal("0.00")
+            labels: list[str] = []
+            bank_evidence = False
+            real_piece: str | None = None
+            has_ht = has_tva = False
+            for candidate in related:
+                raw_date = str(candidate.get("operation_date") or "")[:10]
+                if raw_date:
+                    try:
+                        dates.append(date.fromisoformat(raw_date))
+                    except ValueError:
+                        pass
+                amount = _parse_decimal(candidate.get("amount_ttc"))
+                if amount is None:
+                    amount = _parse_decimal(
+                        candidate.get("debit_amount")
+                        or candidate.get("credit_amount")
+                    )
+                if amount is not None:
+                    total_ttc += abs(amount)
+                label = str(
+                    candidate.get("label")
+                    or candidate.get("invoice_id")
+                    or ""
+                ).strip()
+                if label and label not in labels:
+                    labels.append(label)
+                document_type = str(
+                    candidate.get("document_type") or ""
+                ).upper()
+                if (
+                    document_type in {"OFX", "QFX"}
+                    or str(candidate.get("line_id") or "")
+                    .upper()
+                    .startswith("OFX-")
+                    or candidate.get("debit_amount") not in (None, "")
+                    or candidate.get("credit_amount") not in (None, "")
+                ):
+                    bank_evidence = True
+                if not bank_evidence and real_piece is None:
+                    for key in ("piece_pdf", "invoice_url"):
+                        value = str(candidate.get(key) or "").strip()
+                        if value and "SOURCE_OFX" not in value.upper():
+                            real_piece = value
+                            break
+                if _parse_decimal(candidate.get("amount_ht")) is not None:
+                    has_ht = True
+                if _parse_decimal(candidate.get("amount_tva")) is not None:
+                    has_tva = True
+            document_date = min(dates) if dates else None
+            if len(dates) > 1 and min(dates) != max(dates):
+                date_label = (
+                    f"{min(dates).strftime('%d/%m/%Y')} -> "
+                    f"{max(dates).strftime('%d/%m/%Y')} "
+                    f"({len(related)} op.)"
+                )
+            elif dates:
+                date_label = min(dates).strftime("%d/%m/%Y")
+            else:
+                date_label = ""
             is_transfer = str(name).strip().upper() == VIREMENT_A_QUALIFIER
             reason = (
                 "Virement par internet sans tiers identifiable : qualifier "
@@ -1883,16 +2032,15 @@ class ApdFourStagePipeline:
                     sha256=digest,
                     filename=filename,
                     supplier=str(name),
-                    document_number=str(
-                        line.get("invoice_id")
-                        or line.get("label")
-                        or line.get("line_id")
-                        or ""
+                    document_number=(
+                        labels[0]
+                        if labels
+                        else str(line.get("invoice_id") or line.get("line_id") or "")
                     ),
                     document_date=document_date,
-                    amount_ht=_parse_decimal(line.get("amount_ht")),
-                    amount_tva=_parse_decimal(line.get("amount_tva")),
-                    amount_ttc=amount_ttc,
+                    amount_ht=total_ttc if not has_ht else None,
+                    amount_tva=Decimal("0.00") if not has_tva else None,
+                    amount_ttc=total_ttc,
                     category=str(
                         line.get("category")
                         or DocumentCategory.DIVERS_A_CLASSER.value
@@ -1900,7 +2048,13 @@ class ApdFourStagePipeline:
                     reason=reason,
                     action=action,
                     status=DocumentStatus.EN_ATTENTE,
-                    piece_pdf=piece_pdf,
+                    piece_pdf=real_piece,
+                    source="BANQUE_OFX" if bank_evidence else "PIECE_PDF",
+                    label=" | ".join(labels[:3]),
+                    date_label=date_label,
+                    subcategory=str(
+                        line.get("expense_subcategory") or ""
+                    ),
                     extra={
                         "payment_source": "BANQUE_PRO",
                         "counterparty_account": "622600",
@@ -1959,6 +2113,16 @@ class ApdFourStagePipeline:
                     action=f"Qualifier : {VIREMENT_A_QUALIFIER_SUGGESTION}",
                     status=DocumentStatus.EN_ATTENTE,
                     piece_pdf=None,
+                    source="BANQUE_OFX",
+                    label=str(line.get("label") or line_id),
+                    date_label=(
+                        document_date.strftime("%d/%m/%Y")
+                        if document_date is not None
+                        else ""
+                    ),
+                    subcategory=str(
+                        line.get("expense_subcategory") or ""
+                    ),
                     extra={
                         "payment_source": "BANQUE_PRO",
                         "counterparty_account": "622600",
@@ -2051,6 +2215,13 @@ class ApdFourStagePipeline:
                         "manquante."
                     ),
                     status=DocumentStatus.EN_ATTENTE,
+                    source="BANQUE_OFX",
+                    label=instrument.label,
+                    date_label=(
+                        document_date.strftime("%d/%m/%Y")
+                        if document_date is not None
+                        else ""
+                    ),
                     extra={
                         "payment_source": "BANQUE_PRO",
                         "counterparty_account": (
@@ -2142,6 +2313,9 @@ class ApdFourStagePipeline:
                         "DEJA_PAYEE_2025 / REPORTER_MOIS_SUIVANT / IMPAYEE"
                     ),
                     status=DocumentStatus.EN_ATTENTE,
+                    source="PIECE_PDF",
+                    label=invoice_id,
+                    date_label=invoice_date.strftime("%d/%m/%Y"),
                     extra={
                         "payment_source": "BANQUE_PRO",
                         "counterparty_account": "411000",
@@ -2406,6 +2580,21 @@ class ApdFourStagePipeline:
     def stage3_ventilation_and_coherence(self) -> StageReport:
         human_applied = self.apply_human_decisions()
         try:
+            from services.apd_p27nonies_repair_service import (
+                repair_p27nonies,
+            )
+
+            repair_p27nonies(
+                self._store,
+                self._tenant_id,
+                tenant_dir=self._tenant_dir,
+                export_dir=self._export_dir,
+                tier_reference=self._tier_reference,
+                workbook=self._workbook,
+            )
+        except Exception:  # noqa: BLE001 - repair never blocks stage 3
+            pass
+        try:
             from services.apd_p27quinquies_repair_service import (
                 repair_p27quinquies,
             )
@@ -2451,6 +2640,7 @@ class ApdFourStagePipeline:
             MasterTableExporter,
             PersonalExpenseNoteExporter,
             SupplierLedgerExporter,
+            category_summary_is_mandatory,
         )
         from services.customer_invoice_batch_importer import (
             export_customer_sales_workbook,
@@ -2528,7 +2718,12 @@ class ApdFourStagePipeline:
             pass
         for category in DocumentCategory:
             try:
-                if not self._store.list_category_lines(self._tenant_id, category):
+                if (
+                    not self._store.list_category_lines(
+                        self._tenant_id, category
+                    )
+                    and not category_summary_is_mandatory(category)
+                ):
                     continue
                 paths.append(
                     CategorySummaryExporter(
