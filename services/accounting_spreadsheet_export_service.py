@@ -1150,7 +1150,7 @@ SUPPLIER_LEDGER_COLUMNS_LEGACY = (
     "Montant TTC Pièce",
     "Débit Banque",
     "Crédit Banque",
-    "Balance Bancaire Cumulée",
+    "Solde Restant Dû (€)",
     "Code Lettrage / Statut",
     "Pièce(s) / Règlement(s) Rapproché(s)",
     PIECE_LINK_HEADER,
@@ -1179,6 +1179,8 @@ SUPPLIER_LEDGER_EQUILIBRIUM_FILL = "C6EFCE"
 SUPPLIER_LEDGER_DIAGNOSTIC_FILL = "FCE4D6"
 SUPPLIER_LEDGER_MIN_WIDTHS = (12, 12, 14, 24, 40, 14, 14, 20, 14, 14, 14, 18, 24, 30, 32)
 SUPPLIER_LEDGER_MIN_WIDTHS_P25 = SUPPLIER_LEDGER_MIN_WIDTHS
+LEDGER_BALANCE_NUMBER_FORMAT = '# ##0,00 €;[Red]-# ##0,00 €;"0,00 €"'
+LEDGER_BALANCE_ZERO_COLOR = "008000"
 
 
 class SupplierLedgerExportError(ValueError):
@@ -1924,7 +1926,9 @@ def _write_supplier_ledger_sheet(
     running = Decimal("0.00")
     equilibrium_rows: list[int] = []
     for index, entry in enumerate(entries, start=2):
-        running = (running + entry.bank_credit - entry.bank_debit).quantize(_CENT)
+        running = (
+            running + entry.piece_ttc - entry.bank_debit + entry.bank_credit
+        ).quantize(_CENT)
         link_invoice = (
             entry.invoice_id
             or entry.matched_pieces
@@ -1976,9 +1980,9 @@ def _write_supplier_ledger_sheet(
                 continue
             if column == 12:
                 cell.value = (
-                    f"=K{index}-J{index}"
+                    f"=I{index}-J{index}+K{index}"
                     if index == 2
-                    else f"=L{index - 1}+K{index}-J{index}"
+                    else f"=L{index - 1}+I{index}-J{index}+K{index}"
                 )
             elif isinstance(value, Decimal):
                 cell.value = float(value)
@@ -1988,10 +1992,16 @@ def _write_supplier_ledger_sheet(
             if index % 2 == 0:
                 cell.fill = band_fill
             if column in (6, 7, 9, 10, 11, 12):
-                cell.number_format = "#,##0.00"
+                cell.number_format = (
+                    LEDGER_BALANCE_NUMBER_FORMAT
+                    if column == 12
+                    else "#,##0.00"
+                )
                 cell.alignment = Alignment(
                     horizontal="right", vertical="center"
                 )
+                if column == 12 and running == 0:
+                    cell.font = Font(color=LEDGER_BALANCE_ZERO_COLOR)
                 if (
                     column == 12
                     and running == 0
@@ -2035,7 +2045,11 @@ def _write_supplier_ledger_sheet(
             cell.fill = total_fill
             cell.border = total_border
             if column in (6, 7, 9, 10, 11, 12):
-                cell.number_format = "#,##0.00"
+                cell.number_format = (
+                    LEDGER_BALANCE_NUMBER_FORMAT
+                    if column == 12
+                    else "#,##0.00"
+                )
                 cell.alignment = Alignment(
                     horizontal="right", vertical="center"
                 )
@@ -3114,7 +3128,9 @@ def _write_client_ledger_sheet(
     sheet.row_dimensions[1].height = 32
     running = Decimal("0.00")
     for index, entry in enumerate(entries, start=2):
-        running = (running + entry.bank_credit - entry.bank_debit).quantize(_CENT)
+        running = (
+            running + entry.piece_ttc - entry.bank_credit + entry.bank_debit
+        ).quantize(_CENT)
         link_invoice = entry.invoice_id or entry.reference
         if entry.entry_type == CLIENT_LEDGER_TYPE_PAIEMENT and entry.matched_pieces:
             link_invoice = entry.matched_pieces.split(" + ")[0].strip()
@@ -3155,9 +3171,9 @@ def _write_client_ledger_sheet(
                 continue
             if column == 12:
                 cell.value = (
-                    f"=K{index}-J{index}"
+                    f"=I{index}-K{index}+J{index}"
                     if index == 2
-                    else f"=L{index - 1}+K{index}-J{index}"
+                    else f"=L{index - 1}+I{index}-K{index}+J{index}"
                 )
             elif isinstance(value, Decimal):
                 cell.value = float(value)
@@ -3167,10 +3183,16 @@ def _write_client_ledger_sheet(
             if index % 2 == 0:
                 cell.fill = band_fill
             if column in (6, 7, 9, 10, 11, 12):
-                cell.number_format = "#,##0.00"
+                cell.number_format = (
+                    LEDGER_BALANCE_NUMBER_FORMAT
+                    if column == 12
+                    else "#,##0.00"
+                )
                 cell.alignment = Alignment(
                     horizontal="right", vertical="center"
                 )
+                if column == 12 and running == 0:
+                    cell.font = Font(color=LEDGER_BALANCE_ZERO_COLOR)
                 if (
                     column == 12
                     and running == 0
@@ -3209,7 +3231,11 @@ def _write_client_ledger_sheet(
             cell.fill = total_fill
             cell.border = total_border
             if column in (6, 7, 9, 10, 11, 12):
-                cell.number_format = "#,##0.00"
+                cell.number_format = (
+                    LEDGER_BALANCE_NUMBER_FORMAT
+                    if column == 12
+                    else "#,##0.00"
+                )
                 cell.alignment = Alignment(
                     horizontal="right", vertical="center"
                 )
@@ -4212,6 +4238,8 @@ def _dedup_key(row: dict[str, Any], record: dict[str, Any]) -> tuple[str, str, D
     amount = record["ttc"]
     if not piece or not supplier or amount is None:
         return None
+    if _document_ledger_type(row) == SUPPLIER_LEDGER_TYPE_AVOIR:
+        amount = -abs(amount)
     return (piece.casefold(), supplier, amount)
 
 
