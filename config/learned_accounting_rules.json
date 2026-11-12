@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-11-10T19:38:52.705567+00:00",
+  "updated_at": "2026-11-12T02:06:09.001218+00:00",
   "groups": {
     "PAINTCAR": {
       "canonical": "PAINTCAR",
@@ -268,7 +268,10 @@
     "QREFINISH": "QREFINISH",
     "CARROSSERIE_VINOLIENNE": "CARROSSERIE_VINOLIENNE",
     "GP AUTO MOULINS 03": "GP AUTO MOULINS 03",
-    "MAIRIE_DE_AFA": "MAIRIE_DE_AFA"
+    "MAIRIE_DE_AFA": "MAIRIE_DE_AFA",
+    "ATLANDES": "ATLANDES",
+    "RESTO INCONNU": "RESTO_INCONNU",
+    "RESTO X": "RESTO_X"
   },
   "suppliers": {
     "LIDL": {
@@ -1465,6 +1468,51 @@
       "payment_method": "VIREMENT",
       "status": "AUTORISE",
       "siren": "820130714",
+      "siret": "",
+      "iban": []
+    },
+    "ATLANDES": {
+      "canonical": "ATLANDES",
+      "role": "FOURNISSEUR",
+      "category": "FRAIS_GENERAUX",
+      "subcategory": "TRANSPORT_PARKING",
+      "aliases": [
+        "ATLANDES"
+      ],
+      "prefixes": [],
+      "payment_method": "",
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
+    },
+    "RESTO_INCONNU": {
+      "canonical": "RESTO_INCONNU",
+      "role": "FOURNISSEUR",
+      "category": "FRAIS_GENERAUX",
+      "subcategory": "RESTAURATION",
+      "aliases": [
+        "RESTO INCONNU"
+      ],
+      "prefixes": [],
+      "payment_method": "",
+      "status": "AUTORISE",
+      "siren": "",
+      "siret": "",
+      "iban": []
+    },
+    "RESTO_X": {
+      "canonical": "RESTO_X",
+      "role": "FOURNISSEUR",
+      "category": "FRAIS_GENERAUX",
+      "subcategory": "RESTAURATION",
+      "aliases": [
+        "RESTO X"
+      ],
+      "prefixes": [],
+      "payment_method": "",
+      "status": "AUTORISE",
+      "siren": "",
       "siret": "",
       "iban": []
     }

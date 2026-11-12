@@ -35,9 +35,20 @@ from services.acompleter_workbook_service import (
 )
 from schemas.accounting_choices import (
     normalize_category,
+    normalize_decision,
     normalize_exercise,
     normalize_month,
     normalize_payment_source,
+)
+from services.cockpit_decision_service import (
+    decision_menu_for,
+    decision_menu_payload,
+    is_creation_choice,
+    is_group_choice,
+    is_internal_choice,
+    is_lifecycle_choice,
+    raw_tier_from_filename,
+    resolve_tier_choice,
 )
 from services.apd_evidence_rules import build_business_explanation, evaluate_evidence
 from services.apd_four_stage_pipeline import (
@@ -60,6 +71,12 @@ VALID_DECISIONS = {
     "VALIDÉ": DocumentStatus.VALIDE,
     "ACCEPTER": DocumentStatus.VALIDE,
     "OK": DocumentStatus.VALIDE,
+    "DEJA_PAYEE_2025": DocumentStatus.VALIDE,
+    "DEJA PAYEE 2025": DocumentStatus.VALIDE,
+    "IMPAYEE": DocumentStatus.VALIDE,
+    "IMPAYÉE": DocumentStatus.VALIDE,
+    "REPORTER_MOIS_SUIVANT": DocumentStatus.EN_ATTENTE,
+    "REPORTER MOIS SUIVANT": DocumentStatus.EN_ATTENTE,
     "REJETE": DocumentStatus.REJETE,
     "REJETER": DocumentStatus.REJETE,
     "REJETÉ": DocumentStatus.REJETE,
@@ -68,6 +85,19 @@ VALID_DECISIONS = {
     "EN_ATTENTE": DocumentStatus.EN_ATTENTE,
     "ATTENDRE": DocumentStatus.EN_ATTENTE,
     "QUESTION": DocumentStatus.EN_ATTENTE,
+}
+LIFECYCLE_DECISIONS: frozenset[str] = frozenset(
+    {
+        "VALIDE",
+        "DEJA_PAYEE_2025",
+        "REPORTER_MOIS_SUIVANT",
+        "IMPAYEE",
+        "REJETE",
+        "EN_ATTENTE",
+    }
+)
+ARDOISE_FINAL_STATUSES: frozenset[str] = LIFECYCLE_DECISIONS - {
+    "REPORTER_MOIS_SUIVANT"
 }
 
 
@@ -130,11 +160,30 @@ def _move(source: Path, destination: Path) -> Path:
 def _normalise_decision(value: Any) -> DocumentStatus:
     if isinstance(value, DocumentStatus):
         return value
-    text = _text(value).upper()
-    decision = VALID_DECISIONS.get(text)
+    token = normalize_decision(value)
+    if token in {"", "—", "-"}:
+        token = "VALIDE"
+    decision = VALID_DECISIONS.get(token) or VALID_DECISIONS.get(
+        _text(value).upper()
+    )
     if decision is None:
         raise HermesAccountingBridgeError("INVALID_DECISION", repr(value))
     return decision
+
+
+def _decision_token(value: Any) -> str:
+    """Return the official cockpit token, defaulting blank/dash to VALIDE."""
+    return normalize_decision(value)
+
+
+def target_is_real_file(filename: Any) -> bool:
+    """``False`` for virtual ``.tier`` / ARDOISE rows that have no PDF."""
+    name = str(filename or "").strip().upper()
+    if not name:
+        return False
+    if name.startswith("ARDOISE_"):
+        return False
+    return not name.endswith(".TIER")
 
 
 class HermesAccountingBridge:
@@ -254,6 +303,33 @@ class HermesAccountingBridge:
                 self._tree.state_dir(FolderState.A_COMPLETER) / "_A_COMPLETER.xlsx"
             ),
             "last_stages": self._pipeline.snapshot().get("last_stages", {}),
+        }
+
+    def _decision_fields(
+        self,
+        filename: Any,
+        supplier: Any,
+        source: Any,
+        current: Any = "",
+    ) -> dict[str, Any]:
+        """P27-decies - contextual decision menu for one pending line."""
+        menu = decision_menu_for(
+            filename,
+            supplier,
+            source,
+            self._pipeline._tier_reference,
+        )
+        payload = decision_menu_payload(menu)
+        current_token = _text(current).upper()
+        if current_token in {"", "EN_ATTENTE", "PENDING"}:
+            payload["selected"] = menu.default
+        else:
+            payload["selected"] = current_token
+        return {
+            "decision_profile": menu.profile,
+            "decision_choices": list(menu.choices),
+            "decision_default": menu.default,
+            "decision_menu": payload,
         }
 
     def list_pending_questions(self) -> list[dict[str, Any]]:
@@ -415,6 +491,12 @@ class HermesAccountingBridge:
                     "tier_alias_choices": list(
                         self._pipeline._tier_reference.alias_targets()
                     ),
+                    **self._decision_fields(
+                        row.nom_fichier,
+                        supplier,
+                        "BANQUE_OFX" if bank_line else "PIECE_PDF",
+                        row.statut,
+                    ),
                 }
             )
         return questions
@@ -532,6 +614,9 @@ class HermesAccountingBridge:
                         "link": piece,
                         "tier_alias_target": alias_target,
                         "tier_alias_choices": alias_choices,
+                        **self._decision_fields(
+                            filename, supplier, source, decision
+                        ),
                     }
                 )
             return questions
@@ -544,152 +629,434 @@ class HermesAccountingBridge:
         decision: Any,
         arbitration: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        target = _normalise_decision(decision)
+        """Apply one human answer without ever blocking a direct validation.
+
+        P27-decies - a blank / ``—`` answer defaults to ``VALIDE``. The single
+        front selector may carry either a lifecycle answer or a contextual
+        tier answer (``GROUPE:*``, internal flow, known tier, creation).
+        """
         arbitration = dict(arbitration or {})
+        token = _decision_token(decision)
+        choice = _text(
+            arbitration.get("tier_alias_target")
+            or arbitration.get("tier_choice")
+        )
+        # The cockpit uses one selector: a lifecycle value may arrive through
+        # the ``tier_alias_target`` field instead of the legacy decision field.
+        if choice and normalize_decision(choice) in LIFECYCLE_DECISIONS:
+            token = normalize_decision(choice)
+            choice = ""
         row = self._find_row(doc_id)
-        if (
-            row is not None
-            and row.nom_fichier.startswith("TIER__")
-            and row.nom_fichier.endswith(".tier")
-        ):
-            target = str(
-                arbitration.get("tier_alias_target")
-                or arbitration.get("category")
-                or ""
-            ).strip()
-            if target:
-                name = row.nom_fichier[len("TIER__") : -len(".tier")]
-                self._pipeline._tier_reference.learn_alias(name, target)
-                self._pipeline._apply_tier_reference()
-                self._align(row.sha256, DocumentStatus.VALIDE)
-                try:
-                    self._pipeline._write_readable_views()
-                except Exception:  # noqa: BLE001 - decision already persisted
-                    pass
-                self._push_onedrive()
-                return {
-                    "doc_id": _text(doc_id),
-                    "decision": DocumentStatus.VALIDE.value,
-                    "status": DocumentStatus.VALIDE.value,
-                    "tier_alias_target": target,
-                    "destination": None,
-                }
-            return {
-                "doc_id": _text(doc_id),
-                "decision": DocumentStatus.EN_ATTENTE.value,
-                "status": DocumentStatus.EN_ATTENTE.value,
-                "message": "Choisissez un rattachement ALIAS.",
-                "destination": None,
-            }
-        if row is None:
-            line = self._find_store_line(doc_id)
-            if line is None:
-                raise HermesAccountingBridgeError("DOCUMENT_NOT_FOUND", _text(doc_id))
-            filename = _text(line.get("invoice_url") or line.get("label"))
-            category = _text(line.get("category")) or DocumentCategory.DIVERS_A_CLASSER.value
-            sha = ""
-            row = None
-        else:
+        if row is not None:
             filename = row.nom_fichier
-            category = row.categorie_suggeree or DocumentCategory.DIVERS_A_CLASSER.value
+            category = (
+                row.categorie_suggeree
+                or DocumentCategory.DIVERS_A_CLASSER.value
+            )
             sha = row.sha256
             line = self._store.get_line(
                 self._tenant_id, derive_document_id(row.sha256)
             )
+        else:
+            line = self._find_line_for_doc(doc_id)
+            if line is None:
+                raise HermesAccountingBridgeError(
+                    "DOCUMENT_NOT_FOUND", _text(doc_id)
+                )
+            filename = _text(
+                line.get("invoice_url")
+                or line.get("label")
+                or doc_id
+            )
+            category = (
+                _text(line.get("category"))
+                or DocumentCategory.DIVERS_A_CLASSER.value
+            )
+            sha = ""
         if not line and sha:
-            line = self._store.get_line(self._tenant_id, derive_document_id(sha))
-        source = self._file_for_row(row) if row is not None else self._find_file(filename)
-        if target is DocumentStatus.VALIDE:
-            destination = self._destination_for_valid(filename, category)
-            if source is not None:
-                destination = _move(source, destination)
-            self._update_store_status(
-                line,
-                target,
-                destination,
+            line = self._store.get_line(
+                self._tenant_id, derive_document_id(sha)
+            )
+        tier_filename = row.nom_fichier if row is not None else _text(doc_id)
+        raw_tier = raw_tier_from_filename(tier_filename)
+        if not raw_tier:
+            raw_tier = _text((line or {}).get("counterparty"))
+        is_tier_aggregate = bool(raw_tier_from_filename(tier_filename))
+        if is_tier_aggregate:
+            targets = self._lines_for_tier(raw_tier, line)
+        else:
+            targets = [line] if line is not None else []
+        if choice and not is_lifecycle_choice(choice):
+            return self._apply_tier_choice(
+                doc_id,
+                choice,
+                raw_tier,
+                tier_filename,
+                targets,
+                row,
+                filename,
                 category,
                 sha,
-                filename,
-                arbitration=arbitration,
+                arbitration,
             )
-            if row is not None:
-                self._align(row.sha256, target)
-            try:
-                self._pipeline._repair_piece_links()
-                self._pipeline._write_readable_views()
-            except Exception:  # noqa: BLE001 - decision already persisted
-                pass
-            return {
-                "doc_id": _text(doc_id),
-                "decision": target.value,
-                "status": target.value,
-                "destination": str(destination) if destination else None,
+        return self._apply_lifecycle_decision(
+            doc_id,
+            token,
+            targets,
+            row,
+            filename,
+            category,
+            sha,
+            arbitration,
+        )
+
+    # -- decision internals ------------------------------------------------
+
+    @staticmethod
+    def _fold(value: Any) -> str:
+        return " ".join(str(value or "").casefold().split())
+
+    def _find_line_for_doc(self, doc_id: str) -> dict[str, Any] | None:
+        """Find a SQLite line by line id, invoice id, label or ARDOISE name."""
+        line = self._find_store_line(doc_id)
+        if line is not None:
+            return line
+        needle = _text(doc_id)
+        ardoise_invoice = raw_tier_from_filename(needle)
+        for candidate in self._store.list_master_lines(self._tenant_id):
+            names = {
+                _text(candidate.get("line_id")),
+                _text(candidate.get("invoice_id")),
+                _text(candidate.get("label")),
+                Path(str(candidate.get("invoice_url") or "")).name,
             }
-        if target is DocumentStatus.REJETE:
-            archive = self._tree.state_dir(FolderState.ARCHIVE_ERREUR) / "REJET_MANUEL"
-            destination = archive / Path(filename).name if filename else None
-            if source is not None and destination is not None:
-                destination = _move(source, destination)
-            if line is not None:
-                line_id = _text(line.get("line_id") or "")
-                if line_id:
-                    deactivate = getattr(
-                        self._store, "deactivate_rejected_document", None
-                    )
-                    if callable(deactivate):
-                        try:
-                            deactivate(self._tenant_id, line_id)
-                        except Exception:  # noqa: BLE001
-                            pass
-            if row is not None:
-                self._align(row.sha256, target)
-            return {
-                "doc_id": _text(doc_id),
-                "decision": target.value,
-                "status": target.value,
-                "destination": str(destination) if destination else None,
-            }
-            if row is not None:
-                self._align(row.sha256, target)
+            if needle in {name for name in names if name}:
+                return candidate
+            if ardoise_invoice and _text(
+                candidate.get("invoice_id")
+            ) == ardoise_invoice:
+                return candidate
+            if ardoise_invoice and ardoise_invoice.casefold() in self._fold(
+                f"{candidate.get('counterparty') or ''} "
+                f"{candidate.get('label') or ''}"
+            ):
+                return candidate
+        return None
+
+    def _lines_for_tier(
+        self, raw_tier: Any, fallback: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        needle = self._fold(raw_tier)
+        if not needle:
+            return [fallback] if fallback is not None else []
+        rows = self._store.list_master_lines(self._tenant_id)
+        for candidate in rows:
+            if self._fold(candidate.get("line_id")) == needle:
+                return [candidate]
+        matches = [
+            candidate
+            for candidate in rows
+            if needle
+            in self._fold(
+                f"{candidate.get('counterparty') or ''} "
+                f"{candidate.get('label') or ''}"
+            )
+        ]
+        if matches:
+            return matches
+        return [fallback] if fallback is not None else []
+
+    def _arbitrated_values(
+        self, arbitration: dict[str, Any]
+    ) -> dict[str, Any]:
+        values: dict[str, Any] = {}
+        category = normalize_category(arbitration.get("category"))
+        if category:
+            values["category"] = category
+        if "expense_subcategory" in arbitration:
+            subcategory = _text(arbitration.get("expense_subcategory"))
+            if subcategory:
                 try:
-                    self._workbook.update_p17_metadata(
-                        row.sha256,
-                        expense_subcategory=arbitration.get(
-                            "expense_subcategory"
-                        )
-                        or None,
-                        payment_source=normalize_payment_source(
-                            arbitration.get("payment_source")
-                        )
-                        or None,
-                        counterparty_account=arbitration.get(
-                            "counterparty_account"
-                        )
-                        or None,
-                        fiscal_year_target=arbitration.get("exercice")
-                        or arbitration.get("fiscal_year_target")
-                        or None,
-                        deferred_month_override=normalize_month(
-                            arbitration.get("month")
-                        )
-                        or "NON",
-                        report=str(
-                            arbitration.get("report") or "NON"
-                        ).upper(),
-                    )
-                except (
-                    WorkbookLockedError,
-                    AcompleterWorkbookError,
-                    PermissionError,
-                    OSError,
-                ):
+                    values["expense_subcategory"] = ExpenseSubCategory(
+                        subcategory
+                    ).value
+                except ValueError:
                     pass
+            else:
+                values["expense_subcategory"] = None
+        counterparty = _text(arbitration.get("counterparty"))
+        if counterparty:
+            values["counterparty"] = counterparty
+        account = _text(arbitration.get("counterparty_account"))
+        if account:
+            values["counterparty_account"] = account
+        payment_source = normalize_payment_source(
+            arbitration.get("payment_source")
+        )
+        if payment_source:
+            values["payment_source"] = payment_source
+            if payment_source == "COMPTE_PERSO_DIRIGEANT":
+                values["counterparty_account"] = "455000_DIRIGEANT"
+        exercise = _text(
+            arbitration.get("exercise_year")
+            or arbitration.get("fiscal_year_target")
+            or arbitration.get("exercice")
+        )
+        if exercise:
+            values["exercise_year"] = exercise
+            values["fiscal_year_target"] = exercise
+        month = normalize_month(arbitration.get("month"))
+        if month:
+            values["deferred_month_override"] = (
+                None if month == "NON" else month
+            )
+        report = _text(arbitration.get("report")).upper()
+        if report:
+            values["report"] = report
+        reconciliation_status = _text(
+            arbitration.get("reconciliation_status")
+        )
+        if reconciliation_status:
+            values["reconciliation_status"] = reconciliation_status
+        if "balance_due" in arbitration:
+            values["balance_due"] = arbitration.get("balance_due")
+        return values
+
+    def _apply_lifecycle_decision(
+        self,
+        doc_id: str,
+        token: str,
+        targets: list[dict[str, Any]],
+        row: Any,
+        filename: str,
+        category: str,
+        sha: str,
+        arbitration: dict[str, Any],
+    ) -> dict[str, Any]:
+        if token == "REJETE":
+            status = DocumentStatus.REJETE
+        elif token in {"EN_ATTENTE", "REPORTER_MOIS_SUIVANT"}:
+            status = DocumentStatus.EN_ATTENTE
+        else:
+            status = DocumentStatus.VALIDE
+        values = self._arbitrated_values(arbitration)
+        destination: Path | None = None
+        if (
+            status is DocumentStatus.VALIDE
+            and target_is_real_file(filename)
+        ):
+            source = (
+                self._file_for_row(row)
+                if row is not None
+                else self._find_file(filename)
+            )
+            if source is not None:
+                destination = _move(
+                    source,
+                    self._destination_for_valid(filename, category),
+                )
+        archived: Path | None = None
+        if status is DocumentStatus.REJETE and target_is_real_file(filename):
+            source = (
+                self._file_for_row(row)
+                if row is not None
+                else self._find_file(filename)
+            )
+            if source is not None:
+                archive = (
+                    self._tree.state_dir(FolderState.ARCHIVE_ERREUR)
+                    / "REJET_MANUEL"
+                )
+                archived = _move(source, archive / Path(filename).name)
+        for line in targets:
+            line_id = _text(line.get("line_id"))
+            if not line_id:
+                continue
+            updated = dict(line)
+            updated.pop("line_id", None)
+            updated["status"] = status.value
+            updated.update(values)
+            if token == "DEJA_PAYEE_2025":
+                updated["reconciliation_status"] = "DEJA_PAYEE_2025"
+                updated["reconciliation_date"] = (
+                    updated.get("reconciliation_date")
+                    or updated.get("operation_date")
+                )
+                updated["balance_due"] = "0.00"
+            elif token == "IMPAYEE":
+                updated["reconciliation_status"] = "IMPAYEE"
+                updated["balance_due"] = (
+                    updated.get("amount_ttc")
+                    or updated.get("balance_due")
+                )
+            elif token == "REPORTER_MOIS_SUIVANT":
+                updated["reconciliation_status"] = None
+                updated["report"] = "OUI"
+            elif status is DocumentStatus.VALIDE:
+                current_reconciliation = _text(
+                    updated.get("reconciliation_status")
+                ).upper()
+                if current_reconciliation in {
+                    "",
+                    "EN_ATTENTE_REGLEMENT",
+                    "VALIDE",
+                    "EN_ATTENTE",
+                }:
+                    updated["reconciliation_status"] = "VALIDE"
+            if destination is not None:
+                try:
+                    updated["invoice_url"] = destination.resolve().relative_to(
+                        self._tenant_dir.resolve()
+                    ).as_posix()
+                except ValueError:
+                    updated["invoice_url"] = destination.name
+            if status is DocumentStatus.REJETE:
+                deactivate = getattr(
+                    self._store, "deactivate_rejected_document", None
+                )
+                if callable(deactivate):
+                    try:
+                        deactivate(self._tenant_id, line_id)
+                    except Exception:  # noqa: BLE001
+                        pass
+            self._store.upsert_document_line(
+                self._tenant_id, line_id, updated
+            )
+        if row is not None:
+            self._align(row.sha256, status)
+            try:
+                self._workbook.update_p17_metadata(
+                    row.sha256,
+                    expense_subcategory=values.get("expense_subcategory"),
+                    payment_source=values.get("payment_source"),
+                    counterparty_account=values.get("counterparty_account"),
+                    fiscal_year_target=values.get("fiscal_year_target"),
+                    deferred_month_override=values.get(
+                        "deferred_month_override", "NON"
+                    )
+                    or "NON",
+                    report=values.get("report") or "NON",
+                )
+            except (
+                WorkbookLockedError,
+                AcompleterWorkbookError,
+                PermissionError,
+                OSError,
+            ):
+                pass
+        try:
+            self._pipeline._repair_piece_links()
+            self._pipeline._write_readable_views()
+        except Exception:  # noqa: BLE001 - decision already persisted
+            pass
+        self._push_onedrive()
         return {
             "doc_id": _text(doc_id),
-            "decision": target.value,
-            "status": target.value,
-            "destination": None,
+            "decision": token,
+            "status": status.value,
+            "destination": str(destination or archived)
+            if (destination or archived)
+            else None,
+            "lines_updated": len(targets),
         }
+
+    def _apply_tier_choice(
+        self,
+        doc_id: str,
+        choice: str,
+        raw_tier: str,
+        tier_filename: str,
+        targets: list[dict[str, Any]],
+        row: Any,
+        filename: str,
+        category: str,
+        sha: str,
+        arbitration: dict[str, Any],
+    ) -> dict[str, Any]:
+        reference = self._pipeline._tier_reference
+        try:
+            resolution = resolve_tier_choice(choice, raw_tier, reference)
+        except ValueError as exc:
+            return {
+                "doc_id": _text(doc_id),
+                "decision": DocumentStatus.EN_ATTENTE.value,
+                "status": DocumentStatus.EN_ATTENTE.value,
+                "message": str(exc),
+                "destination": None,
+            }
+        if resolution is None:
+            return self._apply_lifecycle_decision(
+                doc_id,
+                _decision_token(choice),
+                targets,
+                row,
+                filename,
+                category,
+                sha,
+                arbitration,
+            )
+        canonical = resolution.canonical
+        # A creation answer must materialise the new canonical tier first.
+        if is_creation_choice(choice) and raw_tier:
+            try:
+                record = reference.learn_alias(raw_tier, choice)
+                canonical = record.canonical
+            except Exception:  # noqa: BLE001 - an invalid alias is reported
+                return {
+                    "doc_id": _text(doc_id),
+                    "decision": DocumentStatus.EN_ATTENTE.value,
+                    "status": DocumentStatus.EN_ATTENTE.value,
+                    "message": "Création de tiers impossible.",
+                    "destination": None,
+                }
+        elif raw_tier and resolution.learn_alias and not str(
+            tier_filename
+        ).upper().startswith(("INSTRUMENT__", "ARDOISE_")):
+            try:
+                reference.learn_alias(raw_tier, canonical)
+            except Exception:  # noqa: BLE001
+                pass
+        try:
+            self._pipeline._apply_tier_reference()
+        except Exception:  # noqa: BLE001 - the explicit update below wins
+            pass
+        arbitrated = dict(arbitration)
+        arbitrated.update(
+            {
+                "counterparty": canonical,
+                "category": resolution.category or category,
+                "expense_subcategory": resolution.subcategory,
+                "counterparty_account": resolution.account,
+                "reconciliation_status": "VALIDE",
+            }
+        )
+        if not targets and row is not None:
+            self._align(row.sha256, DocumentStatus.VALIDE)
+            try:
+                self._pipeline._write_readable_views()
+            except Exception:  # noqa: BLE001
+                pass
+            self._push_onedrive()
+            return {
+                "doc_id": _text(doc_id),
+                "decision": DocumentStatus.VALIDE.value,
+                "status": DocumentStatus.VALIDE.value,
+                "tier_alias_target": choice,
+                "destination": None,
+                "lines_updated": 0,
+            }
+        result = self._apply_lifecycle_decision(
+            doc_id,
+            "VALIDE",
+            targets,
+            row,
+            filename,
+            resolution.category or category,
+            sha,
+            arbitrated,
+        )
+        result["tier_alias_target"] = choice
+        return result
 
     def run_stage(self, stage: int) -> dict[str, Any]:
         self.pull_from_onedrive()
@@ -853,6 +1220,9 @@ class HermesAccountingBridge:
             updated_category = normalize_category(arb.get("category"))
             if updated_category:
                 updated["category"] = updated_category
+            counterparty = _text(arb.get("counterparty"))
+            if counterparty:
+                updated["counterparty"] = counterparty
             subcategory = str(arb.get("expense_subcategory") or "").strip()
             if subcategory:
                 try:
@@ -861,6 +1231,8 @@ class HermesAccountingBridge:
                     ).value
                 except ValueError:
                     pass
+            elif "expense_subcategory" in arb:
+                updated["expense_subcategory"] = None
             payment_source = normalize_payment_source(
                 arb.get("payment_source")
             )
@@ -872,8 +1244,13 @@ class HermesAccountingBridge:
             if account:
                 updated["counterparty_account"] = account
             fiscal_year = arb.get("fiscal_year_target")
+            exercise_year = arb.get("exercise_year")
             if fiscal_year is not None and str(fiscal_year).strip():
                 updated["fiscal_year_target"] = str(fiscal_year)
+            if exercise_year is not None and str(exercise_year).strip():
+                updated["exercise_year"] = str(exercise_year)
+            elif fiscal_year is not None and str(fiscal_year).strip():
+                updated["exercise_year"] = str(fiscal_year)
             month = arb.get("month")
             if month:
                 month_value = normalize_month(month)
@@ -881,6 +1258,14 @@ class HermesAccountingBridge:
                     updated["deferred_month_override"] = (
                         None if month_value == "NON" else month_value
                     )
+            reconciliation_status = _text(arb.get("reconciliation_status"))
+            if reconciliation_status:
+                updated["reconciliation_status"] = reconciliation_status
+            if "balance_due" in arb:
+                updated["balance_due"] = arb.get("balance_due")
+            report = _text(arb.get("report"))
+            if report:
+                updated["report"] = report
             if category and not updated_category:
                 updated["category"] = category
             if destination is not None:
@@ -916,5 +1301,6 @@ class HermesAccountingBridge:
 __all__ = [
     "HermesAccountingBridge",
     "HermesAccountingBridgeError",
+    "LIFECYCLE_DECISIONS",
     "VALID_DECISIONS",
 ]

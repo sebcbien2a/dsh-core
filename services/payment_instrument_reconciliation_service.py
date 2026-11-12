@@ -23,8 +23,10 @@ from schemas.folder_state_schema import DocumentCategory
 from services.bank_reconciliation_service import (
     MAX_SUBSET_SUM_PIECES,
     is_lcr_operation,
+    is_remise_encaissement,
     is_strict_one_to_one_counterparty,
     payment_date_allows,
+    remise_number,
 )
 from services.sqlite_accounting_store import SqliteAccountingStore
 from services.tier_reference_service import is_payment_instrument_label
@@ -321,6 +323,33 @@ def _match_invoices(
 
 
 
+def _remise_has_lettered_invoices(
+    rows: Iterable[dict[str, Any]], label: str
+) -> bool:
+    """True when a customer remittance already references lettered invoices."""
+    if not is_remise_encaissement(label):
+        return False
+    number = remise_number(label)
+    if not number:
+        return False
+    for row in rows:
+        if str(row.get("category") or "") != DocumentCategory.VENTES_CLIENTS.value:
+            continue
+        reference = str(row.get("reconciliation_reference") or "")
+        if remise_number(reference) != number:
+            continue
+        status = str(row.get("reconciliation_status") or "").upper()
+        if status in {
+            "PAYEE_RAPPROCHEE",
+            "DEJA_PAYEE_2025",
+            "SOLDEE",
+            "VALIDE",
+            "IMPAYEE",
+        }:
+            return True
+    return False
+
+
 def reconcile_payment_instruments(
     store: SqliteAccountingStore, tenant_id: str
 ) -> PaymentInstrumentReport:
@@ -333,6 +362,14 @@ def reconcile_payment_instruments(
             continue
         label = str(row.get("label") or "").strip()
         if not is_payment_instrument_label(label):
+            continue
+        # P27-decies - a remittance already lettered by the customer engine (or
+        # a bank line already matched) is never re-asked in the cockpit.
+        if str(row.get("reconciliation_status") or "").upper() == (
+            "PAYEE_RAPPROCHEE"
+        ):
+            continue
+        if _remise_has_lettered_invoices(rows, label):
             continue
         debit = _decimal(row.get("debit_amount")) or Decimal("0.00")
         credit = _decimal(row.get("credit_amount")) or Decimal("0.00")

@@ -34,6 +34,15 @@ CLIENT_SALES_CATEGORY = DocumentCategory.VENTES_CLIENTS.value
 # arbitrary mix of invoices. Explicit remittance bordereaux that list their
 # ``FA1*`` invoice numbers are not a subset-sum search and stay unrestricted.
 MAX_SUBSET_SUM_PIECES = 4
+# P27-decies - a multi-client ``REMISE ENCAISSEMENT N ...`` is a monthly
+# collection batch, not an arbitrary subset-sum. It may legitimately contain
+# up to 15 pieces (goods invoice + 144 EUR fixed invoice ± credit note for each
+# client). The four-piece cap therefore only applies to generic subset-sums.
+MAX_REMISE_ENCAISSEMENT_PIECES = 15
+# Clients settled exclusively by bank transfer are never part of an LCR
+# remittance, even when an old invoice is still open (the director's opening
+# statement proves every Yucel invoice is paid by virement).
+LCR_TRANSFER_ONLY_CLIENTS: frozenset[str] = frozenset({"CARROSSERIE_YUCEL"})
 
 # P27-sexies - Boxtal and Chronopost are always settled one bank movement for
 # one document. A subset-sum (or any invoice mix) is forbidden for them: a
@@ -562,12 +571,20 @@ def supplier_identity_conflict(
     return _fold(candidate) == _fold(ACTION_STORE_CANONICAL)
 
 
+def is_transfer_only_client(value: Any) -> bool:
+    """True for a client whose invoices are settled exclusively by transfer."""
+    folded = _fold(value)
+    return any(token.casefold() in folded for token in LCR_TRANSFER_ONLY_CLIENTS)
+
+
 __all__ = [
     "ACTION_STORE_CANONICAL",
     "CLIENTS_ENCAISSEMENT_GROUPE",
     "CLIENT_INVOICE_PATTERN",
     "LCR_MATURITY_MAX_DAYS",
     "LCR_MATURITY_MIN_DAYS",
+    "LCR_TRANSFER_ONLY_CLIENTS",
+    "MAX_REMISE_ENCAISSEMENT_PIECES",
     "CLIENT_INVOICE_REFERENCE_PATTERN",
     "CLIENT_ROLE",
     "CLIENT_SALES_CATEGORY",
@@ -592,6 +609,7 @@ __all__ = [
     "is_remise_cheques",
     "is_remise_encaissement",
     "is_strict_one_to_one_counterparty",
+    "is_transfer_only_client",
     "is_virement_a_qualifier",
     "lcr_invoice_matches_maturity",
     "lcr_maturity_window",

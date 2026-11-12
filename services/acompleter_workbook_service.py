@@ -50,6 +50,7 @@ from services.acompleter_readable_service import (
 from schemas.accounting_choices import (
     CATEGORY_CHOICES,
     COUNTERPARTY_ACCOUNT_CHOICES,
+    DECISION_SIMPLE_CHOICES,
     DEFERRED_MONTH_CHOICES,
     EXERCISE_CHOICES,
     PAYMENT_SOURCE_CHOICES,
@@ -111,7 +112,7 @@ _VALIDATION_LISTS: dict[str, tuple[str, ...]] = {
     "catégorie proposée": CATEGORY_CHOICES,
     "sous-catégorie": SUBCATEGORY_CHOICES,
     "statut": STATUS_CHOICES,
-    "décision": STATUS_CHOICES,
+    "décision": DECISION_SIMPLE_CHOICES,
     "source": ("BANQUE_OFX", "PIECE_PDF"),
     "sous-catégorie frais": SUBCATEGORY_CHOICES,
     "mode exercice fiscal": ("ACTUEL", "SUIVANT", "PRECEDENT"),

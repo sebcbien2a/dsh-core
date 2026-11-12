@@ -15,11 +15,20 @@ from typing import Any, Iterable, Mapping
 
 from schemas.accounting_choices import (
     CATEGORY_CHOICES,
+    DECISION_GROUPS,
+    DECISION_INTERNAL_CHOICES,
+    DECISION_SIMPLE_CHOICES,
     EXERCISE_CHOICES,
     PAYMENT_SOURCE_CHOICES,
     SUBCATEGORY_CHOICES,
     as_dict,
     normalize_category,
+)
+from services.cockpit_decision_service import (
+    DECISION_GROUP_TARGETS,
+    INTERNAL_DECISION_TARGETS,
+    decision_menu_for,
+    full_decision_choices,
 )
 
 STAGE_LABELS: tuple[tuple[int, str, str], ...] = (
@@ -151,30 +160,37 @@ def render_pending_table(questions: Iterable[Mapping[str, Any]]) -> str:
             role="subcategory",
         )
         exercise_select = _select(
-            f"exercice-{index}", EXERCISE_CHOICES, "2026", role="exercise"
+            f"exercice-{index}",
+            EXERCISE_CHOICES,
+            question.get("exercise_year") or "2026",
+            role="exercise",
+        )
+        source_default = question.get("source_paiement") or (
+            "LCR"
+            if str(question.get("source") or "").upper() == "BANQUE_OFX"
+            else "BANQUE_PRO"
         )
         source_select = _select(
             f"source-{index}",
             PAYMENT_SOURCE_CHOICES,
-            "BANQUE_PRO",
+            source_default,
             role="payment_source",
         )
         cells = "".join(
             f"<td>{_cell(question.get(key))}</td>"
             for key, _label in PENDING_FIELDS
         )
-        alias_choices = question.get("tier_alias_choices") or [
-            "CREER_NOUVEAU_FOURNISSEUR",
-            "CREER_NOUVEAU_CLIENT",
-            "RESTAURANTS_REPAS",
-            "PEAGES_AUTOROUTES",
-            "STATIONS_CARBURANT",
-        ]
-        alias_select = _select(
-            f"tier-alias-{index}",
-            ["", *alias_choices],
-            question.get("tier_alias_target") or "",
-            role="tier_alias",
+        decision_choices = (
+            question.get("decision_choices") or DECISION_SIMPLE_CHOICES
+        )
+        decision_default = (
+            question.get("decision_default") or "VALIDE"
+        )
+        decision_select = _select(
+            f"decision-{index}",
+            decision_choices,
+            decision_default,
+            role="decision",
         )
         body_rows.append(
             "<tr>"
@@ -183,7 +199,7 @@ def render_pending_table(questions: Iterable[Mapping[str, Any]]) -> str:
             + f"<td>{subcategory_select}</td>"
             + f"<td>{exercise_select}</td>"
             + f"<td>{source_select}</td>"
-            + f"<td>{alias_select} "
+            + f"<td>{decision_select} "
             f'<button type="button" '
             f'onclick="validerPiece(\'{doc_id}\', this)">Valider</button></td>'
             + "</tr>"
@@ -265,22 +281,55 @@ def dashboard_html(
         .replace("&", "\\u0026")
     )
     payload = as_dict()
+    payload["decision_simple"] = list(DECISION_SIMPLE_CHOICES)
+    payload["decision_groups"] = list(DECISION_GROUPS)
+    payload["decision_internal"] = list(DECISION_INTERNAL_CHOICES)
+    payload["decision_group_targets"] = {
+        key: {
+            "counterparty": value[0],
+            "category": value[1],
+            "subcategory": value[2],
+            "account": value[3],
+        }
+        for key, value in DECISION_GROUP_TARGETS.items()
+    }
+    payload["decision_internal_targets"] = {
+        key: {
+            "counterparty": value[0],
+            "category": value[1],
+            "subcategory": value[2],
+            "account": value[3],
+        }
+        for key, value in INTERNAL_DECISION_TARGETS.items()
+    }
     try:
         from services.tier_reference_service import TierReferenceService
 
-        payload["tier_alias_targets"] = list(
-            TierReferenceService().bootstrap(
-                write_missing=False
-            ).alias_targets()
+        reference = TierReferenceService().bootstrap(write_missing=False)
+        alias_targets = list(reference.alias_targets())
+        payload["tier_alias_targets"] = alias_targets
+        payload["decision_full"] = list(
+            full_decision_choices(reference)
         )
     except Exception:  # noqa: BLE001
-        payload["tier_alias_targets"] = [
+        alias_targets = [
             "CREER_NOUVEAU_FOURNISSEUR",
             "CREER_NOUVEAU_CLIENT",
             "RESTAURANTS_REPAS",
             "PEAGES_AUTOROUTES",
             "STATIONS_CARBURANT",
         ]
+        payload["tier_alias_targets"] = alias_targets
+        payload["decision_full"] = list(
+            dict.fromkeys(
+                (
+                    *DECISION_SIMPLE_CHOICES,
+                    *DECISION_GROUPS,
+                    *DECISION_INTERNAL_CHOICES,
+                    *alias_targets,
+                )
+            )
+        )
     choices_json = (
         json.dumps(payload, ensure_ascii=True)
         .replace("<", "\\u003c")
@@ -402,10 +451,19 @@ async function showPending(initial) {{
     const doc = String(item.doc_id || '');
     const category = selectOptions('category', CHOICES.categorie, item.categorie);
     const subcategory = selectOptions('subcategory', ['', ...CHOICES.sous_categorie], item.sous_categorie || '');
-    const exercise = selectOptions('exercise', CHOICES.exercice_cible, '2026');
-    const source = selectOptions('payment_source', CHOICES.source_paiement, 'BANQUE_PRO');
-    const alias = selectOptions('tier_alias', ['', ...(CHOICES.tier_alias_targets || [])], item.tier_alias_target || '');
-    return '<tr data-doc-id="' + esc(doc) + '">' +
+    const exerciseDefault = item.exercise_year || '2026';
+    const sourceDefault = item.source_paiement || (String(item.source || '').toUpperCase() === 'BANQUE_OFX' ? 'LCR' : 'BANQUE_PRO');
+    const exercise = selectOptions('exercise', CHOICES.exercice_cible, exerciseDefault);
+    const source = selectOptions('payment_source', CHOICES.source_paiement, sourceDefault);
+    const decisionChoices = (item.decision_choices && item.decision_choices.length)
+      ? item.decision_choices
+      : (CHOICES.decision_simple || ['VALIDE', 'DEJA_PAYEE_2025', 'REPORTER_MOIS_SUIVANT', 'IMPAYEE']);
+    const currentDecision = (item.decision && String(item.decision).toUpperCase() !== 'EN_ATTENTE')
+      ? item.decision
+      : ((item.decision_default || 'VALIDE'));
+    const decision = selectOptions('decision', decisionChoices, currentDecision)
+      .replace('<select ', '<select onchange="applyDecisionDefaults(this)" ');
+    return '<tr data-doc-id="' + esc(doc) + '" data-decision-profile="' + esc(item.decision_profile || '') + '">' +
       '<td>' + esc(item.date_piece) + '</td>' +
       '<td>' + esc(item.source) + '</td>' +
       '<td>' + esc(item.fichier_ref || item.filename) + '</td>' +
@@ -418,7 +476,7 @@ async function showPending(initial) {{
       '<td>' + subcategory + '</td>' +
       '<td>' + exercise + '</td>' +
       '<td>' + source + '</td>' +
-      '<td>' + alias + ' <button type="button" data-action="validate">Valider</button></td>' +
+      '<td>' + decision + ' <button type="button" data-action="validate">Valider</button></td>' +
       '</tr>';
   }}).join('');
   document.getElementById('questions').innerHTML =
@@ -431,6 +489,25 @@ async function showPending(initial) {{
     '<th>Source de paiement</th><th>Décision</th>' +
     '</tr></thead><tbody>' + rows + '</tbody></table>';
 }}
+function decisionTarget(choice) {{
+  const token = String(choice || '').trim();
+  if (!token) return '';
+  if (token.indexOf('GROUPE:') === 0) return token;
+  if ((CHOICES.decision_internal || []).indexOf(token) >= 0) return token;
+  if ((CHOICES.tier_alias_targets || []).indexOf(token) >= 0) return token;
+  return '';
+}}
+function applyDecisionDefaults(select) {{
+  const mapping = (CHOICES.decision_group_targets || {{}})[select.value]
+    || (CHOICES.decision_internal_targets || {{}})[select.value];
+  if (!mapping) return;
+  const row = select.closest('tr');
+  if (!row) return;
+  const category = row.querySelector('select[data-role="category"]');
+  const subcategory = row.querySelector('select[data-role="subcategory"]');
+  if (category && mapping.category) category.value = mapping.category;
+  if (subcategory) subcategory.value = mapping.subcategory || '';
+}}
 async function validerPiece(docId, button) {{
   const row = button.closest('tr');
   const category = row.querySelector('select[data-role="category"]').value;
@@ -439,28 +516,35 @@ async function validerPiece(docId, button) {{
     : '';
   const exercise = row.querySelector('select[data-role="exercise"]').value;
   const source = row.querySelector('select[data-role="payment_source"]').value;
-  const alias = row.querySelector('select[data-role="tier_alias"]')
-    ? row.querySelector('select[data-role="tier_alias"]').value
-    : '';
+  const decisionField = row.querySelector('select[data-role="decision"]');
+  const decision = decisionField && decisionField.value ? decisionField.value : 'VALIDE';
   const response = await fetch('/api/decide', {{
     method: 'POST',
     headers: {{'Content-Type': 'application/json'}},
     body: JSON.stringify({{
       doc_id: docId,
-      decision: 'VALIDE',
+      decision: decision || 'VALIDE',
       category: category,
       expense_subcategory: subcategory || null,
       fiscal_year_target: exercise,
       payment_source: source,
-      tier_alias_target: alias
+      tier_alias_target: decisionTarget(decision)
     }})
   }});
-  if (response.ok) {{
-    row.remove();
-    state.textContent = 'Pièce validée et enregistrée.';
-  }} else {{
-    state.textContent = 'Erreur lors de la validation.';
+  let payload = {{}};
+  try {{ payload = await response.json(); }} catch (error) {{}}
+  if (!response.ok) {{
+    state.textContent = 'Erreur lors de la validation : ' + (payload.message || payload.error || response.status);
+    return;
   }}
+  const status = String(payload.status || payload.decision || 'VALIDE').toUpperCase();
+  if (status === 'EN_ATTENTE') {{
+    if (decisionField) decisionField.value = decision;
+    state.textContent = 'Décision enregistrée : la ligne reste à suivre.';
+    return;
+  }}
+  row.remove();
+  state.textContent = 'Pièce validée et enregistrée (' + status + ').';
 }}
 async function runStage(number) {{
   document.querySelectorAll('button.stage').forEach(b => b.disabled = true);

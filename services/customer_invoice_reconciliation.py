@@ -41,7 +41,9 @@ from services.ofx_bank_statement_parser import (
 )
 from schemas.payment_method_schema import normalize_counterparty_name
 from services.bank_reconciliation_service import (
+    MAX_REMISE_ENCAISSEMENT_PIECES,
     MAX_SUBSET_SUM_PIECES,
+    is_transfer_only_client,
     lcr_invoice_matches_maturity,
     purge_invalid_lcr_remittances,
 )
@@ -58,6 +60,23 @@ _LEGAL_SUFFIXES = frozenset(
 REMISE = "REMISE"
 VIREMENT = "VIREMENT"
 REMISE_CHEQUES = "REMISE_CHEQUES"
+
+# P27-decies - a client invoice already settled / explicitly resolved must not
+# be re-lettered or reused as filler by a later remittance.
+SETTLED_STATUSES: frozenset[str] = frozenset(
+    {
+        PAID_STATUS,
+        "PAYE",
+        "PAYE_PRELEVE",
+        "REMBOURSE_RAPPROCHE",
+        "SOLDEE",
+        "DEJA_PAYEE_2025",
+        "IMPAYEE",
+        "VALIDE",
+        "SOLDEE_AVANT_DEPART",
+        "SOLDEE_EXERCICE_ANTERIEUR_2025",
+    }
+)
 
 
 class CustomerReconciliationError(ValueError):
@@ -84,7 +103,7 @@ class ReconciliableInvoice:
 
     @property
     def pending(self) -> bool:
-        return self.status != PAID_STATUS
+        return self.status not in SETTLED_STATUSES
 
 
 @dataclass(frozen=True)
@@ -448,27 +467,37 @@ def find_single_invoice_or_avoir(
     return None
 
 
-def find_remittance_combination(
+def _month_key(value: date | None) -> tuple[int, int]:
+    if value is None:
+        return (0, 0)
+    return (value.year, value.month)
+
+
+def _issue_date_key(value: date | None) -> tuple[int, int, int]:
+    if value is None:
+        return (0, 0, 0)
+    return (value.year, value.month, value.day)
+
+
+def _monthly_lcr_bundles(
     invoices: Sequence[ReconciliableInvoice | Any],
-    target: Decimal,
     *,
     payment_date: date | None = None,
     maturity_date: date | None = None,
-    tolerance: Decimal = _DEFAULT_TOLERANCE,
-    max_clients: int = 12,
     forbidden_clients: Iterable[str] | None = None,
-) -> tuple[ReconciliableInvoice, ...] | None:
-    """P27-septies Rule C - 30-days-end-of-month LCR bundles per client.
+) -> dict[str, list[tuple[int, tuple[ReconciliableInvoice, ...]]]]:
+    """Build one exhaustive monthly bundle per LCR client.
 
-    A client may contribute (a) one invoice of the maturity month, or (b) the
-    recurring monthly pair issued on the same end-of-month day (goods invoice
-    + 144.00 EUR fixed invoice), optionally reduced by one credit note of the
-    same period. An 8-day or 6-month-old invoice is never used as filler.
+    P27-decies business invariant: no customer invoice may be skipped before
+    the most recent invoice of that customer. Only the earliest pending month
+    of each client is therefore eligible; later months stay blocked until the
+    earlier bundle has been collected.
+
+    A monthly bundle is the goods invoice plus the recurring 144.00 EUR fixed
+    invoice of the same month, optionally reduced by one credit note of that
+    same month. Clients paid exclusively by transfer (Carrosserie Yucel) are
+    never part of an LCR remittance.
     """
-    target_cents = int((_amount(target) * 100).to_integral_value())
-    tolerance_cents = int((_amount(tolerance) * 100).to_integral_value())
-    if target_cents <= 0:
-        return None
     pending: list[ReconciliableInvoice] = []
     for invoice in invoices:
         coerced = _coerce_reconciliable(invoice)
@@ -483,84 +512,101 @@ def find_remittance_combination(
         if not _maturity_allows(coerced, maturity_date):
             continue
         pending.append(coerced)
-    if not pending:
-        return None
-    grouped: dict[str, list[ReconciliableInvoice]] = {}
     forbidden = {
         normalize_counterparty_name(value) or str(value)
         for value in (forbidden_clients or ())
         if str(value).strip()
     }
+    grouped: dict[str, list[ReconciliableInvoice]] = {}
     for invoice in pending:
         key = normalize_counterparty_name(invoice.customer) or invoice.customer
-        if key in forbidden:
+        if key in forbidden or is_transfer_only_client(invoice.customer):
             continue
         grouped.setdefault(key, []).append(invoice)
-    keys = sorted(grouped)
-    if len(keys) > max_clients:
-        keys = keys[:max_clients]
     bundles: dict[str, list[tuple[int, tuple[ReconciliableInvoice, ...]]]] = {}
-    for key in keys:
-        items = grouped[key]
+    for key, items in grouped.items():
+        positive_dates: dict[tuple[int, int, int], list[ReconciliableInvoice]] = {}
+        for item in items:
+            if item.is_credit_note or item.amount <= 0:
+                continue
+            positive_dates.setdefault(
+                _issue_date_key(item.invoice_date), []
+            ).append(item)
+        if not positive_dates:
+            continue
+        earliest = min(positive_dates)
         positives = sorted(
-            (
-                item
-                for item in items
-                if not item.is_credit_note and item.amount > 0
-            ),
+            positive_dates[earliest],
             key=lambda item: (item.invoice_date or date.min, item.number),
         )
         credit_notes = sorted(
-            (item for item in items if item.is_credit_note),
+            (
+                invoice
+                for invoice in items
+                if invoice.is_credit_note
+                and _month_key(invoice.invoice_date)
+                == (earliest[0], earliest[1])
+            ),
             key=lambda item: (item.invoice_date or date.min, item.number),
         )
-        client_bundles: list[tuple[int, tuple[ReconciliableInvoice, ...]]] = []
-        for positive in positives:
-            cents = int((positive.amount * 100).to_integral_value())
-            client_bundles.append((cents, (positive,)))
-            for credit_note in credit_notes:
-                net = (positive.amount - abs(credit_note.amount)).quantize(_CENT)
-                if net <= 0:
-                    continue
-                net_cents = int((net * 100).to_integral_value())
-                client_bundles.append((net_cents, (positive, credit_note)))
-        # P27-septies - the recurring monthly pair: goods invoice + fixed
-        # invoice issued the same end-of-month day (e.g. FA16496 + FA16497 on
-        # 30/06/2026 for CALANDRE_18). A pair is only legal when both invoices
-        # share the exact same issue date and that date is a month end.
-        for index, first in enumerate(positives):
-            if first.invoice_date is None or first.invoice_date.day < 28:
+        if not positives:
+            continue
+        base = tuple(positives)
+        base_total = sum(
+            (invoice.amount for invoice in positives), Decimal("0.00")
+        ).quantize(_CENT)
+        client_bundles: list[
+            tuple[int, tuple[ReconciliableInvoice, ...]]
+        ] = [(int((base_total * 100).to_integral_value()), base)]
+        for credit_note in credit_notes:
+            net = (base_total - abs(credit_note.amount)).quantize(_CENT)
+            if net <= 0:
                 continue
-            for second in positives[index + 1 :]:
-                if second.invoice_date != first.invoice_date:
-                    continue
-                pair_total = (first.amount + second.amount).quantize(_CENT)
-                pair = (first, second)
-                client_bundles.append(
-                    (
-                        int((pair_total * 100).to_integral_value()),
-                        pair,
-                    )
+            client_bundles.append(
+                (
+                    int((net * 100).to_integral_value()),
+                    (*base, credit_note),
                 )
-                for credit_note in credit_notes:
-                    net = (
-                        pair_total - abs(credit_note.amount)
-                    ).quantize(_CENT)
-                    if net <= 0:
-                        continue
-                    client_bundles.append(
-                        (
-                            int((net * 100).to_integral_value()),
-                            (*pair, credit_note),
-                        )
-                    )
-        if client_bundles:
-            bundles[key] = client_bundles
-    keys = [key for key in keys if key in bundles]
+            )
+        bundles[key] = client_bundles
+    return bundles
+
+
+def find_remittance_combination(
+    invoices: Sequence[ReconciliableInvoice | Any],
+    target: Decimal,
+    *,
+    payment_date: date | None = None,
+    maturity_date: date | None = None,
+    tolerance: Decimal = _DEFAULT_TOLERANCE,
+    max_clients: int = 20,
+    max_pieces: int = MAX_REMISE_ENCAISSEMENT_PIECES,
+    forbidden_clients: Iterable[str] | None = None,
+) -> tuple[ReconciliableInvoice, ...] | None:
+    """P27-decies Rule C - exact monthly LCR bundles per client.
+
+    Each client contributes exactly one monthly bundle (goods invoice + the
+    144.00 EUR fixed invoice, optionally minus one credit note of the same
+    month). The global remittance may contain up to 15 pieces and no customer
+    invoice older than the selected bundle may be left behind.
+    """
+    target_cents = int((_amount(target) * 100).to_integral_value())
+    tolerance_cents = int((_amount(tolerance) * 100).to_integral_value())
+    if target_cents <= 0:
+        return None
+    bundles = _monthly_lcr_bundles(
+        invoices,
+        payment_date=payment_date,
+        maturity_date=maturity_date,
+        forbidden_clients=forbidden_clients,
+    )
+    keys = sorted(bundles)
+    if len(keys) > max_clients:
+        keys = keys[:max_clients]
     from functools import lru_cache
 
     @lru_cache(maxsize=None)
-    def solve(index: int, remaining: int):
+    def solve(index: int, remaining: int, pieces: int):
         if abs(remaining) <= tolerance_cents:
             return ()
         if index >= len(keys):
@@ -575,14 +621,18 @@ def find_remittance_combination(
             ),
         )
         for cents, combo in ordered:
+            if pieces + len(combo) > max_pieces:
+                continue
             if cents > remaining + tolerance_cents:
                 continue
-            tail = solve(index + 1, remaining - cents)
+            tail = solve(
+                index + 1, remaining - cents, pieces + len(combo)
+            )
             if tail is not None:
                 return combo + tail
-        return solve(index + 1, remaining)
+        return solve(index + 1, remaining, pieces)
 
-    selected = solve(0, target_cents)
+    selected = solve(0, target_cents, 0)
     if selected is None:
         return None
     return tuple(
@@ -602,104 +652,53 @@ def find_partial_remittance_combination(
     *,
     payment_date: date | None = None,
     maturity_date: date | None = None,
+    tolerance: Decimal = _DEFAULT_TOLERANCE,
+    max_pieces: int = MAX_REMISE_ENCAISSEMENT_PIECES,
+    forbidden_clients: Iterable[str] | None = None,
 ) -> tuple[ReconciliableInvoice, ...] | None:
-    """P27-septies - letter the identified customers when the slip is short.
+    """P27-decies - letter every complete monthly bundle that fits.
 
-    A global ``REMISE 93847`` of 9 678,93 EUR may cover only 7 950,06 EUR of
-    invoices (an invoice or two are missing). The identified monthly bundles
-    are still lettered; the remaining amount is exposed as "Reste X EUR à
-    justifier" in ``_A_COMPLETER.xlsx`` instead of hiding the partial match.
+    A multi-client slip is often a few cents short because one invoice (or one
+    credit note) is missing. The identified monthly bundles are still lettered;
+    the remaining amount is exposed as "Reste X EUR à justifier" instead of
+    hiding the whole remittance. Bundles are never split: a client's goods
+    invoice and its 144.00 EUR fixed invoice always travel together.
     """
     target_cents = int((_amount(target) * 100).to_integral_value())
-    pending: list[ReconciliableInvoice] = []
-    for invoice in invoices:
-        coerced = _coerce_reconciliable(invoice)
-        if not coerced.pending:
-            continue
-        if (
-            payment_date is not None
-            and coerced.invoice_date is not None
-            and coerced.invoice_date > payment_date
-        ):
-            continue
-        if not _maturity_allows(coerced, maturity_date):
-            continue
-        pending.append(coerced)
-    grouped: dict[str, list[ReconciliableInvoice]] = {}
-    for invoice in pending:
-        key = normalize_counterparty_name(invoice.customer) or invoice.customer
-        grouped.setdefault(key, []).append(invoice)
+    tolerance_cents = int((_amount(tolerance) * 100).to_integral_value())
+    if target_cents <= 0:
+        return None
+    bundles = _monthly_lcr_bundles(
+        invoices,
+        payment_date=payment_date,
+        maturity_date=maturity_date,
+        forbidden_clients=forbidden_clients,
+    )
     selected: list[ReconciliableInvoice] = []
     remaining = target_cents
-    for key in sorted(grouped):
-        items = grouped[key]
-        positives = sorted(
-            (
-                item
-                for item in items
-                if not item.is_credit_note and item.amount > 0
-            ),
-            key=lambda item: (item.invoice_date or date.min, item.number),
-        )
-        credit_notes = sorted(
-            (item for item in items if item.is_credit_note),
-            key=lambda item: (item.invoice_date or date.min, item.number),
-        )
-        candidates: list[tuple[int, tuple[ReconciliableInvoice, ...]]] = []
-        for positive in positives:
-            candidates.append(
-                (
-                    int((positive.amount * 100).to_integral_value()),
-                    (positive,),
-                )
-            )
-            for credit_note in credit_notes:
-                net = (
-                    positive.amount - abs(credit_note.amount)
-                ).quantize(_CENT)
-                if net > 0:
-                    candidates.append(
-                        (
-                            int((net * 100).to_integral_value()),
-                            (positive, credit_note),
-                        )
-                    )
-        if (
-            len(positives) == 2
-            and positives[0].invoice_date == positives[1].invoice_date
-            and positives[0].invoice_date is not None
-            and positives[0].invoice_date.day >= 28
-        ):
-            pair_total = (positives[0].amount + positives[1].amount).quantize(
-                _CENT
-            )
-            candidates.append(
-                (
-                    int((pair_total * 100).to_integral_value()),
-                    (positives[0], positives[1]),
-                )
-            )
-            for credit_note in credit_notes:
-                net = (pair_total - abs(credit_note.amount)).quantize(_CENT)
-                if net > 0:
-                    candidates.append(
-                        (
-                            int((net * 100).to_integral_value()),
-                            (positives[0], positives[1], credit_note),
-                        )
-                    )
-        preferred = [item for item in candidates if item[0] <= remaining]
-        if not preferred:
+    pieces = 0
+    for key in sorted(bundles):
+        fits = [
+            (cents, combo)
+            for cents, combo in bundles[key]
+            if cents <= remaining + tolerance_cents
+            and pieces + len(combo) <= max_pieces
+        ]
+        if not fits:
             continue
-        cents, bundle = max(preferred, key=lambda item: item[0])
+        cents, bundle = max(fits, key=lambda item: (item[0], -len(item[1])))
         selected.extend(bundle)
         remaining -= cents
+        pieces += len(bundle)
     if not selected:
         return None
     return tuple(
         sorted(
             selected,
-            key=lambda item: (item.invoice_date or date.min, item.number),
+            key=lambda item: (
+                item.invoice_date or date.min,
+                item.number,
+            ),
         )
     )
 
@@ -1013,6 +1012,7 @@ def _reconcile_remittance_combination(
                 values["amount"],
                 payment_date=operations,
                 maturity_date=operations,
+                forbidden_clients=forbidden_clients,
             )
     else:
         combination = find_exact_invoice_combination(
@@ -1178,6 +1178,39 @@ def apply_bordereau_payment_rules(
     return _apply_bordereau_rules_parsed(store, tenant, parsed)
 
 
+def _mark_bank_line_reconciled(
+    store: Any,
+    tenant_id: str,
+    values: Mapping[str, Any],
+    *,
+    reference: str,
+    reconciliation_date: date | None,
+) -> None:
+    """Mark one LCR credit line as collected (never an invoice)."""
+    line_id = str(values.get("line_id") or "").strip()
+    if not line_id:
+        return
+    line = store.get_line(tenant_id, line_id)
+    if line is None:
+        return
+    updated = dict(line)
+    updated.pop("line_id", None)
+    updated.update(
+        {
+            "reconciliation_status": "PAYEE_RAPPROCHEE",
+            "reconciliation_date": (
+                reconciliation_date.isoformat()
+                if reconciliation_date is not None
+                else line.get("operation_date")
+            ),
+            "reconciliation_reference": reference,
+            "reconciliation_amount": str(values.get("amount") or "0.00"),
+            "balance_due": "0.00",
+        }
+    )
+    store.force_upsert_document_line(tenant_id, line_id, updated)
+
+
 def reconcile_customer_invoices(
     store: Any,
     tenant_id: str,
@@ -1258,8 +1291,26 @@ def reconcile_customer_invoices(
             (values.get("operation_date") or date.max, index, values)
         )
     prepared.sort(key=lambda item: (item[0], item[1]))
+    # P27-decies - a remittance may be split by the bank into several credit
+    # lines carrying the same ``REMISE ENCAISSEMENT N ...`` number. They are
+    # one single monthly collection and must be matched against their summed
+    # amount, otherwise a client bundle (goods + 144 EUR) is torn apart.
+    remise_totals: dict[str, Decimal] = {}
+    remise_lines: dict[str, list[dict[str, Any]]] = {}
+    for _, _, values in prepared:
+        if str(values.get("payment_method") or "").upper() != (
+            "LCR_ENCAISSEMENT_LOT"
+        ):
+            continue
+        reference = _bank_reference(REMISE, values)
+        key = _remise_key(reference)
+        remise_lines.setdefault(key, []).append(values)
+        remise_totals[key] = (
+            remise_totals.get(key, Decimal("0.00")) + values["amount"]
+        ).quantize(_CENT)
     payments: list[PaymentLettering] = []
     remise_used_clients: dict[str, set[str]] = {}
+    processed_remises: set[str] = set()
     for _, _, values in prepared:
         method = str(values.get("payment_method") or "").upper()
         operations = values.get("operation_date")
@@ -1272,12 +1323,31 @@ def reconcile_customer_invoices(
         if method == "LCR_ENCAISSEMENT_LOT":
             remise_key = _remise_key(reference)
             used_clients = remise_used_clients.setdefault(remise_key, set())
-            remittance = _find_bordereau(parsed_bordereaux, values["amount"])
+            if remise_key in processed_remises:
+                payment = PaymentLettering(
+                    bank_line_id=str(values.get("line_id") or ""),
+                    bank_reference=reference,
+                    bank_date=operations,
+                    bank_amount=values["amount"],
+                    payment_method=str(values.get("payment_method") or ""),
+                    kind=REMISE,
+                    matched=True,
+                )
+                payments.append(payment)
+                continue
+            processed_remises.add(remise_key)
+            match_values = dict(values)
+            match_values["amount"] = remise_totals.get(
+                remise_key, values["amount"]
+            )
+            remittance = _find_bordereau(
+                parsed_bordereaux, match_values["amount"]
+            )
             if remittance is not None:
                 payment, allocation_errors = _reconcile_bordereau(
                     store,
                     tenant,
-                    values,
+                    match_values,
                     remittance,
                     pending,
                     reference,
@@ -1288,7 +1358,7 @@ def reconcile_customer_invoices(
                 payment = _reconcile_remittance_combination(
                     store,
                     tenant,
-                    values,
+                    match_values,
                     invoices,
                     pending,
                     reference,
@@ -1303,6 +1373,15 @@ def reconcile_customer_invoices(
                 )
             for lettering in payment.invoices:
                 used_clients.add(lettering.customer)
+            if payment.matched:
+                for group_values in remise_lines.get(remise_key, ()):
+                    _mark_bank_line_reconciled(
+                        store,
+                        tenant,
+                        group_values,
+                        reference=reference,
+                        reconciliation_date=operations,
+                    )
         elif method == "REMISE_CHEQUES":
             payment = _reconcile_remittance_combination(
                 store,
@@ -1353,6 +1432,7 @@ __all__ = [
     "PaymentLettering",
     "REMISE",
     "REMISE_CHEQUES",
+    "SETTLED_STATUSES",
     "ReconciliableInvoice",
     "apply_bordereau_payment_rules",
     "VIREMENT",

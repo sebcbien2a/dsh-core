@@ -385,6 +385,11 @@ def pull_from_onedrive(
     """
     if not onedrive_bridge_enabled():
         return ()
+    # P27-decies - an explicit side workspace (tests, dry runs) must never pull
+    # the director's real OneDrive workbooks unless it also names its own
+    # OneDrive directory. The bridge class already enforces this.
+    if root is not None and onedrive_dir is None:
+        return ()
     destination = resolve_onedrive_root(onedrive_dir)
     if destination is None:
         return ()

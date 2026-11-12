@@ -180,12 +180,15 @@ def test_bank_tier_rows_expose_real_date_label_and_summed_ttc():
         for row in rows
         if row.get("Fichier / Réf")
     }
-    atlandes = by_name.get("TIER__ATLANDES.tier")
-    assert atlandes is not None
-    assert "->" in str(atlandes["Date"]) and "op." in str(atlandes["Date"])
-    assert atlandes["Source"] == "BANQUE_OFX"
-    assert _cents(atlandes["Montant TTC (€)"]) == Decimal("17.60")
-    assert "CB ATLANDES" in str(atlandes["Libellé / N° Pièce"])
+    # P27-decies - ATLANDES is now a mapped supplier and therefore leaves the
+    # unknown-tier workbook. Another genuinely unknown aggregated tier keeps
+    # the date-range / summed-TTC contract under test.
+    good_time = by_name.get("TIER__GOOD TIME.tier")
+    assert good_time is not None
+    assert "->" in str(good_time["Date"]) and "op." in str(good_time["Date"])
+    assert good_time["Source"] == "BANQUE_OFX"
+    assert _cents(good_time["Montant TTC (€)"]) == Decimal("80.00")
+    assert "CB GOOD TIME" in str(good_time["Libellé / N° Pièce"])
 
     plenergy = by_name.get("TIER__PLENERGY US 020.tier")
     assert plenergy is not None

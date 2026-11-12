@@ -19,6 +19,7 @@ from typing import Any, Iterable
 
 from schemas.accounting_choices import (
     CATEGORY_CHOICES,
+    DECISION_SIMPLE_CHOICES,
     DEFERRED_MONTH_CHOICES,
     EXERCISE_CHOICES,
     PAYMENT_SOURCE_CHOICES,
@@ -28,6 +29,7 @@ from schemas.accounting_choices import (
     excel_list,
     extract_year,
     normalize_category,
+    normalize_decision,
     normalize_exercise,
     normalize_month,
     normalize_payment_source,
@@ -35,6 +37,10 @@ from schemas.accounting_choices import (
     normalize_status,
 )
 from schemas.folder_state_schema import DocumentCategory, DocumentStatus
+from services.cockpit_decision_service import (
+    decision_menu_for,
+    full_decision_choices,
+)
 
 READABLE_HEADERS: tuple[str, ...] = (
     "Date",
@@ -174,6 +180,7 @@ class ReadableDecision:
     tier_alias_target: str = ""
     action: str = ""
     subcategory: str | None = None
+    decision: str = ""
 
     @property
     def is_validated(self) -> bool:
@@ -316,7 +323,12 @@ def _add_list_validation(
 
 
 def _add_formula_validation(
-    sheet: Any, column: str, formula: str, last_row: int
+    sheet: Any,
+    column: str,
+    formula: str,
+    last_row: int,
+    *,
+    first_row: int = 2,
 ) -> None:
     from openpyxl.worksheet.datavalidation import DataValidation
 
@@ -326,12 +338,14 @@ def _add_formula_validation(
         allow_blank=True,
         showDropDown=False,
     )
-    validation.error = "Choisissez une valeur propos?e dans la liste."
+    validation.error = "Choisissez une valeur proposée dans la liste."
     validation.errorTitle = "Choix invalide"
-    validation.prompt = "S?lectionnez une valeur officielle."
+    validation.prompt = "Sélectionnez une valeur officielle."
     validation.promptTitle = "Liste officielle"
     sheet.add_data_validation(validation)
-    validation.add(f"{column}2:{column}{max(last_row, 2)}")
+    validation.add(
+        f"{column}{max(first_row, 2)}:{column}{max(last_row, 2)}"
+    )
 
 
 def _alias_choices() -> tuple[str, ...]:
@@ -351,8 +365,23 @@ def _alias_choices() -> tuple[str, ...]:
         )
 
 
+def _decision_value_for_row(row: ReadableRow) -> Any:
+    """Pending lines stay blank (default VALIDE); explicit answers are kept."""
+    if row.status_value == DocumentStatus.VALIDE.value:
+        return row.status_value
+    if row.status_value == DocumentStatus.REJETE.value:
+        return row.status_value
+    if str(row.extra.get("report") or "").upper() == "OUI":
+        return "REPORTER_MOIS_SUIVANT"
+    return ""
+
+
 def _install_validations(
-    sheet: Any, last_row: int, *, alias_formula: str | None = None
+    sheet: Any,
+    last_row: int,
+    *,
+    alias_formula: str | None = None,
+    decision_blocks: Iterable[tuple[str, int, int]] = (),
 ) -> None:
     try:
         sheet.data_validations.dataValidation.clear()
@@ -368,7 +397,90 @@ def _install_validations(
     _add_list_validation(
         sheet, PAYMENT_SOURCE_COLUMN, PAYMENT_SOURCE_CHOICES, last_row
     )
-    _add_list_validation(sheet, DECISION_COLUMN, STATUS_CHOICES, last_row)
+    # P27-decies - one contextual Décision list per row block. Known tiers and
+    # ARDOISE rows only expose the four lifecycle answers; unknown bank tiers
+    # get the enriched list (groups, internal flows, known tiers, creation).
+    for formula, first_row, block_last_row in decision_blocks:
+        _add_formula_validation(
+            sheet,
+            DECISION_COLUMN,
+            formula,
+            block_last_row,
+            first_row=first_row,
+        )
+    _add_list_validation(sheet, EXERCISE_COLUMN, EXERCISE_CHOICES, last_row)
+    _add_list_validation(
+        sheet, MONTH_COLUMN, DEFERRED_MONTH_CHOICES, last_row
+    )
+    _add_list_validation(sheet, REPORT_COLUMN, REPORT_CHOICES, last_row)
+    if alias_formula:
+        _add_formula_validation(
+            sheet, ALIAS_TARGET_COLUMN, alias_formula, last_row
+        )
+    else:
+        _add_list_validation(
+            sheet, ALIAS_TARGET_COLUMN, _alias_choices(), last_row
+        )
+
+
+def _write_decision_lists(workbook: Any, tier_reference: Any = None) -> None:
+    """Create the hidden lists used by the contextual Décision validations."""
+    from openpyxl.workbook.defined_name import DefinedName
+
+    lists = workbook.create_sheet("LISTES_DECISIONS")
+    simple = tuple(DECISION_SIMPLE_CHOICES)
+    full = full_decision_choices(tier_reference)
+    for index, choice in enumerate(simple, start=1):
+        lists.cell(row=index, column=1, value=choice)
+    for index, choice in enumerate(full, start=1):
+        lists.cell(row=index, column=2, value=choice)
+    lists.sheet_state = "hidden"
+    workbook.defined_names.add(
+        DefinedName(
+            "DECISION_SIMPLE",
+            attr_text=f"LISTES_DECISIONS!$A$1:$A${max(len(simple), 1)}",
+        )
+    )
+    workbook.defined_names.add(
+        DefinedName(
+            "DECISION_BANQUE_INCONNUE",
+            attr_text=f"LISTES_DECISIONS!$B$1:$B${max(len(full), 1)}",
+        )
+    )
+
+
+def _decision_blocks(
+    sheet: Any, last_row: int, tier_reference: Any = None
+) -> list[tuple[str, int, int]]:
+    """Group consecutive rows sharing the same contextual Décision list."""
+    blocks: list[tuple[str, int, int]] = []
+    current_formula = ""
+    start = 2
+    for row_index in range(2, last_row + 1):
+        filename = _text(sheet.cell(row=row_index, column=3).value)
+        supplier = _text(sheet.cell(row=row_index, column=4).value)
+        source = _text(sheet.cell(row=row_index, column=2).value)
+        menu = decision_menu_for(
+            filename,
+            supplier,
+            source,
+            tier_reference,
+        )
+        formula = (
+            "DECISION_SIMPLE"
+            if len(menu.choices) <= len(DECISION_SIMPLE_CHOICES)
+            and menu.profile
+            in {"TIERS_CONNU", "ARDOISE"}
+            else "DECISION_BANQUE_INCONNUE"
+        )
+        if formula != current_formula:
+            if current_formula and row_index > start:
+                blocks.append((current_formula, start, row_index - 1))
+            current_formula = formula
+            start = row_index
+    if current_formula and last_row >= start:
+        blocks.append((current_formula, start, last_row))
+    return blocks
     _add_list_validation(sheet, EXERCISE_COLUMN, EXERCISE_CHOICES, last_row)
     _add_list_validation(
         sheet, MONTH_COLUMN, DEFERRED_MONTH_CHOICES, last_row
@@ -495,16 +607,6 @@ def write_readable_workbook(
             _text(item.filename).casefold(),
         ),
     )
-    existing_rows = _existing_readable_rows(path)
-    generated_keys = {
-        f"SHA-256:{row.sha256}" for row in ordered if row.sha256
-    } | {
-        f"Nom Fichier:{row.filename}" for row in ordered if row.filename
-    } | {
-        f"N° Pièce:{row.document_number}"
-        for row in ordered
-        if row.document_number
-    }
     for offset, row in enumerate(ordered, start=2):
         exercise_year = (
             str(row.exercise_year or "").strip()
@@ -533,7 +635,7 @@ def write_readable_workbook(
             or str(row.document_number or "").strip()
             or _text(row.filename)
         )
-        decision_value = row.status_value
+        decision_value = _decision_value_for_row(row)
         values = (
             row.date_label or _date_cell(row.document_date),
             source,
@@ -595,110 +697,9 @@ def write_readable_workbook(
             hidden_link.hyperlink = link
             hidden_link.font = Font(color="0563C1", underline="single")
 
-    next_row = sheet.max_row + 1
-    for old in existing_rows:
-        key = _readable_row_key(old)
-        if not key or key in generated_keys:
-            continue
-        old_filename = _first_value(
-            old, "Fichier / Réf", "Nom Fichier", "Nom fichier"
-        )
-        if old_filename.upper().startswith("TIER__") and (
-            f"Nom Fichier:{old_filename}" not in generated_keys
-        ):
-            # A tier that is now resolved (BPCE IARD, Mise Sur Orbite, ...)
-            # must leave the pending workbook immediately.
-            continue
-        if "DETAILREMISE" in old_filename.upper().replace("_", ""):
-            continue
-        action = _first_value(
-            old, "Action attendue", "Action / Décision"
-        )
-        category = _first_value(old, "Catégorie", "Catégorie Proposée")
-        decision = _first_value(old, "Décision")
-        alias_target = _first_value(
-            old, "Rattacher comme ALIAS de (ou NOUVEAU_TIERS)"
-        )
-        ai_category = _first_value(old, "Catégorie IA")
-        ai_action = _first_value(old, "Action IA")
-        ai_subcategory = _first_value(old, "Sous-Catégorie IA")
-        selected_subcategory = _first_value(
-            old, "Sous-Catégorie", "Sous-catégorie Frais"
-        )
-        human_decision = _explicit_status(decision)
-        human_edit = bool(alias_target.strip()) or (
-            human_decision in {
-                DocumentStatus.VALIDE.value,
-                DocumentStatus.REJETE.value,
-            }
-        )
-        if not human_edit and ai_category:
-            human_edit = _normalize_label(category) != _normalize_label(
-                ai_category
-            )
-        if not human_edit and ai_subcategory:
-            human_edit = _normalize_label(
-                selected_subcategory
-            ) != _normalize_label(ai_subcategory)
-        if not human_edit and ai_action and action:
-            human_edit = (
-                _normalize_label(action) != _normalize_label(ai_action)
-                and any(
-                    keyword in _normalize_label(action)
-                    for keyword in _DECISION_KEYWORDS
-                )
-            )
-        if not human_edit:
-            continue
-        amount = _first_value(old, "Montant TTC (€)", "TTC")
-        values = (
-            _first_value(old, "Date", "Date Pièce"),
-            _first_value(old, "Source") or "PIECE_PDF",
-            _first_value(old, "Fichier / Réf", "Nom Fichier", "N° Pièce"),
-            _first_value(old, "Fournisseur / Tiers"),
-            _first_value(old, "Libellé / N° Pièce", "N° Pièce"),
-            _amount_cell(
-                Decimal(str(amount).replace(",", "."))
-                if str(amount or "").strip()
-                else None
-            ),
-            _first_value(old, "Pourquoi en attente"),
-            action,
-            category,
-            _first_value(old, "Sous-Catégorie", "Sous-catégorie Frais"),
-            _first_value(old, "Exercice Année"),
-            _first_value(old, "Source de paiement"),
-            decision or "EN_ATTENTE",
-        )
-        for column, value in enumerate(values, start=1):
-            cell = sheet.cell(
-                row=next_row, column=column, value=value
-            )
-            cell.alignment = Alignment(vertical="top", wrap_text=True)
-            if isinstance(value, float):
-                cell.number_format = "#,##0.00"
-        for offset_hidden, header in enumerate(
-            HIDDEN_HEADERS, start=len(READABLE_HEADERS) + 1
-        ):
-            sheet.cell(
-                row=next_row,
-                column=offset_hidden,
-                value=old.get(header),
-            )
-        link = old.get("_link")
-        if (
-            isinstance(link, str)
-            and link
-            and ".." not in link
-            and not _is_fake_bank_source_piece(link)
-        ):
-            cell = sheet.cell(row=next_row, column=3)
-            cell.value = values[2]
-            cell.hyperlink = link
-            cell.font = Font(color="0563C1", underline="single")
-        next_row += 1
-
     last_row = max(sheet.max_row, 1)
+    tier_reference = _tier_reference()
+    _write_decision_lists(workbook, tier_reference)
     alias_choices = _alias_choices()
     alias_formula = None
     if alias_choices:
@@ -716,7 +717,10 @@ def write_readable_workbook(
         )
         alias_formula = "TIERS_ALIAS"
     _install_validations(
-        sheet, last_row, alias_formula=alias_formula
+        sheet,
+        last_row,
+        alias_formula=alias_formula,
+        decision_blocks=_decision_blocks(sheet, last_row, tier_reference),
     )
     sheet.auto_filter.ref = (
         f"A1:{get_column_letter(len(READABLE_HEADERS))}{last_row}"
@@ -904,7 +908,12 @@ def _read_decisions_from_workbook(
                     and subcategory != ai_subcategory
                 ):
                     status = DocumentStatus.VALIDE.value
-            if status is None and _is_human_decided(values, tier_reference):
+            if status is None and _is_human_decided(
+                values,
+                None
+                if filename.upper().startswith("ARDOISE_")
+                else tier_reference,
+            ):
                 status = DocumentStatus.VALIDE.value
             if status is None:
                 status = DocumentStatus.EN_ATTENTE.value
@@ -936,6 +945,7 @@ def _read_decisions_from_workbook(
                         "Rattacher comme ALIAS de (ou NOUVEAU_TIERS)", ""
                     ),
                     action=action,
+                    decision=decision,
                 )
             )
         return decisions
@@ -999,8 +1009,17 @@ def read_readable_decisions(
 
 def _explicit_status(value: Any) -> str | None:
     token = re.sub(r"[^A-Z0-9]+", "", str(value or "").upper())
-    if token in {"VALIDE", "VALIDER", "OK", "ACCEPTER"}:
+    if token in {
+        "VALIDE",
+        "VALIDER",
+        "OK",
+        "ACCEPTER",
+        "DEJAPAYEE2025",
+        "IMPAYEE",
+    }:
         return DocumentStatus.VALIDE.value
+    if token in {"REPORTERMOISSUIVANT"}:
+        return DocumentStatus.EN_ATTENTE.value
     if token in {"REJETE", "REJETER", "KO", "REFUSER"}:
         return DocumentStatus.REJETE.value
     return None

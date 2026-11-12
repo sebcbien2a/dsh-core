@@ -369,6 +369,12 @@ def refresh_cockpit(
         year=year,
     )
     stage_reports = pipeline.run_all()
+    # P27-decies - rebuild the readable workbook one last time after the final
+    # OneDrive pull of stage 4, then publish this authoritative copy.
+    try:
+        pipeline._write_readable_views()
+    except Exception:  # noqa: BLE001 - the readable view is best effort
+        pass
     onedrive_pushed_director = onedrive.push_director_files()
     onedrive_pushed_expert = onedrive.push_expert_workbooks()
     workbooks = tuple(

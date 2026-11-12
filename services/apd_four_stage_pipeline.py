@@ -129,6 +129,21 @@ PURCHASE_CATEGORIES = frozenset(
     }
 )
 PAID_STATUSES = frozenset({"PAYEE_RAPPROCHEE", "PAYE", "SOLDEE"})
+# P27-decies - an ARDOISE line is resolved as soon as the director (or an
+# automatic LCR batch) gave it a final answer. It must leave the pending
+# workbook immediately instead of being re-asked on every refresh.
+SLATE_RESOLVED_STATUSES = frozenset(
+    {
+        *PAID_STATUSES,
+        "DEJA_PAYEE_2025",
+        "IMPAYEE",
+        "VALIDE",
+        "PAYE_PRELEVE",
+        "REMBOURSE_RAPPROCHE",
+        "SOLDEE_AVANT_DEPART",
+        "SOLDEE_EXERCICE_ANTERIEUR_2025",
+    }
+)
 PCG_PURCHASES_GOODS = "607000"
 PCG_SERVICES = "622600"
 PCG_SENSITIVE_EXPENSES = "623800"
@@ -811,9 +826,29 @@ class ApdFourStagePipeline:
             updated = dict(line)
             updated.pop("line_id", None)
             updated["status"] = status
-            decision_token = re.sub(
+            selected_token = re.sub(
+                r"[^A-Z0-9]+", "_", str(decision.decision or "").upper()
+            ).strip("_")
+            legacy_token = re.sub(
                 r"[^A-Z0-9]+", "_", str(decision.action or "").upper()
             ).strip("_")
+            special = {
+                "DEJA_PAYEE_2025",
+                "REPORTER_MOIS_SUIVANT",
+                "IMPAYEE",
+            }
+            if selected_token in special:
+                decision_token = selected_token
+            elif selected_token in {
+                "VALIDE",
+                "EN_ATTENTE",
+                "REJETE",
+            }:
+                decision_token = ""
+            elif not selected_token and legacy_token in special:
+                decision_token = legacy_token
+            else:
+                decision_token = ""
             if "DEJA_PAYEE" in decision_token:
                 updated["reconciliation_status"] = "DEJA_PAYEE_2025"
                 updated["reconciliation_date"] = (
@@ -868,6 +903,8 @@ class ApdFourStagePipeline:
                 )
             if decision.fiscal_year_target:
                 updated["fiscal_year_target"] = decision.fiscal_year_target
+            if decision.exercise_year:
+                updated["exercise_year"] = decision.exercise_year
             if decision.deferred_month:
                 updated["deferred_month_override"] = (
                     None
@@ -1242,6 +1279,10 @@ class ApdFourStagePipeline:
         self._apply_tier_reference()
         report = dispatch[stage]()
         try:
+            # P27-decies - the next stage starts by pulling OneDrive; write the
+            # authoritative readable view last so enriched dropdowns and
+            # resolved rows are never overwritten by a stale remote copy.
+            self._write_readable_views()
             bridge.push_director_files()
         except Exception:  # noqa: BLE001 - OneDrive never blocks a stage
             pass
@@ -1263,6 +1304,13 @@ class ApdFourStagePipeline:
             reports.append(self.run_stage(stage))
             if pause is not None and index < len(selected) - 1:
                 pause(stage)
+        # P27-decies - the final readable view is authoritative: it must carry
+        # the enriched contextual dropdowns and no resolved row, whatever the
+        # last OneDrive pull merged locally.
+        try:
+            self._write_readable_views()
+        except Exception:  # noqa: BLE001 - the stage reports are already built
+            pass
         return tuple(reports)
 
     def snapshot(self) -> dict[str, Any]:
@@ -2177,7 +2225,7 @@ class ApdFourStagePipeline:
                     status = str(
                         candidate.get("reconciliation_status") or ""
                     ).upper()
-                    if status and status not in PAID_STATUSES:
+                    if status and status not in SLATE_RESOLVED_STATUSES:
                         continue
                     try:
                         matched_total += abs(
@@ -2267,7 +2315,7 @@ class ApdFourStagePipeline:
             }:
                 continue
             status = str(row.get("reconciliation_status") or "").upper()
-            if status in PAID_STATUSES:
+            if status in SLATE_RESOLVED_STATUSES:
                 continue
             invoice_date = parse_iso_date(row.get("operation_date"))
             if invoice_date is None or invoice_date < date(2025, 11, 1):

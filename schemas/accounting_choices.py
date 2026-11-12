@@ -45,6 +45,33 @@ DEFERRED_MONTH_CHOICES: tuple[str, ...] = (
 )
 REPORT_CHOICES: tuple[str, ...] = ("NON", "OUI")
 STATUS_CHOICES: tuple[str, ...] = ("EN_ATTENTE", "VALIDE", "REJETE")
+# P27-decies - the cockpit never blocks a direct validation: a blank/dash
+# decision falls back to ``VALIDE``. Known tiers and ARDOISE rows only expose
+# these four lifecycle answers, while an unknown bank tier gets the full
+# contextual menu built by ``services.cockpit_decision_service``.
+DECISION_SIMPLE_CHOICES: tuple[str, ...] = (
+    "VALIDE",
+    "DEJA_PAYEE_2025",
+    "REPORTER_MOIS_SUIVANT",
+    "IMPAYEE",
+)
+DECISION_INTERNAL_CHOICES: tuple[str, ...] = (
+    "PAIEMENT_INTERNE_SOCIETE",
+    "PAIEMENT_INTERNE_PERSO_REMBOURSEMENT",
+)
+DECISION_CREATION_CHOICES: tuple[str, ...] = (
+    "CREER_NOUVEAU_FOURNISSEUR",
+    "CREER_NOUVEAU_CLIENT",
+)
+# Automatic general-expense groups: selecting one assigns the generic
+# supplier, the category and the sub-category in a single human answer.
+DECISION_GROUPS: tuple[str, ...] = (
+    "GROUPE:RESTAURANTS_REPAS",
+    "GROUPE:PEAGES_AUTOROUTES",
+    "GROUPE:STATIONS_CARBURANT",
+    "GROUPE:PARKINGS_TRANSPORTS",
+    "GROUPE:ASSURANCES_SOCIETE",
+)
 SUBCATEGORY_CHOICES: tuple[str, ...] = (
     "RESTAURATION",
     "CARBURANT",
@@ -204,6 +231,36 @@ def normalize_status(value: Any) -> str | None:
     return None
 
 
+def normalize_decision(value: Any) -> str:
+    """Return the official decision token, defaulting blank/dash to VALIDE.
+
+    P27-decies invariant: clicking "Valider" without touching the Décision
+    column must never block the cockpit. ``—``, ``-`` and an empty cell are the
+    documented "no explicit answer" states.
+    """
+    raw = str(value or "").strip()
+    if raw in {"", "—", "-", "–"}:
+        return "VALIDE"
+    folded = _fold(raw)
+    if folded in {"VALIDE", "VALIDER", "OK", "ACCEPTER"}:
+        return "VALIDE"
+    if folded in {"DEJA_PAYEE_2025", "DEJA PAYEE 2025", "DEJAPAYEE2025"}:
+        return "DEJA_PAYEE_2025"
+    if folded in {
+        "REPORTER_MOIS_SUIVANT",
+        "REPORTER MOIS SUIVANT",
+        "REPORTERMOISSUIVANT",
+    }:
+        return "REPORTER_MOIS_SUIVANT"
+    if folded in {"IMPAYEE", "IMPAYÉE"}:
+        return "IMPAYEE"
+    if folded in {"REJETE", "REJETER", "KO", "REFUSER"}:
+        return "REJETE"
+    if folded in {"EN_ATTENTE", "ATTENTE", "QUESTION"}:
+        return "EN_ATTENTE"
+    return raw.upper()
+
+
 def excel_list(choices: Iterable[str]) -> str:
     """Return the openpyxl ``formula1`` inline-list syntax."""
     return '"' + ",".join(str(choice) for choice in choices) + '"'
@@ -226,6 +283,10 @@ __all__ = [
     "CATEGORY_ACCOUNTS",
     "CATEGORY_CHOICES",
     "COUNTERPARTY_ACCOUNT_CHOICES",
+    "DECISION_CREATION_CHOICES",
+    "DECISION_GROUPS",
+    "DECISION_INTERNAL_CHOICES",
+    "DECISION_SIMPLE_CHOICES",
     "DEFERRED_MONTH_CHOICES",
     "EXERCISE_CHOICES",
     "EXONERATION_LABELS",
@@ -241,6 +302,7 @@ __all__ = [
     "excel_list",
     "extract_year",
     "normalize_category",
+    "normalize_decision",
     "normalize_exercise",
     "normalize_month",
     "normalize_payment_source",

@@ -276,13 +276,18 @@ def test_pdf_links_use_local_hyperlink_formula(tmp_path):
         include_matched_pieces=True,
     ).export(TENANT)
     sheet = load_workbook(path)["CARROSSERIE_YUCEL"]
+    headers = [str(cell.value or "") for cell in sheet[1]]
+    type_column = headers.index("Type")
+    pdf_column = headers.index("Pièce PDF (Clic)")
     payment = next(
-        row for row in sheet.iter_rows(min_row=2) if row[1].value == "PAIEMENT"
+        row
+        for row in sheet.iter_rows(min_row=2)
+        if row[type_column].value == "PAIEMENT"
     )
-    assert payment[13].hyperlink is not None
+    assert payment[pdf_column].hyperlink is not None
     assert (
         "PIECES_JOINTES/VENTES/FA16423_2026-01-31_CARROSSERIE_YUCELL.pdf"
-        in str(payment[13].hyperlink.target)
+        in str(payment[pdf_column].hyperlink.target)
     )
 
 

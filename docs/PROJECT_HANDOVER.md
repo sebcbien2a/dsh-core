@@ -335,3 +335,31 @@ graph LR
   nettoyage `TABLEAU_INFORMATIQUE_WEB`).
 - Commande de r?f?rence :
   `.venv-v3\Scripts\python.exe scripts/refresh_cockpit.py --tenant APD --no-ingest`.
+
+---
+
+## 6. P27-DECIES - VALIDATION DIRECTE SANS DÉCISION, MENUS CONTEXTUELS & REMISES LCR MULTI-CLIENTS DÉPLAFONNÉES
+
+**Date** : 2026-11-12. **Périmètre** : ergonomie du Cockpit Web, `_A_COMPLETER.xlsx`, rapprochement LCR et synchronisation OneDrive.
+
+### 6.1 Validation directe sans blocage
+- `schemas/accounting_choices.py` expose `normalize_decision()` : une décision vide, `—` ou `-` vaut automatiquement `VALIDE`; les jetons `DEJA_PAYEE_2025`, `REPORTER_MOIS_SUIVANT` et `IMPAYEE` sont officiels.
+- `services/hermes_accounting_bridge.py` ne lève plus `INVALID_DECISION` sur une décision vide. `decide_document()` persiste `status`, `reconciliation_status`, `category`, `expense_subcategory`, `exercise_year` et `fiscal_year_target` en SQLite, puis `_write_readable_views()` retire la ligne résolue du classeur et republie OneDrive.
+- `services/acompleter_readable_service.py` n'ajoute plus `VALIDE / REJETE / DEJA_PAYEE_2025 / IMPAYEE` aux lignes en attente : une ligne résolue quitte immédiatement `_A_COMPLETER.xlsx`.
+- `services/apd_four_stage_pipeline.py` considère `DEJA_PAYEE_2025`, `IMPAYEE`, `VALIDE` et les soldes antérieurs comme résolus pour l'ardoise (`SLATE_RESOLVED_STATUSES`) et réécrit la vue lisible à la fin de chaque étape, après le pull OneDrive, pour qu'une copie distante obsolète ne ressuscite jamais une ligne résolue.
+
+### 6.2 Menus Décision contextuels
+- Nouveau `services/cockpit_decision_service.py` : `decision_menu_for()` renvoie uniquement `VALIDE | DEJA_PAYEE_2025 | REPORTER_MOIS_SUIVANT | IMPAYEE` pour un tiers connu du `REFERENTIEL_TIERS_APD.xlsx` (`SPPV`, `CALANDRE_18`, `CHOLLET`, `GP_AUTO_*`, `BOSCH_SIA`...) ou une ligne `ARDOISE_FA1xxxxx.tier`.
+- Pour un tiers bancaire inconnu (`TIER__*.tier`, `INSTRUMENT__*.tier`), le sélecteur unique contient : les groupes `GROUPE:RESTAURANTS_REPAS`, `GROUPE:PEAGES_AUTOROUTES`, `GROUPE:STATIONS_CARBURANT`, `GROUPE:PARKINGS_TRANSPORTS`, `GROUPE:ASSURANCES_SOCIETE` (fournisseur générique + catégorie + sous-catégorie + compte), les flux `PAIEMENT_INTERNE_SOCIETE` / `PAIEMENT_INTERNE_PERSO_REMBOURSEMENT`, tous les clients/fournisseurs connus et `CREER_NOUVEAU_FOURNISSEUR` / `CREER_NOUVEAU_CLIENT`.
+- `services/apd_control_panel.py` remplace l'ancien menu ALIAS par ce sélecteur Décision, auto-remplit catégorie/sous-catégorie lors d'un choix `GROUPE:*` et envoie la décision réelle à `/api/decide`.
+- `_A_COMPLETER.xlsx` reçoit les mêmes listes via les plages nommées `DECISION_SIMPLE` / `DECISION_BANQUE_INCONNUE` de l'onglet caché `LISTES_DECISIONS` ; les lignes connues/ardoise et les tiers inconnus ont chacun leur validation contextuelle.
+
+### 6.3 Remises LCR multi-clients
+- `services/bank_reconciliation_service.py` conserve `MAX_SUBSET_SUM_PIECES = 4` pour les combinaisons génériques mais introduit `MAX_REMISE_ENCAISSEMENT_PIECES = 15` et `LCR_TRANSFER_ONLY_CLIENTS = {"CARROSSERIE_YUCEL"}`.
+- `services/customer_invoice_reconciliation.py` regroupe chaque client par date d'échéance mensuelle : facture marchandises + facture fixe 144 € du même jour, ± un avoir du même mois. Seul le mois le plus ancien restant est éligible, ce qui garantit qu'aucune facture antérieure n'est sautée au profit d'une plus récente. Les lignes d'une même remise (`REMISE ENCAISSEMENT N 91374` scindée en deux crédits) sont additionnées avant le lettrage ; un client payé exclusivement par virement (Yucel) est exclu.
+- Résultats sur le ledger APD : `REMISE 90949` lettre 9 pièces dont `SPPV FA16400` (exercice 2025) pour 13 294,68 € ; `REMISE 91374` lettre les 7 pièces mensuelles pour 7 484,65 € (paires Calandre 18 et Chollet conservées) ; `REMISE 91787` libère 11 pièces pour 12 200,15 €. Les reliquats (Ydes 60,36 € d'avoir manquant, autres remises) restent exposés honnêtement « Reste X € à justifier ».
+- `services/payment_instrument_reconciliation_service.py` ne redemande plus une remise déjà lettrée par le moteur client ni une ligne bancaire déjà `PAYEE_RAPPROCHEE`.
+
+### 6.4 Validation
+- `tests/test_p27decies_cockpit_smart_decision_dropdown_default_valide_and_lcr_batch.py` : 13 tests (décision vide = VALIDE, menus connus/ardoise/inconnus, groupes, persistance SQLite, remises 90949/91374/91787, plafond 15 pièces, invariant d'antériorité, listes Excel contextuelles et suppression des lignes résolues).
+- `scripts/refresh_cockpit.py --tenant APD --no-ingest` exécuté avec succès : 27 classeurs recalculés, `_A_COMPLETER.xlsx` passé de 228 à 108 lignes en attente (50 instruments déjà lettrés retirés), `LISTES_DECISIONS` publiée localement et dans `C:\Users\peint\OneDrive\Compta_APD\Tableaux_Comptables` (copie byte-identique).
